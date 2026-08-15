@@ -1,2 +1,4 @@
 PyQt6>=6.5
+ezdxf>=1.4
+Pillow>=10.0
 pytest>=7.4

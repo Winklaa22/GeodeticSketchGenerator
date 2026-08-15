@@ -5,8 +5,6 @@ logic) so they can be composed freely by ui/main_window.py and ui/tabs/*.py.
 """
 from __future__ import annotations
 
-import html as html_lib
-import re
 from enum import Enum
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -21,13 +19,11 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSizePolicy,
-    QStackedWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from ui.theme import Color, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS
+from ui.theme import SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS
 
 
 def restyle(widget: QWidget) -> None:
@@ -450,6 +446,85 @@ class DropZone(QWidget):
             self.filesDropped.emit(paths)
 
 
+class DxfSourceRow(QWidget):
+    """Compact secondary loader for an optional reference .DXF drawing —
+    sits right below the main .TXT source, and drives the DXF preview tab."""
+
+    fileRequested = pyqtSignal()
+    filesDropped = pyqtSignal(list)
+    clearRequested = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("dxfSourceRow")
+        self.setAcceptDrops(True)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(SPACE_MD, SPACE_SM, SPACE_MD, SPACE_SM)
+        layout.setSpacing(SPACE_SM)
+
+        icon = QLabel("⬡")
+        icon.setObjectName("dxfSourceIcon")
+        layout.addWidget(icon)
+
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(0)
+        self._title = QLabel("")
+        self._title.setObjectName("dxfSourceTitle")
+        self._subtitle = QLabel("")
+        self._subtitle.setObjectName("dxfSourceSubtitle")
+        self._subtitle.setWordWrap(True)
+        text_col.addWidget(self._title)
+        text_col.addWidget(self._subtitle)
+        layout.addLayout(text_col, 1)
+
+        self._button = QPushButton("")
+        self._button.setObjectName("btn")
+        self._button.setProperty("variant", "secondary")
+        self._button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._button.clicked.connect(self.fileRequested.emit)
+        layout.addWidget(self._button)
+
+        self._clear_button = QPushButton("✕")
+        self._clear_button.setObjectName("linkButton")
+        self._clear_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clear_button.clicked.connect(self.clearRequested.emit)
+        layout.addWidget(self._clear_button)
+
+        self.set_empty()
+
+    def set_empty(self) -> None:
+        self._title.setText("DXF preview")
+        self._set_subtitle("Drag & drop, or browse a .dxf file", "muted")
+        self._button.setText("Browse")
+        self._clear_button.hide()
+
+    def set_file(self, name: str, entity_count: int) -> None:
+        self._title.setText(name)
+        self._set_subtitle(f"{entity_count} entities · shown in preview", "muted")
+        self._button.setText("Change")
+        self._clear_button.show()
+
+    def show_error(self, message: str) -> None:
+        self._title.setText("Couldn't load DXF")
+        self._set_subtitle(message, "error")
+
+    def _set_subtitle(self, text: str, variant: str) -> None:
+        self._subtitle.setText(text)
+        self._subtitle.setProperty("variant", variant)
+        restyle(self._subtitle)
+
+    def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QtGui.QDropEvent) -> None:  # noqa: N802
+        paths = [url.toLocalFile() for url in event.mimeData().urls() if url.toLocalFile()]
+        if paths:
+            self.filesDropped.emit(paths)
+
+
 class FileCard(QWidget):
     """Loaded-state: file name, point-count tag, size, and a Change link."""
 
@@ -498,79 +573,6 @@ class FileCard(QWidget):
         self._name.setText(name)
         self._points_tag.setText(f"{points_count} points")
         self._size_label.setText(size_text)
-
-
-# --------------------------------------------------------------------------
-# Script console
-# --------------------------------------------------------------------------
-_COORD_RE = re.compile(r"^-?\d+(\.\d+)?,-?\d+(\.\d+)?")
-
-
-def _is_coordinate_line(stripped: str) -> bool:
-    return bool(_COORD_RE.match(stripped))
-
-
-class ConsoleView(QWidget):
-    """Stacked empty-state / syntax-tinted read-only script preview."""
-
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._stack = QStackedWidget()
-        layout.addWidget(self._stack)
-
-        self._empty_page = QWidget()
-        self._empty_page.setObjectName("consoleEmpty")
-        empty_layout = QVBoxLayout(self._empty_page)
-        empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_layout.setSpacing(SPACE_SM)
-        icon = QLabel("⌨")
-        icon.setObjectName("consoleEmptyIcon")
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        text = QLabel("Configure options on the left, then Generate Script\nto preview it here.")
-        text.setObjectName("consoleEmptyText")
-        text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_layout.addWidget(icon)
-        empty_layout.addWidget(text)
-
-        self._text = QTextEdit()
-        self._text.setObjectName("console")
-        self._text.setReadOnly(True)
-        self._text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-
-        self._stack.addWidget(self._empty_page)
-        self._stack.addWidget(self._text)
-
-    def show_empty(self) -> None:
-        self._stack.setCurrentIndex(0)
-
-    def clear(self) -> None:
-        self._text.clear()
-        self.show_empty()
-
-    def set_script(self, text: str) -> None:
-        self._text.setHtml(self._highlight(text))
-        self._stack.setCurrentIndex(1)
-
-    def plain_text(self) -> str:
-        return self._text.toPlainText()
-
-    @staticmethod
-    def _highlight(text: str) -> str:
-        rows: List[str] = []
-        for line in text.splitlines() or [""]:
-            stripped = line.strip()
-            escaped = html_lib.escape(line).replace(" ", "&nbsp;") or "&nbsp;"
-            if stripped.startswith(";"):
-                color = Color.TEXT_FAINT
-            elif stripped and not _is_coordinate_line(stripped):
-                color = Color.ACCENT
-            else:
-                color = Color.TEXT
-            rows.append(f'<div style="color:{color};">{escaped}</div>')
-        return "".join(rows)
 
 
 # --------------------------------------------------------------------------
