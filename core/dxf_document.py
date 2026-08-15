@@ -10,7 +10,8 @@ the methods below.
 """
 from __future__ import annotations
 
-from typing import Iterable, Optional, Sequence
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import ezdxf
 from ezdxf import recover
@@ -18,6 +19,20 @@ from ezdxf.document import Drawing
 from ezdxf.entities import DXFGraphic
 from ezdxf.layouts import Modelspace
 from ezdxf.sections.tables import LayerTable
+
+DEFAULT_LAYER_NAME = "0"
+
+
+@dataclass(frozen=True)
+class LayerInfo:
+    """A snapshot of one layer's state, for the UI layer panel — plain data,
+    no ezdxf objects, so it stays cheap to compare/rebuild rows from."""
+
+    name: str
+    rgb: Tuple[int, int, int]
+    visible: bool
+    is_active: bool
+    entity_count: int
 
 
 class DXFDocument:
@@ -42,7 +57,20 @@ class DXFDocument:
             drawing = ezdxf.readfile(file_path)
         except ezdxf.DXFStructureError:
             drawing, _auditor = recover.readfile(file_path)
-        return cls(drawing)
+        doc = cls(drawing)
+        doc._ensure_all_referenced_layers()
+        return doc
+
+    def _ensure_all_referenced_layers(self) -> None:
+        """Some real-world DXF files (e.g. exports from surveying/cadastral
+        software) have entities referencing a layer name that was never
+        given its own LAYER table entry — valid DXF; AutoCAD just
+        auto-materializes a default entry for those on open. Do the same
+        here at load time, so every layer something is actually drawn on
+        shows up in `iter_layers()` and can be toggled/recolored/deleted
+        like any other, instead of being invisible to the layers panel."""
+        for entity in self.modelspace:
+            self.ensure_layer(entity.dxf.layer)
 
     def save(self, file_path: str) -> None:
         self._drawing.saveas(file_path)
@@ -140,3 +168,85 @@ class DXFDocument:
 
     def restore_entity(self, entity: DXFGraphic) -> None:
         self.modelspace.add_entity(entity)
+
+    def translate_entity(self, handle: str, dx: float, dy: float, dz: float = 0.0) -> None:
+        """Moves one entity by (dx, dy, dz) in place. Exactly reversible by
+        translating again with the negated vector — used by MoveCommand."""
+        entity = self.get_entity(handle)
+        if entity is None:
+            raise KeyError(f"No entity with handle {handle!r}")
+        entity.translate(dx, dy, dz)
+
+    # ------------------------------------------------------------------
+    # Layers — visibility/color/active-layer/delete. New entities always
+    # get their layer table entry created first (see `ensure_layer` above);
+    # these methods assume the layer already exists unless noted.
+    # ------------------------------------------------------------------
+    def add_layer(self, name: str, rgb: Optional[Tuple[int, int, int]] = None) -> None:
+        if name in self.layers:
+            return
+        layer = self.layers.add(name)
+        if rgb is not None:
+            layer.rgb = rgb
+
+    def remove_layer(self, name: str) -> None:
+        """Removes the layer table entry. Does not touch entities still on
+        that layer — callers that want a clean document (e.g. DeleteLayerCommand)
+        remove those entities first."""
+        if name == DEFAULT_LAYER_NAME:
+            raise ValueError('Layer "0" cannot be deleted.')
+        if name not in self.layers:
+            return
+        self.layers.remove(name)
+        if self.active_layer == name:
+            self._drawing.header["$CLAYER"] = DEFAULT_LAYER_NAME
+
+    def get_layer_color(self, name: str) -> Tuple[int, int, int]:
+        layer = self.layers.get(name)
+        rgb = layer.rgb
+        if rgb is None:
+            return (255, 255, 255)
+        return (rgb.r, rgb.g, rgb.b)
+
+    def set_layer_color(self, name: str, rgb: Tuple[int, int, int]) -> None:
+        self.layers.get(name).rgb = rgb
+
+    def is_layer_visible(self, name: str) -> bool:
+        return not self.layers.get(name).is_off()
+
+    def set_layer_visible(self, name: str, visible: bool) -> None:
+        layer = self.layers.get(name)
+        if visible:
+            layer.on()
+        else:
+            layer.off()
+
+    @property
+    def active_layer(self) -> str:
+        """The current/active layer — DXF's own $CLAYER header var. New
+        entities drawn interactively default onto this layer."""
+        return self._drawing.header.get("$CLAYER", DEFAULT_LAYER_NAME)
+
+    def set_active_layer(self, name: str) -> None:
+        self.ensure_layer(name)
+        self._drawing.header["$CLAYER"] = name
+
+    def iter_layers(self) -> List[LayerInfo]:
+        """A snapshot of every layer for the UI panel, layer "0" first, then
+        alphabetical."""
+        counts: Dict[str, int] = {}
+        for entity in self.modelspace:
+            counts[entity.dxf.layer] = counts.get(entity.dxf.layer, 0) + 1
+        active = self.active_layer
+        infos = [
+            LayerInfo(
+                name=layer.dxf.name,
+                rgb=self.get_layer_color(layer.dxf.name),
+                visible=not layer.is_off(),
+                is_active=(layer.dxf.name == active),
+                entity_count=counts.get(layer.dxf.name, 0),
+            )
+            for layer in self.layers
+        ]
+        infos.sort(key=lambda info: (info.name != DEFAULT_LAYER_NAME, info.name.lower()))
+        return infos

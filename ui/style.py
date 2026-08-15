@@ -196,6 +196,97 @@ QPushButton#linkButton:hover {{ text-decoration: underline; }}
 #dxfSourceSubtitle {{ color: {c.TEXT_MUTED}; font-size: {TEXT_XS}px; }}
 #dxfSourceSubtitle[variant="error"] {{ color: {c.ERROR}; }}
 
+/* ---------- dxf toolbar ---------- */
+#dxfToolbar {{ background: transparent; }}
+QToolButton#dxfToolBtn {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: {RADIUS_SM}px;
+    padding: {SPACE_XS}px {SPACE_SM}px;
+    color: {c.TEXT_MUTED};
+    font-size: {TEXT_MD}px;
+    min-width: 26px;
+    min-height: 26px;
+}}
+QToolButton#dxfToolBtn:hover {{ background: {c.SURFACE_HOVER}; color: {c.TEXT}; }}
+QToolButton#dxfToolBtn:checked {{
+    background: {c.ACCENT_SOFT};
+    border: 1px solid {c.ACCENT_BORDER};
+    color: {c.ACCENT};
+}}
+QToolButton#dxfToolBtn:disabled {{ color: {c.TEXT_FAINT}; }}
+QFrame#dxfToolbarSeparator {{ background: {c.BORDER}; max-width: 1px; margin: {SPACE_XS}px {SPACE_XS}px; }}
+
+/* ---------- layers panel ---------- */
+#layerPanelTitle {{ color: {c.TEXT_MUTED}; font-weight: 600; font-size: {TEXT_SM}px; }}
+QFrame#layerRow {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-left: 2px solid transparent;
+    border-radius: {RADIUS_SM}px;
+}}
+QFrame#layerRow[active="true"] {{
+    border-left: 2px solid {c.ACCENT};
+    background: {c.SURFACE_HOVER};
+}}
+QToolButton#layerActiveBtn {{
+    background: transparent;
+    border: none;
+    color: {c.ACCENT};
+    font-size: {TEXT_SM}px;
+    padding: 0;
+    min-width: 14px;
+}}
+QToolButton#layerNameBtn {{
+    background: transparent;
+    border: none;
+    color: {c.TEXT};
+    font-size: {TEXT_XS}px;
+    text-align: left;
+    padding: 0;
+}}
+QToolButton#layerNameBtn:hover {{ color: {c.ACCENT}; }}
+QToolButton#layerColorSwatch {{
+    border: 1px solid {c.BORDER_STRONG};
+    border-radius: 3px;
+    min-width: 14px;
+    max-width: 14px;
+    min-height: 14px;
+    max-height: 14px;
+    padding: 0;
+}}
+QCheckBox#layerVisibleCheck {{ spacing: 0; }}
+QCheckBox#layerVisibleCheck::indicator {{
+    width: 12px;
+    height: 12px;
+    border: 1px solid {c.BORDER_STRONG};
+    border-radius: 3px;
+    background: {c.SURFACE_SUNKEN};
+}}
+QCheckBox#layerVisibleCheck::indicator:checked {{
+    background: {c.ACCENT};
+    border: 1px solid {c.ACCENT};
+}}
+QToolButton#layerDeleteBtn {{
+    background: transparent;
+    border: none;
+    color: {c.TEXT_FAINT};
+    font-size: {TEXT_XS}px;
+    padding: 0;
+    min-width: 14px;
+}}
+QToolButton#layerDeleteBtn:hover:enabled {{ color: {c.ERROR}; }}
+QToolButton#layerDeleteBtn:disabled {{ color: {c.BORDER}; }}
+QToolButton#layerAddBtn {{
+    background: transparent;
+    border: 1px dashed {c.BORDER_STRONG};
+    border-radius: {RADIUS_SM}px;
+    color: {c.TEXT_MUTED};
+    font-size: {TEXT_XS}px;
+    padding: {SPACE_XS}px;
+}}
+QToolButton#layerAddBtn:hover {{ color: {c.ACCENT}; border-color: {c.ACCENT_BORDER}; }}
+
 /* ---------- dxf preview canvas ---------- */
 #dxfCanvas {{
     background: {c.SURFACE_SUNKEN};
