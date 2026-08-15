@@ -35,10 +35,14 @@ core/                    # UI-independent script-generation engine
   exceptions.py            # user-facing AppError hierarchy
 models/
   point.py                 # Point(x, y, h) value object
-ui/                        # PyQt6 presentation layer, built on top of core/
-  main_window.py           # MainWindow — wires widgets to core.ScriptGenerator
-  style.py                 # application stylesheet
-  tabs/                    # one tab widget per option group (delimiter, drawing
+ui/                        # PyQt6 presentation layer, built on top of core/ — the "Nocturne" design system
+  main_window.py           # MainWindow — top bar, workflow stepper, two-column shell, demo-state switcher
+  theme.py                 # color/spacing/radius tokens shared by style.py and every widget
+  style.py                 # global QSS stylesheet built from ui/theme.py
+  widgets.py                # reusable shell components (Tag, SegmentedControl, WorkflowStepper,
+                            #   Accordion, RadioCardGroup, DropZone/FileCard, ConsoleView, ErrorBanner…)
+  fixtures.py                # canned sample data for the top-bar Empty/Ready/Generated/Error preview
+  tabs/                    # one accordion-section widget per option group (delimiter, drawing
                             #   mode, points, heights, cable, selection, layer)
 tests/                     # pytest suite for the core package
 ```
@@ -65,8 +69,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-1. Click **Select input TXT file** and choose a points file (rows of `number Y X H`, space- or tab-delimited; a header row containing "numer"/"x"/"y" is auto-skipped).
-2. Configure the **Delimiter & Source**, **Drawing**, **Points/Heights/Cable marks**, **Selection**, and **Layer** tabs as needed.
+1. Drag a points file onto the drop zone (or click **Select input .TXT file**) — rows of `number Y X H`, space- or tab-delimited; a header row containing "numer"/"x"/"y" is auto-skipped.
+2. Expand the **Source & Delimiter**, **Drawing Mode**, **Points**, **Heights**, **Cable Marks**, **Selection**, and **Layer** accordion sections on the left as needed.
 3. Click **Generate Script** (or let **Live preview** do it automatically).
 4. **Copy** the script to the clipboard or **Save .scr** it, then run the resulting script inside AutoCAD (`SCRIPT` command) to draw the entities.
 
