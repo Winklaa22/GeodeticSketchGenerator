@@ -114,16 +114,6 @@ class _PointItem(qw.QAbstractGraphicsShapeItem):
         painter.drawEllipse(self._pos, radius, radius)
 
     def boundingRect(self) -> qc.QRectF:
-        # `self._radius` (1.2) is a *device-pixel* target used at paint time
-        # (divided by the current zoom scale there) — using it directly here
-        # would size the hit region in *scene units* instead, e.g. 1.2
-        # metres for real-world survey coordinates. At any reasonably
-        # zoomed-in level that inflates to well over a hundred screen
-        # pixels, easily engulfing every other point within a couple of
-        # metres and making them all resolve to whichever one Qt happens to
-        # return first. Click tolerance is handled separately, in
-        # device-space, by CadGraphicsView — this just needs to stay
-        # negligibly small and non-degenerate.
         r = 0.01
         return qc.QRectF(self._pos.x() - r, self._pos.y() - r, r * 2, r * 2)
 
@@ -1513,15 +1503,7 @@ class DxfViewer(qw.QWidget):
             self._view.restore_view(saved)
         else:
             self._view.fit_to_scene()
-        # The old scene (and every QGraphicsItem in it) was just replaced —
-        # any item the view was holding for the selection highlight is now a
-        # dangling C++ pointer (drawForeground crashed on exactly this:
-        # "wrapped C/C++ object ... has been deleted", e.g. after toggling a
-        # layer's visibility while something was selected, since only
-        # undo/redo used to clear the selection before a re-render).
-        # Re-resolve by *handle* against the fresh scene instead of carrying
-        # stale item references forward — handles whose entity no longer
-        # exists (e.g. it was just deleted) naturally drop out here.
+            
         handle_set = set(self._selected_handles)
         matched = [item for item in scene.items() if item.data(_HANDLE_ROLE) in handle_set]
         self._view.set_selected_items(matched)
