@@ -286,7 +286,11 @@ class MainWindow(QMainWindow):
         return AppState.READY
 
     def _on_config_changed(self, *_args) -> None:
-        self._refresh_modified_dots()
+        # Whatever was last applied to the DXF no longer matches these
+        # settings, so the "Applied" status would be misleading until the
+        # user presses Apply again.
+        self._has_applied = False
+        self._refresh()
 
     def _on_delimiter_changed(self) -> None:
         if self.file_path:
@@ -447,11 +451,13 @@ class MainWindow(QMainWindow):
             self.dxf_source_row.show_error(message)
             return
         self.dxf_path = file_path
+        self._has_applied = False  # the newly loaded document hasn't had the current settings applied yet
         self.dxf_source_row.set_file(os.path.basename(file_path), self.dxf_viewer.entity_count)
         self._refresh()
 
     def clear_dxf_file(self) -> None:
         self.dxf_path = ""
+        self._has_applied = False
         self.dxf_viewer.clear()
         self.dxf_source_row.set_empty()
         self._refresh()
@@ -474,7 +480,13 @@ class MainWindow(QMainWindow):
             self._refresh()
             return
         self._last_error = None
-        self.dxf_viewer.execute_command(command)
+        try:
+            self.dxf_viewer.execute_command(command)
+        except Exception as exc:  # noqa: BLE001 - drawing into the DXF must never crash the app
+            self._last_error = f"Could not draw into the DXF file: {exc}"
+            self._has_applied = False
+            self._refresh()
+            return
         self._has_applied = True
         if not self.dxf_path:
             self.dxf_source_row.set_file("Untitled drawing", self.dxf_viewer.entity_count)

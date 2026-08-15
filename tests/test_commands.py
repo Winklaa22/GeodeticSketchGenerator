@@ -12,7 +12,7 @@ from core.commands.draw import (
     AddPolyline3DCommand,
     AddTextCommand,
 )
-from core.commands.edit import DeleteEntityCommand
+from core.commands.edit import DeleteEntityCommand, MoveCommand
 from core.commands.history import CommandHistory
 from core.dxf_document import DXFDocument
 
@@ -104,6 +104,27 @@ def test_delete_entity_command_handles_multiple_handles(doc: DXFDocument) -> Non
     assert doc.entity_count() == 0
     command.undo(doc)
     assert doc.entity_count() == 3
+
+
+def test_move_command_execute_and_undo(doc: DXFDocument) -> None:
+    handle = doc.add_line((0.0, 0.0), (1.0, 1.0))
+    command = MoveCommand([handle], dx=5.0, dy=-3.0)
+    command.execute(doc)
+    entity = doc.get_entity(handle)
+    assert tuple(entity.dxf.start)[:2] == (5.0, -3.0)
+    assert tuple(entity.dxf.end)[:2] == (6.0, -2.0)
+    command.undo(doc)
+    entity = doc.get_entity(handle)
+    assert tuple(entity.dxf.start)[:2] == (0.0, 0.0)
+    assert tuple(entity.dxf.end)[:2] == (1.0, 1.0)
+
+
+def test_move_command_moves_multiple_handles_together(doc: DXFDocument) -> None:
+    handles = [doc.add_point((float(n), 0.0)) for n in range(3)]
+    command = MoveCommand(handles, dx=1.0, dy=1.0)
+    command.execute(doc)
+    for n, handle in enumerate(handles):
+        assert tuple(doc.get_entity(handle).dxf.location)[:2] == (float(n) + 1.0, 1.0)
 
 
 # ----------------------------------------------------------------------

@@ -1,6 +1,7 @@
 """Tests for core.dxf_document.DXFDocument."""
 from __future__ import annotations
 
+import ezdxf
 import pytest
 
 from core.dxf_document import DXFDocument
@@ -116,3 +117,113 @@ def test_restore_entity_puts_it_back_in_modelspace(doc: DXFDocument) -> None:
     doc.restore_entity(entity)
     assert doc.entity_count() == 1
     assert doc.get_entity(handle) is entity
+
+
+def test_translate_entity_moves_it_by_the_given_vector(doc: DXFDocument) -> None:
+    handle = doc.add_line((0.0, 0.0), (1.0, 1.0))
+    doc.translate_entity(handle, 5.0, -2.0)
+    entity = doc.get_entity(handle)
+    assert tuple(entity.dxf.start)[:2] == (5.0, -2.0)
+    assert tuple(entity.dxf.end)[:2] == (6.0, -1.0)
+
+
+def test_translate_entity_raises_for_unknown_handle(doc: DXFDocument) -> None:
+    with pytest.raises(KeyError):
+        doc.translate_entity("does-not-exist", 1.0, 1.0)
+
+
+def test_add_layer_creates_it_with_the_given_color(doc: DXFDocument) -> None:
+    doc.add_layer("SURVEY", rgb=(200, 50, 50))
+    assert "SURVEY" in doc.layers
+    assert doc.get_layer_color("SURVEY") == (200, 50, 50)
+
+
+def test_add_layer_is_idempotent(doc: DXFDocument) -> None:
+    doc.add_layer("SURVEY")
+    doc.add_layer("SURVEY")  # must not raise on a second call
+    assert "SURVEY" in doc.layers
+
+
+def test_remove_layer_deletes_the_table_entry(doc: DXFDocument) -> None:
+    doc.add_layer("SURVEY")
+    doc.remove_layer("SURVEY")
+    assert "SURVEY" not in doc.layers
+
+
+def test_remove_layer_refuses_to_delete_layer_zero(doc: DXFDocument) -> None:
+    with pytest.raises(ValueError):
+        doc.remove_layer("0")
+
+
+def test_remove_layer_resets_active_layer_to_zero_if_it_was_active(doc: DXFDocument) -> None:
+    doc.add_layer("SURVEY")
+    doc.set_active_layer("SURVEY")
+    doc.remove_layer("SURVEY")
+    assert doc.active_layer == "0"
+
+
+def test_set_layer_color_round_trips(doc: DXFDocument) -> None:
+    doc.add_layer("SURVEY")
+    doc.set_layer_color("SURVEY", (10, 20, 30))
+    assert doc.get_layer_color("SURVEY") == (10, 20, 30)
+
+
+def test_layer_visibility_defaults_to_visible_and_toggles(doc: DXFDocument) -> None:
+    doc.add_layer("SURVEY")
+    assert doc.is_layer_visible("SURVEY") is True
+    doc.set_layer_visible("SURVEY", False)
+    assert doc.is_layer_visible("SURVEY") is False
+    doc.set_layer_visible("SURVEY", True)
+    assert doc.is_layer_visible("SURVEY") is True
+
+
+def test_active_layer_defaults_to_zero_and_is_settable(doc: DXFDocument) -> None:
+    assert doc.active_layer == "0"
+    doc.set_active_layer("SURVEY")
+    assert doc.active_layer == "SURVEY"
+
+
+def test_set_active_layer_creates_the_layer_if_missing(doc: DXFDocument) -> None:
+    assert "SURVEY" not in doc.layers
+    doc.set_active_layer("SURVEY")
+    assert "SURVEY" in doc.layers
+
+
+def test_iter_layers_reports_name_color_visibility_active_and_counts(doc: DXFDocument) -> None:
+    doc.add_layer("SURVEY", rgb=(1, 2, 3))
+    doc.add_point((0.0, 0.0), layer="SURVEY")
+    doc.add_point((1.0, 1.0), layer="SURVEY")
+    doc.set_active_layer("SURVEY")
+
+    infos = {info.name: info for info in doc.iter_layers()}
+    assert infos["0"].is_active is False
+    survey = infos["SURVEY"]
+    assert survey.rgb == (1, 2, 3)
+    assert survey.visible is True
+    assert survey.is_active is True
+    assert survey.entity_count == 2
+
+
+def test_iter_layers_lists_layer_zero_first(doc: DXFDocument) -> None:
+    doc.add_layer("AAA")
+    names = [info.name for info in doc.iter_layers()]
+    assert names[0] == "0"
+
+
+def test_load_materializes_layers_referenced_but_not_defined(tmp_path) -> None:
+    # Real-world DXFs (e.g. cadastral/surveying exports) can have entities
+    # on a layer name with no LAYER table entry at all — valid DXF, and
+    # AutoCAD auto-creates a default entry for it on open. Reproduces the
+    # exact shape of the bug reported against a real file: only "0" (and
+    # ezdxf's own "Defpoints") showed up in the layers panel even though
+    # the file's entities used many more layer names than that.
+    raw = ezdxf.new()
+    raw.modelspace().add_line((0, 0), (1, 1), dxfattribs={"layer": "UNDEFINED-LAYER"})
+    assert "UNDEFINED-LAYER" not in raw.layers
+    path = tmp_path / "undefined_layer.dxf"
+    raw.saveas(path)
+
+    doc = DXFDocument.load(str(path))
+    names = {info.name for info in doc.iter_layers()}
+    assert "UNDEFINED-LAYER" in names
+    assert doc.get_layer_color("UNDEFINED-LAYER") == (255, 255, 255)

@@ -25,7 +25,7 @@ correct and keeps ezdxf's entity-lifecycle rules in one place (core/).
 from __future__ import annotations
 
 import math
-from typing import Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
@@ -40,9 +40,17 @@ from ezdxf.path import Command
 
 from core.commands.base import Command as EditCommand
 from core.commands.draw import AddCircleCommand, AddLineCommand, AddPointCommand
-from core.commands.edit import DeleteEntityCommand
+from core.commands.edit import DeleteEntityCommand, MoveCommand
 from core.commands.history import CommandHistory
+from core.commands.layers import (
+    AddLayerCommand,
+    DeleteLayerCommand,
+    SetActiveLayerCommand,
+    SetLayerColorCommand,
+    SetLayerVisibleCommand,
+)
 from core.dxf_document import DXFDocument
+from ui.layer_panel import LayerPanel
 from ui.theme import Color as UiColor, SPACE_SM, SPACE_XS
 
 _HANDLE_ROLE = qc.Qt.ItemDataRole.UserRole
@@ -106,7 +114,35 @@ class _PointItem(qw.QAbstractGraphicsShapeItem):
         painter.drawEllipse(self._pos, radius, radius)
 
     def boundingRect(self) -> qc.QRectF:
-        return qc.QRectF(self._pos, qc.QSizeF(1, 1))
+        r = 0.01
+        return qc.QRectF(self._pos.x() - r, self._pos.y() - r, r * 2, r * 2)
+
+
+def _distance_to_segment(point: qc.QPointF, line: qc.QLineF) -> float:
+    p1, p2 = line.p1(), line.p2()
+    dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+    length_sq = dx * dx + dy * dy
+    if length_sq == 0:
+        return math.hypot(point.x() - p1.x(), point.y() - p1.y())
+    t = ((point.x() - p1.x()) * dx + (point.y() - p1.y()) * dy) / length_sq
+    t = max(0.0, min(1.0, t))
+    proj_x, proj_y = p1.x() + t * dx, p1.y() + t * dy
+    return math.hypot(point.x() - proj_x, point.y() - proj_y)
+
+
+def _distance_to_item(point: qc.QPointF, item: qw.QGraphicsItem) -> float:
+    """Distance from `point` (scene coords) to an item's true reference
+    geometry — used to pick the closest match among several overlapping
+    candidates instead of trusting each item's own shape()/boundingRect(),
+    which can be inflated well beyond what it actually looks like on screen
+    (see _PointItem.boundingRect above; QGraphicsLineItem has the same
+    issue via its cosmetic pen's width)."""
+    if isinstance(item, _PointItem):
+        return math.hypot(point.x() - item._pos.x(), point.y() - item._pos.y())
+    if isinstance(item, qw.QGraphicsLineItem):
+        return _distance_to_segment(point, item.line())
+    center = item.sceneTransform().mapRect(item.boundingRect()).center()
+    return math.hypot(point.x() - center.x(), point.y() - center.y())
 
 
 class QtSceneBackend(Backend):
@@ -223,13 +259,14 @@ class QtSceneBackend(Backend):
 
 class CadGraphicsView(qw.QGraphicsView):
     """Pannable, zoomable, editable canvas mirroring AutoCAD's viewport:
-    scroll wheel zooms under the cursor, click-drag pans, a plain click
-    selects an entity (or places a point for the active draw tool) — and the
-    same operations are exposed as plain methods so the command line (ZOOM,
-    PAN, POINT, LINE, ...) can drive the view too.
+    scroll wheel zooms under the cursor, middle-button-drag pans, left-click
+    selects an entity (Shift+click adds/removes), left-drag on empty space
+    opens a window-select box, and the same operations are exposed as plain
+    methods so the command line (ZOOM, PAN, POINT, LINE, ...) can drive the
+    view too.
     """
 
-    entitySelected = qc.pyqtSignal(object)  # str handle, or None for "clicked empty space"
+    entitySelected = qc.pyqtSignal(list)  # list[str] of handles, [] for "nothing selected"
     toolPointPlaced = qc.pyqtSignal()
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
@@ -240,12 +277,17 @@ class CadGraphicsView(qw.QGraphicsView):
         self._zoom_step = 0.2
         self._tool: Optional["ToolSession"] = None
         self._press_pos: Optional[qc.QPoint] = None
-        self._selected_item: Optional[qw.QGraphicsItem] = None
+        self._selected_items: List[qw.QGraphicsItem] = []
+        self._pan_last_pos: Optional[qc.QPoint] = None
+        self._rubber_band: Optional[qw.QRubberBand] = None
 
         self.setObjectName("dxfCanvas")
         self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(qw.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setDragMode(qw.QGraphicsView.DragMode.ScrollHandDrag)
+        # Panning is handled manually via the middle mouse button (see
+        # mouse*Event below) so the left button is free for click/window
+        # select — NoDrag stays in effect the whole time, tool or not.
+        self.setDragMode(qw.QGraphicsView.DragMode.NoDrag)
         self.setVerticalScrollBarPolicy(qc.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(qc.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(qw.QFrame.Shape.NoFrame)
@@ -315,68 +357,176 @@ class CadGraphicsView(qw.QGraphicsView):
         self.zoom_by(factor)
 
     # ------------------------------------------------------------------
-    # Editing: tool mode + click-to-select
+    # Editing: tool mode + click/window-select + middle-button pan
     # ------------------------------------------------------------------
     def set_tool(self, tool: Optional["ToolSession"]) -> None:
         """Activates (or, with None, deactivates) an interactive draw tool.
-        While a tool is active, clicks place points instead of panning."""
+        While a tool is active, clicks place points instead of selecting."""
         self._tool = tool
-        active = tool is not None
-        self.setDragMode(
-            qw.QGraphicsView.DragMode.NoDrag if active else qw.QGraphicsView.DragMode.ScrollHandDrag
-        )
-        self.setCursor(qc.Qt.CursorShape.CrossCursor if active else qc.Qt.CursorShape.ArrowCursor)
+        self.setCursor(qc.Qt.CursorShape.CrossCursor if tool is not None else qc.Qt.CursorShape.ArrowCursor)
 
     def set_selected_item(self, item: Optional[qw.QGraphicsItem]) -> None:
-        self._selected_item = item
+        """Convenience for a single-item (or empty) selection."""
+        self.set_selected_items([item] if item is not None else [])
+
+    def set_selected_items(self, items: List[qw.QGraphicsItem]) -> None:
+        self._selected_items = list(items)
         self.viewport().update()
 
+    def _toggle_selected_item(self, item: Optional[qw.QGraphicsItem]) -> None:
+        if item is None:
+            return
+        if item in self._selected_items:
+            self._selected_items.remove(item)
+        else:
+            self._selected_items.append(item)
+        self.viewport().update()
+
+    def _emit_selection(self) -> None:
+        handles = [item.data(_HANDLE_ROLE) for item in self._selected_items]
+        self.entitySelected.emit(handles)
+
     def mousePressEvent(self, event: qg.QMouseEvent) -> None:  # noqa: N802
+        if event.button() == qc.Qt.MouseButton.MiddleButton:
+            self._pan_last_pos = event.position().toPoint()
+            self.setCursor(qc.Qt.CursorShape.ClosedHandCursor)
+            return
         self._press_pos = event.position().toPoint()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: qg.QMouseEvent) -> None:  # noqa: N802
+        if self._pan_last_pos is not None:
+            # Reuses pan_by()/centerOn() (scene-space, same as the PAN
+            # command) rather than nudging scrollbar values directly —
+            # scrollbars have no range to move within right after
+            # fit_to_scene() sets a tightly-fit sceneRect, which would make
+            # a raw scrollbar-based drag silently do nothing at that zoom.
+            pos = event.position().toPoint()
+            old_scene = self.mapToScene(self._pan_last_pos)
+            new_scene = self.mapToScene(pos)
+            self._pan_last_pos = pos
+            self.pan_by(old_scene.x() - new_scene.x(), old_scene.y() - new_scene.y())
+            return
         super().mouseMoveEvent(event)
         if self._tool is not None:
             point = self.mapToScene(event.position().toPoint())
             self._tool.update_preview((point.x(), point.y()), self.scene())
+        elif self._press_pos is not None:
+            view_pos = event.position().toPoint()
+            moved = (view_pos - self._press_pos).manhattanLength()
+            if moved > _CLICK_THRESHOLD_PX:
+                self._update_rubber_band(view_pos)
 
     def mouseReleaseEvent(self, event: qg.QMouseEvent) -> None:  # noqa: N802
+        if event.button() == qc.Qt.MouseButton.MiddleButton:
+            self._pan_last_pos = None
+            self.setCursor(qc.Qt.CursorShape.CrossCursor if self._tool is not None else qc.Qt.CursorShape.ArrowCursor)
+            return
         super().mouseReleaseEvent(event)
         if event.button() != qc.Qt.MouseButton.LeftButton or self._press_pos is None:
             return
+        press_pos = self._press_pos
         release_pos = event.position().toPoint()
-        moved = (release_pos - self._press_pos).manhattanLength()
         self._press_pos = None
-        if moved > _CLICK_THRESHOLD_PX:
-            return  # a pan drag, not a click
-        scene_point = self.mapToScene(release_pos)
         if self._tool is not None:
+            # A tool is active: no drag/pan is possible here (DragMode is
+            # always NoDrag), so every release places a point — no distance
+            # check, which is exactly what previously discarded a slightly
+            # unsteady click while drawing as "a pan drag, not a click".
+            scene_point = self.mapToScene(release_pos)
             self._tool.on_click((scene_point.x(), scene_point.y()))
             self.toolPointPlaced.emit()
+            return
+        shift = bool(event.modifiers() & qc.Qt.KeyboardModifier.ShiftModifier)
+        moved = (release_pos - press_pos).manhattanLength()
+        if moved > _CLICK_THRESHOLD_PX:
+            self._finish_rubber_band(press_pos, release_pos, additive=shift)
+            return
+        item = self._topmost_handled_item(release_pos)
+        if shift:
+            self._toggle_selected_item(item)
         else:
-            item = self._topmost_handled_item(release_pos)
-            handle = item.data(_HANDLE_ROLE) if item is not None else None
-            self.set_selected_item(item)
-            self.entitySelected.emit(handle)
+            self.set_selected_items([item] if item is not None else [])
+        self._emit_selection()
+
+    def _update_rubber_band(self, current_pos: qc.QPoint) -> None:
+        if self._press_pos is None:
+            return
+        if self._rubber_band is None:
+            self._rubber_band = qw.QRubberBand(qw.QRubberBand.Shape.Rectangle, self.viewport())
+        self._rubber_band.setGeometry(qc.QRect(self._press_pos, current_pos).normalized())
+        self._rubber_band.show()
+
+    def _finish_rubber_band(self, press_pos: qc.QPoint, release_pos: qc.QPoint, additive: bool) -> None:
+        if self._rubber_band is not None:
+            self._rubber_band.hide()
+        rect = qc.QRect(press_pos, release_pos).normalized()
+        found = self._items_in_rect(rect)
+        if additive:
+            merged = list(self._selected_items)
+            for item in found:
+                if item not in merged:
+                    merged.append(item)
+            self.set_selected_items(merged)
+        else:
+            self.set_selected_items(found)
+        self._emit_selection()
+
+    def _items_in_rect(self, rect: qc.QRect) -> List[qw.QGraphicsItem]:
+        return [item for item in self.items(rect) if item.data(_HANDLE_ROLE) is not None]
 
     def _topmost_handled_item(self, view_pos: qc.QPoint) -> Optional[qw.QGraphicsItem]:
         # A few-pixel tolerance box, in device space, so it stays easy to hit
-        # a POINT or a thin line regardless of the current zoom level.
+        # a POINT or a thin line regardless of the current zoom level. Among
+        # everything the box overlaps, picks whichever is *actually closest*
+        # to the click — not just whichever Qt's z-order-based items()
+        # happens to return first. A line's own shape() is inflated by its
+        # (cosmetic, i.e. meant to be device-pixel) pen width applied as
+        # scene units, so without this an inflated-but-farther item could
+        # permanently shadow a genuinely closer one every time they overlap.
         tolerance = 4
         rect = qc.QRect(view_pos.x() - tolerance, view_pos.y() - tolerance, tolerance * 2, tolerance * 2)
+        click_scene = self.mapToScene(view_pos)
+        best_item: Optional[qw.QGraphicsItem] = None
+        best_distance = math.inf
         for item in self.items(rect):
-            if item.data(_HANDLE_ROLE) is not None:
-                return item
-        return None
+            if item.data(_HANDLE_ROLE) is None:
+                continue
+            distance = _distance_to_item(click_scene, item)
+            if distance < best_distance:
+                best_distance = distance
+                best_item = item
+        return best_item
 
     def drawForeground(self, painter: qg.QPainter, rect: qc.QRectF) -> None:  # noqa: N802
-        if self._selected_item is None:
+        # Retraces every *actual* selected entity in a bright, constant-width
+        # accent stroke — same idea as AutoCAD's selection highlight — rather
+        # than washing a translucent tint over its whole bounding box (which,
+        # e.g. for a diagonal line, mostly highlights empty space around it).
+        if not self._selected_items:
             return
-        highlight_rect = self._selected_item.sceneTransform().mapRect(self._selected_item.boundingRect())
+        scale = _x_scale(painter.transform()) or 1.0
         color = qg.QColor(UiColor.ACCENT)
-        color.setAlpha(90)
-        painter.fillRect(highlight_rect, color)
+        pen = qg.QPen(color, 3)
+        pen.setCosmetic(True)
+        pen.setJoinStyle(qc.Qt.PenJoinStyle.RoundJoin)
+        pen.setCapStyle(qc.Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(qc.Qt.BrushStyle.NoBrush)
+        for item in self._selected_items:
+            if isinstance(item, _PointItem):
+                radius = item._radius / scale + 3 / scale
+                painter.drawEllipse(item._pos, radius, radius)
+            elif isinstance(item, qw.QGraphicsLineItem):
+                painter.drawLine(item.line())
+            elif isinstance(item, qw.QGraphicsPathItem):
+                painter.drawPath(item.path())
+            elif isinstance(item, qw.QGraphicsPolygonItem):
+                painter.drawPolygon(item.polygon())
+            else:
+                fill_color = qg.QColor(color)
+                fill_color.setAlpha(90)
+                painter.fillRect(item.sceneTransform().mapRect(item.boundingRect()), fill_color)
 
 
 # --------------------------------------------------------------------------
@@ -450,7 +600,9 @@ class ToolSession:
     def is_done(self) -> bool:
         raise NotImplementedError
 
-    def build_command(self) -> EditCommand:
+    def build_command(self, layer: str) -> EditCommand:
+        """`layer` is the document's current active layer — new-entity tools
+        draw onto it; tools that don't create anything (Move) ignore it."""
         raise NotImplementedError
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
@@ -483,9 +635,9 @@ class PointToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._point is not None
 
-    def build_command(self) -> EditCommand:
+    def build_command(self, layer: str) -> EditCommand:
         assert self._point is not None
-        return AddPointCommand(self._point)
+        return AddPointCommand(self._point, layer)
 
 
 class LineToolSession(ToolSession):
@@ -526,9 +678,9 @@ class LineToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._start is not None and self._end is not None
 
-    def build_command(self) -> EditCommand:
+    def build_command(self, layer: str) -> EditCommand:
         assert self._start is not None and self._end is not None
-        return AddLineCommand(self._start, self._end)
+        return AddLineCommand(self._start, self._end, layer)
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
         if self._preview_item is not None:
@@ -585,9 +737,64 @@ class CircleToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._center is not None and self._radius is not None
 
-    def build_command(self) -> EditCommand:
+    def build_command(self, layer: str) -> EditCommand:
         assert self._center is not None and self._radius is not None
-        return AddCircleCommand(self._center, self._radius)
+        return AddCircleCommand(self._center, self._radius, layer)
+
+    def cleanup(self, scene: qw.QGraphicsScene) -> None:
+        if self._preview_item is not None:
+            scene.removeItem(self._preview_item)
+            self._preview_item = None
+
+
+class MoveToolSession(ToolSession):
+    """Select objects first, then this tool moves them: click/type a base
+    point, then a destination — same as AutoCAD's MOVE. Ignores `layer` in
+    build_command (moving doesn't create anything new)."""
+
+    def __init__(self, handles: List[str]) -> None:
+        super().__init__()
+        self._handles = handles
+        self.prompt = "Specify base point: "
+        self._base: Optional[Tuple[float, float]] = None
+        self._dest: Optional[Tuple[float, float]] = None
+        self._preview_item: Optional[qw.QGraphicsLineItem] = None
+
+    def on_click(self, point: Tuple[float, float]) -> None:
+        if self._base is None:
+            self._base = point
+            self.prompt = "Specify second point: "
+        else:
+            self._dest = point
+
+    def on_text(self, text: str) -> Optional[str]:
+        coord = _parse_coordinate(text, last_point=self._base)
+        if coord is None:
+            return f'Point must be given as "x,y" or "@dx,dy": "{text}".'
+        if self._base is None:
+            self._base = coord
+            self.prompt = "Specify second point: "
+        else:
+            self._dest = coord
+        return None
+
+    def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
+        if self._base is None or self._dest is not None:
+            return
+        if self._preview_item is None:
+            self._preview_item = qw.QGraphicsLineItem()
+            self._preview_item.setPen(_preview_pen())
+            scene.addItem(self._preview_item)
+        self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
+
+    def is_done(self) -> bool:
+        return self._base is not None and self._dest is not None
+
+    def build_command(self, layer: str) -> EditCommand:
+        assert self._base is not None and self._dest is not None
+        dx = self._dest[0] - self._base[0]
+        dy = self._dest[1] - self._base[1]
+        return MoveCommand(self._handles, dx, dy)
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
         if self._preview_item is not None:
@@ -709,6 +916,8 @@ class DxfCommandInterpreter:
             "L": self._cmd_line,
             "CIRCLE": self._cmd_circle,
             "C": self._cmd_circle,
+            "MOVE": self._cmd_move,
+            "M": self._cmd_move,
             "ERASE": self._cmd_erase,
             "DELETE": self._cmd_erase,
             "E": self._cmd_erase,
@@ -771,7 +980,8 @@ class DxfCommandInterpreter:
             coord = _parse_coordinate(args[0], last_point=None)
             if coord is None:
                 raise _CommandError(f'Point must be given as "x,y": "{args[0]}".')
-            self._viewer.execute_command(AddPointCommand(coord))
+            doc = self._viewer.ensure_document()
+            self._viewer.execute_command(AddPointCommand(coord, doc.active_layer))
             return ""
         self._viewer.start_tool(PointToolSession())
         return ""
@@ -782,7 +992,8 @@ class DxfCommandInterpreter:
             end = _parse_coordinate(args[1], last_point=start)
             if start is None or end is None:
                 raise _CommandError(f'Points must be given as "x,y": "{args[0]} {args[1]}".')
-            self._viewer.execute_command(AddLineCommand(start, end))
+            doc = self._viewer.ensure_document()
+            self._viewer.execute_command(AddLineCommand(start, end, doc.active_layer))
             return ""
         self._viewer.start_tool(LineToolSession())
         return ""
@@ -798,9 +1009,14 @@ class DxfCommandInterpreter:
                 raise _CommandError(f'Requires a numeric radius: "{args[1]}".') from None
             if radius <= 0:
                 raise _CommandError("Radius must be positive.")
-            self._viewer.execute_command(AddCircleCommand(center, radius))
+            doc = self._viewer.ensure_document()
+            self._viewer.execute_command(AddCircleCommand(center, radius, doc.active_layer))
             return ""
         self._viewer.start_tool(CircleToolSession())
+        return ""
+
+    def _cmd_move(self, args: List[str]) -> str:
+        self._viewer.start_move_tool()
         return ""
 
     def _cmd_erase(self, args: List[str]) -> str:
@@ -838,6 +1054,125 @@ class DxfCommandInterpreter:
         return [cls._parse_point(t) for t in tokens[:count]]
 
 
+class DxfToolbar(qw.QWidget):
+    """Icon toolbar docked above the DXF preview — one-click access to the
+    same draw/edit/history/view actions the command line already exposes.
+    Kept in sync with it either way: typing "LINE" highlights the Line
+    button exactly as clicking it would, since both paths go through
+    DxfViewer.start_tool()/cancel_tool()."""
+
+    pointRequested = qc.pyqtSignal()
+    lineRequested = qc.pyqtSignal()
+    circleRequested = qc.pyqtSignal()
+    selectRequested = qc.pyqtSignal()
+    moveRequested = qc.pyqtSignal()
+    eraseRequested = qc.pyqtSignal()
+    undoRequested = qc.pyqtSignal()
+    redoRequested = qc.pyqtSignal()
+    zoomExtentsRequested = qc.pyqtSignal()
+    zoomInRequested = qc.pyqtSignal()
+    zoomOutRequested = qc.pyqtSignal()
+
+    def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("dxfToolbar")
+        layout = qw.QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(SPACE_XS)
+
+        self._tool_buttons: Dict[str, qw.QToolButton] = {}
+        self._tool_signals = {
+            "point": self.pointRequested,
+            "line": self.lineRequested,
+            "circle": self.circleRequested,
+            "move": self.moveRequested,
+        }
+
+        self._add_tool_button(layout, "select", "↖", "Select / cancel current tool (Esc)")
+        self._add_tool_button(layout, "point", "•", "Point (PO)")
+        self._add_tool_button(layout, "line", "╱", "Line (L)")
+        self._add_tool_button(layout, "circle", "○", "Circle (C)")
+        layout.addWidget(self._separator())
+        self._add_tool_button(layout, "move", "✥", "Move selected (M)")
+        self._erase_btn = self._add_plain_button(layout, "✕", "Erase selected (Del)", self.eraseRequested)
+        layout.addWidget(self._separator())
+        self._undo_btn = self._add_plain_button(layout, "↺", "Undo (Ctrl+Z)", self.undoRequested)
+        self._redo_btn = self._add_plain_button(layout, "↻", "Redo (Ctrl+Y)", self.redoRequested)
+        layout.addWidget(self._separator())
+        self._add_plain_button(layout, "⤢", "Zoom Extents (ZOOM E)", self.zoomExtentsRequested)
+        self._add_plain_button(layout, "+", "Zoom In", self.zoomInRequested)
+        self._add_plain_button(layout, "−", "Zoom Out", self.zoomOutRequested)
+        layout.addStretch(1)
+
+        self._active_key = "select"
+        self._tool_buttons["select"].setChecked(True)
+        self._erase_btn.setEnabled(False)
+        self._undo_btn.setEnabled(False)
+        self._redo_btn.setEnabled(False)
+
+    def _add_tool_button(self, layout: qw.QHBoxLayout, key: str, glyph: str, tooltip: str) -> None:
+        btn = qw.QToolButton()
+        btn.setObjectName("dxfToolBtn")
+        btn.setText(glyph)
+        btn.setToolTip(tooltip)
+        btn.setCheckable(True)
+        btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(lambda checked, k=key: self._on_tool_clicked(k, checked))
+        layout.addWidget(btn)
+        self._tool_buttons[key] = btn
+
+    @staticmethod
+    def _add_plain_button(
+        layout: qw.QHBoxLayout, glyph: str, tooltip: str, signal: qc.pyqtBoundSignal
+    ) -> qw.QToolButton:
+        btn = qw.QToolButton()
+        btn.setObjectName("dxfToolBtn")
+        btn.setText(glyph)
+        btn.setToolTip(tooltip)
+        btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(signal.emit)
+        layout.addWidget(btn)
+        return btn
+
+    @staticmethod
+    def _separator() -> qw.QFrame:
+        line = qw.QFrame()
+        line.setObjectName("dxfToolbarSeparator")
+        line.setFrameShape(qw.QFrame.Shape.VLine)
+        return line
+
+    def _on_tool_clicked(self, key: str, checked: bool) -> None:
+        # A tool button behaves like a toggle: click it to start that tool,
+        # click the *active* one again (checked -> unchecked) to cancel back
+        # to plain selection — same as clicking Select or pressing Esc.
+        if key == "select":
+            self.selectRequested.emit()
+        elif checked:
+            self._tool_signals[key].emit()
+        else:
+            self.selectRequested.emit()
+
+    def set_active_tool(self, key: Optional[str]) -> None:
+        self._active_key = key or "select"
+        for name, btn in self._tool_buttons.items():
+            btn.setChecked(name == self._active_key)
+
+    def set_history_enabled(self, can_undo: bool, can_redo: bool) -> None:
+        self._undo_btn.setEnabled(can_undo)
+        self._redo_btn.setEnabled(can_redo)
+
+    def set_erase_enabled(self, enabled: bool) -> None:
+        self._erase_btn.setEnabled(enabled)
+
+
+_TOOL_KEYS = {
+    PointToolSession: "point",
+    LineToolSession: "line",
+    CircleToolSession: "circle",
+    MoveToolSession: "move",
+}
+
+
 class DxfViewer(qw.QWidget):
     """Stacked empty-state / interactive, editable DXF canvas for the
     preview panel — draw/select/delete with undo/redo, backed by a real
@@ -852,10 +1187,25 @@ class DxfViewer(qw.QWidget):
         self._doc: Optional[DXFDocument] = None
         self._history: Optional[CommandHistory] = None
         self._active_tool: Optional[ToolSession] = None
-        self._selected_handle: Optional[str] = None
+        self._selected_handles: List[str] = []
 
-        layout = qw.QVBoxLayout(self)
+        # [toolbar+stack column, stretch] | [LayerPanel, fixed width] —
+        # puts the layers list to the right of the DXF preview, inside this
+        # one widget, so main_window.py needs no layout changes at all.
+        outer = qw.QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(SPACE_SM)
+
+        canvas_column = qw.QWidget()
+        layout = qw.QVBoxLayout(canvas_column)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(SPACE_XS)
+
+        # Docked above the empty-state / canvas stack, so it's usable even
+        # before any drawing exists — clicking a draw tool auto-creates a
+        # blank DXF the same way typing e.g. "LINE" already does.
+        self._toolbar = DxfToolbar()
+        layout.addWidget(self._toolbar)
 
         self._stack = qw.QStackedWidget()
         layout.addWidget(self._stack)
@@ -895,16 +1245,57 @@ class DxfViewer(qw.QWidget):
         self._stack.addWidget(self._empty_page)
         self._stack.addWidget(self._canvas_page)
 
-        # Widget-scoped shortcuts: fire whether focus is on the canvas or
-        # the command-line input, as long as it's somewhere in this panel.
-        self._add_shortcut("Ctrl+Z", lambda: self._echo(self.undo()))
-        self._add_shortcut("Ctrl+Y", lambda: self._echo(self.redo()))
+        outer.addWidget(canvas_column, 1)
+        self._layer_panel = LayerPanel()
+        outer.addWidget(self._layer_panel)
+
+        self._toolbar.pointRequested.connect(lambda: self._start_draw_tool(PointToolSession))
+        self._toolbar.lineRequested.connect(lambda: self._start_draw_tool(LineToolSession))
+        self._toolbar.circleRequested.connect(lambda: self._start_draw_tool(CircleToolSession))
+        self._toolbar.selectRequested.connect(self.cancel_tool)
+        self._toolbar.moveRequested.connect(self.start_move_tool)
+        self._toolbar.eraseRequested.connect(lambda: self._echo(self.delete_selected()))
+        self._toolbar.undoRequested.connect(lambda: self._echo(self.undo()))
+        self._toolbar.redoRequested.connect(lambda: self._echo(self.redo()))
+        self._toolbar.zoomExtentsRequested.connect(self._view.fit_to_scene)
+        self._toolbar.zoomInRequested.connect(lambda: self._view.zoom_by(1.25))
+        self._toolbar.zoomOutRequested.connect(lambda: self._view.zoom_by(0.8))
+
+        self._layer_panel.addLayerRequested.connect(self._on_add_layer)
+        self._layer_panel.deleteLayerRequested.connect(lambda n: self.execute_command(DeleteLayerCommand(n)))
+        self._layer_panel.colorChangeRequested.connect(
+            lambda n, rgb: self.execute_command(SetLayerColorCommand(n, rgb))
+        )
+        self._layer_panel.visibilityToggled.connect(
+            lambda n, v: self.execute_command(SetLayerVisibleCommand(n, v))
+        )
+        self._layer_panel.setActiveRequested.connect(
+            lambda n: self.execute_command(SetActiveLayerCommand(n))
+        )
+        self._layer_panel.selectLayerRequested.connect(self.select_by_layer)
+
+        # Undo/redo are window-scoped: they should work no matter which
+        # widget in the main window currently has focus (a config field in
+        # the left panel, a button, ...), not just while the DXF panel
+        # itself is focused. Delete/Esc stay panel-scoped on purpose — they'd
+        # otherwise fire while e.g. editing an unrelated text field.
+        self._add_shortcut(
+            "Ctrl+Z", lambda: self._echo(self.undo()), context=qc.Qt.ShortcutContext.WindowShortcut
+        )
+        self._add_shortcut(
+            "Ctrl+Y", lambda: self._echo(self.redo()), context=qc.Qt.ShortcutContext.WindowShortcut
+        )
         self._add_shortcut("Delete", lambda: self._echo(self.delete_selected()))
         self._add_shortcut("Esc", self.cancel_tool)
 
-    def _add_shortcut(self, sequence: str, slot) -> None:
+    def _add_shortcut(
+        self,
+        sequence: str,
+        slot,
+        context: qc.Qt.ShortcutContext = qc.Qt.ShortcutContext.WidgetWithChildrenShortcut,
+    ) -> None:
         shortcut = qg.QShortcut(qg.QKeySequence(sequence), self)
-        shortcut.setContext(qc.Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        shortcut.setContext(context)
         shortcut.activated.connect(slot)
 
     @property
@@ -925,7 +1316,7 @@ class DxfViewer(qw.QWidget):
         if self._doc is None:
             self._doc = DXFDocument.new()
             self._history = CommandHistory()
-            self._selected_handle = None
+            self._selected_handles = []
             self._render(preserve_view=False)
             self._command_line.reset()
             self._stack.setCurrentWidget(self._canvas_page)
@@ -937,12 +1328,14 @@ class DxfViewer(qw.QWidget):
     def clear(self) -> None:
         self.cancel_tool()
         self._view.scene().clear()
-        self._view.set_selected_item(None)
+        self._view.set_selected_items([])
         self.entity_count = 0
         self.layer_count = 0
         self._doc = None
         self._history = None
-        self._selected_handle = None
+        self._selected_handles = []
+        self._sync_toolbar_history()
+        self._layer_panel.refresh([])
         self.show_empty()
 
     def load_file(self, file_path: str) -> Tuple[bool, str]:
@@ -956,12 +1349,13 @@ class DxfViewer(qw.QWidget):
 
         self._doc = doc
         self._history = CommandHistory()
-        self._selected_handle = None
+        self._selected_handles = []
         try:
             self._render(preserve_view=False)
         except Exception as exc:  # noqa: BLE001 - a bad/unsupported drawing must never crash the app
             self._doc = None
             self._history = None
+            self._sync_toolbar_history()
             return False, f"Could not render drawing: {exc}"
 
         self._command_line.reset()
@@ -992,15 +1386,27 @@ class DxfViewer(qw.QWidget):
         return ""
 
     def delete_selected(self) -> str:
-        if self._selected_handle is None:
+        if not self._selected_handles:
             return "Select an object first."
-        self.execute_command(DeleteEntityCommand([self._selected_handle]))
+        self.execute_command(DeleteEntityCommand(self._selected_handles))
         self.clear_selection()
         return ""
 
     def clear_selection(self) -> None:
-        self._selected_handle = None
-        self._view.set_selected_item(None)
+        self._selected_handles = []
+        self._view.set_selected_items([])
+        self._toolbar.set_erase_enabled(False)
+
+    def select_by_layer(self, name: str) -> None:
+        """Selects every entity on layer `name` — the "select by layer" half
+        of the selection options, exposed via a layer row's name button."""
+        if self._doc is None:
+            return
+        handles = {entity.dxf.handle for entity in self._doc.modelspace if entity.dxf.layer == name}
+        items = [item for item in self._view.scene().items() if item.data(_HANDLE_ROLE) in handles]
+        self._view.set_selected_items(items)
+        self._selected_handles = list(handles)
+        self._toolbar.set_erase_enabled(bool(handles))
 
     def start_tool(self, tool: ToolSession) -> None:
         self.cancel_tool()
@@ -1008,6 +1414,7 @@ class DxfViewer(qw.QWidget):
         self._active_tool = tool
         self._view.set_tool(tool)
         self._command_line.show_response(tool.prompt)
+        self._toolbar.set_active_tool(_TOOL_KEYS.get(type(tool)))
 
     def cancel_tool(self) -> None:
         if self._active_tool is not None:
@@ -1016,6 +1423,26 @@ class DxfViewer(qw.QWidget):
             self._view.set_tool(None)
             self._command_line.show_response("Cancelled.")
         self.clear_selection()
+        self._toolbar.set_active_tool(None)
+
+    def _start_draw_tool(self, factory: Callable[[], ToolSession]) -> None:
+        """Toolbar entry point for Point/Line/Circle: auto-creates a blank
+        document first, exactly like typing the bare command would."""
+        self.ensure_document()
+        self.start_tool(factory())
+
+    def start_move_tool(self) -> None:
+        """Toolbar/command-line entry point for Move — unlike the draw
+        tools, this needs an existing selection and never auto-creates a
+        document (there's nothing to move in a blank one)."""
+        if not self._selected_handles:
+            self._echo("Select objects to move first.")
+            return
+        self.start_tool(MoveToolSession(list(self._selected_handles)))
+
+    def _on_add_layer(self, name: str, rgb: Tuple[int, int, int]) -> None:
+        self.ensure_document()
+        self.execute_command(AddLayerCommand(name, rgb))
 
     # ------------------------------------------------------------------
     # Internal signal handlers
@@ -1041,20 +1468,28 @@ class DxfViewer(qw.QWidget):
         else:
             self._command_line.show_response(self._active_tool.prompt)
 
-    def _on_entity_selected(self, handle: object) -> None:
-        self._selected_handle = handle  # type: ignore[assignment]
+    def _on_entity_selected(self, handles: List[str]) -> None:
+        self._selected_handles = list(handles)
+        self._toolbar.set_erase_enabled(bool(handles))
 
     def _finish_tool(self) -> None:
         tool = self._active_tool
         assert tool is not None
-        command = tool.build_command()
+        doc = self.ensure_document()
+        command = tool.build_command(doc.active_layer)
         tool.cleanup(self._view.scene())
         self._active_tool = None
         self._view.set_tool(None)
+        self._toolbar.set_active_tool(None)
         self.execute_command(command)
 
     def _echo(self, message: str) -> None:
         self._command_line.show_response(message)
+
+    def _sync_toolbar_history(self) -> None:
+        can_undo = self._history is not None and self._history.can_undo()
+        can_redo = self._history is not None and self._history.can_redo()
+        self._toolbar.set_history_enabled(can_undo, can_redo)
 
     def _render(self, *, preserve_view: bool) -> None:
         assert self._doc is not None
@@ -1068,6 +1503,14 @@ class DxfViewer(qw.QWidget):
             self._view.restore_view(saved)
         else:
             self._view.fit_to_scene()
+            
+        handle_set = set(self._selected_handles)
+        matched = [item for item in scene.items() if item.data(_HANDLE_ROLE) in handle_set]
+        self._view.set_selected_items(matched)
+        self._selected_handles = [item.data(_HANDLE_ROLE) for item in matched]
+        self._toolbar.set_erase_enabled(bool(self._selected_handles))
         self.entity_count = self._doc.entity_count()
         self.layer_count = self._doc.layer_count()
+        self._layer_panel.refresh(self._doc.iter_layers())
+        self._sync_toolbar_history()
         self.documentChanged.emit()
