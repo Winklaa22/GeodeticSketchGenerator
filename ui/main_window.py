@@ -7,7 +7,6 @@ from typing import Dict, List, Optional, Tuple
 from PyQt6 import QtCore
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QApplication,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -23,16 +22,10 @@ from PyQt6.QtWidgets import (
 from core.config import GenerationConfig
 from core.exceptions import AppError
 from core.parser import PointFileParser
-from core.script_generator import ScriptGenerator
+from core.survey_draw_service import SurveyDrawService
 from core.validation import ensure_has_data, ensure_selection, resolve_layer_name
 from models.point import Point
-from ui.fixtures import (
-    DEMO_ERROR_MESSAGE,
-    DEMO_FILE_NAME,
-    DEMO_FILE_SIZE,
-    DEMO_POINTS_COUNT,
-    DEMO_SCRIPT_TEXT,
-)
+from ui.dxf_viewer import DxfViewer
 from ui.style import APP_STYLESHEET
 from ui.tabs.cable_tab import CableTab
 from ui.tabs.delimiter_tab import DelimiterTab
@@ -46,12 +39,10 @@ from ui.widgets import (
     Accordion,
     AccordionSection,
     Card,
-    CheckField,
-    ConsoleView,
     DropZone,
+    DxfSourceRow,
     ErrorBanner,
     FileCard,
-    SegmentedControl,
     Tag,
     WorkflowStepper,
     restyle,
@@ -61,17 +52,17 @@ _DELIMITER_DISPLAY = {"auto": "Auto", "space": "Space", "tab": "Tab"}
 _STATUS_TEXT = {
     "empty": "Empty",
     "ready": "Ready",
-    "generated": "Generated",
+    "applied": "Applied",
     "error": "Errors: 1",
 }
 
 
-class DemoState(Enum):
-    """The four shell states the top-bar switcher can preview."""
+class AppState(Enum):
+    """The four states the shell can be in, driving the stepper/status bar."""
 
     EMPTY = "empty"
     READY = "ready"
-    GENERATED = "generated"
+    APPLIED = "applied"
     ERROR = "error"
 
 
@@ -81,24 +72,20 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("AutoCAD Script Generator PRO")
+        self.setWindowTitle("Geodetic Sketch Generator")
         self.resize(1360, 860)
         self.setMinimumSize(1080, 680)
         self.settings = QtCore.QSettings("acsg", "acsg_pro")
 
         self.parser = PointFileParser()
-        self.script_generator = ScriptGenerator()
+        self.survey_draw_service = SurveyDrawService()
 
         self.file_path: str = ""
         self.file_size_text: str = ""
         self.data: Dict[int, Point] = {}
-        self._last_script_text: str = ""
-        self._displayed_script_text: str = ""
-        self._has_generated = False
+        self.dxf_path: str = ""
+        self._has_applied = False
         self._last_error: Optional[str] = None
-        # None => the switcher follows real app state; a value => the user
-        # pinned it to preview that state with sample data.
-        self._demo_override: Optional[DemoState] = None
         self._sections: List[Tuple[AccordionSection, QWidget]] = []
 
         self._build_ui()
@@ -138,7 +125,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(SPACE_XL, SPACE_LG, SPACE_XL, SPACE_LG)
         layout.setSpacing(SPACE_MD)
 
-        title = QLabel('AutoCAD Script Generator <span style="color:#9184d9;">PRO</span>')
+        title = QLabel('Geodetic Sketch Generator <span style="color:#9184d9;">PRO</span>')
         title.setObjectName("appTitle")
         title.setTextFormat(Qt.TextFormat.RichText)
         version_tag = Tag("v3.2", variant="neutral")
@@ -146,16 +133,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(version_tag)
         layout.addStretch(1)
-
-        demo_label = QLabel("DEMO STATE")
-        demo_label.setObjectName("demoStateLabel")
-        self.demo_switch = SegmentedControl(
-            [("ready", "Ready"), ("generated", "Generated"), ("error", "Error")]
-        )
-        self.demo_switch.currentChanged.connect(self._on_demo_state_selected)
-
-        layout.addWidget(demo_label)
-        layout.addWidget(self.demo_switch)
         return bar
 
     def _build_left_column(self) -> QWidget:
@@ -174,6 +151,12 @@ class MainWindow(QMainWindow):
         self.file_stack.addWidget(self.drop_zone)
         self.file_stack.addWidget(self.file_card)
         outer.addWidget(self.file_stack)
+
+        self.dxf_source_row = DxfSourceRow()
+        self.dxf_source_row.fileRequested.connect(self.select_dxf_file)
+        self.dxf_source_row.filesDropped.connect(self._on_dxf_files_dropped)
+        self.dxf_source_row.clearRequested.connect(self.clear_dxf_file)
+        outer.addWidget(self.dxf_source_row)
 
         self.delimiter_tab = DelimiterTab()
         self.draw_tab = DrawTab()
@@ -214,33 +197,28 @@ class MainWindow(QMainWindow):
 
         header = QHBoxLayout()
         header.setSpacing(SPACE_SM)
-        title = QLabel("Script preview")
-        title.setObjectName("previewHeaderTitle")
+        self.preview_title = QLabel("DXF preview")
+        self.preview_title.setObjectName("previewHeaderTitle")
         self.preview_meta = QLabel("")
         self.preview_meta.setObjectName("previewMeta")
-        header.addWidget(title)
+        header.addWidget(self.preview_title)
         header.addWidget(self.preview_meta)
         header.addStretch(1)
-        self.live_preview_checkbox = CheckField("Live preview")
-        self.live_preview_checkbox.setChecked(True)
-        header.addWidget(self.live_preview_checkbox)
         layout.addLayout(header)
 
         self.error_banner = ErrorBanner()
         layout.addWidget(self.error_banner)
 
-        self.console = ConsoleView()
-        layout.addWidget(self.console, 1)
+        self.dxf_viewer = DxfViewer()
+        layout.addWidget(self.dxf_viewer, 1)
 
         button_row = QHBoxLayout()
         button_row.setSpacing(SPACE_SM)
-        self.copy_button = self._make_button("Copy", "secondary", self.copy_script)
-        self.save_button = self._make_button("Save as .scr", "secondary", self.save_script)
-        self.generate_button = self._make_button("Generate Script  →", "primary", self.generate_script)
-        button_row.addWidget(self.copy_button)
+        self.save_button = self._make_button("Save DXF", "secondary", self.save_dxf)
+        self.apply_button = self._make_button("Apply to DXF  →", "primary", self.apply_to_dxf)
         button_row.addWidget(self.save_button)
         button_row.addStretch(1)
-        button_row.addWidget(self.generate_button)
+        button_row.addWidget(self.apply_button)
         layout.addLayout(button_row)
 
         return card
@@ -281,8 +259,6 @@ class MainWindow(QMainWindow):
     # SIGNAL WIRING
     # ==================================================================
     def _wire_signals(self) -> None:
-        self.live_preview_checkbox.toggled.connect(self._on_config_changed)
-
         self.delimiter_tab.swap_xy_toggled.connect(self._on_config_changed)
         self.delimiter_tab.cabinet_mode_toggled.connect(self._on_config_changed)
         self.delimiter_tab.delimiter_changed.connect(self._on_delimiter_changed)
@@ -295,28 +271,22 @@ class MainWindow(QMainWindow):
         self.selection_tab.selection_changed.connect(self._on_config_changed)
         self.layer_tab.layer_changed.connect(self._on_config_changed)
 
+        self.dxf_viewer.documentChanged.connect(self._refresh)
+
     # ==================================================================
     # STATE
     # ==================================================================
-    def _current_real_state(self) -> DemoState:
+    def _current_state(self) -> AppState:
         if self._last_error:
-            return DemoState.ERROR
+            return AppState.ERROR
         if not self.file_path:
-            return DemoState.EMPTY
-        if self._has_generated:
-            return DemoState.GENERATED
-        return DemoState.READY
-
-    def _effective_state(self) -> DemoState:
-        return self._demo_override if self._demo_override is not None else self._current_real_state()
-
-    def _on_demo_state_selected(self, key: str) -> None:
-        self._demo_override = DemoState(key)
-        self._refresh()
+            return AppState.EMPTY
+        if self._has_applied:
+            return AppState.APPLIED
+        return AppState.READY
 
     def _on_config_changed(self, *_args) -> None:
         self._refresh_modified_dots()
-        self._maybe_generate()
 
     def _on_delimiter_changed(self) -> None:
         if self.file_path:
@@ -327,30 +297,18 @@ class MainWindow(QMainWindow):
     # RENDERING
     # ==================================================================
     def _refresh(self) -> None:
-        state = self._effective_state()
-        # The switcher only ever previews states reachable from a real,
-        # already-loaded file — never fabricated ones for an empty start.
-        has_file = bool(self.file_path)
-        for key in ("ready", "generated", "error"):
-            self.demo_switch.setButtonEnabled(key, has_file)
+        state = self._current_state()
 
-        if state is DemoState.EMPTY:
-            # "Ready" reads as the switcher's natural resting default (like
-            # any other option group in this app); it stays disabled above
-            # until a real file exists, so this is a look, not a preview.
-            self.demo_switch.setCurrent("ready")
+        if state is AppState.EMPTY:
             self.file_stack.setCurrentWidget(self.drop_zone)
             self.accordion.setEnabled(False)
             self.error_banner.clear()
-            self.console.show_empty()
             self.stepper.set_step(0)
             file_label = "No file selected"
             layer_text = "Layer: –"
             delim_text = "Delimiter: –"
-            self._displayed_script_text = ""
         else:
-            self.demo_switch.setCurrent(state.value)
-            name, count, size = self._file_card_data()
+            name, count, size = os.path.basename(self.file_path), len(self.data), self.file_size_text
             self.file_card.set_file(name, count, size)
             self.file_stack.setCurrentWidget(self.file_card)
             self.accordion.setEnabled(True)
@@ -358,54 +316,36 @@ class MainWindow(QMainWindow):
             layer_text = f"Layer: {self.layer_tab.get_layer_name() or '0'}"
             delim_text = f"Delimiter: {self._delimiter_display_name()}"
 
-            if state is DemoState.READY:
+            if state is AppState.READY:
                 self.error_banner.clear()
-                self.console.show_empty()
                 self.stepper.set_step(2)
-                self._displayed_script_text = ""
-            elif state is DemoState.GENERATED:
+            elif state is AppState.APPLIED:
                 self.error_banner.clear()
-                self._displayed_script_text = self._script_text_for_display()
-                self.console.set_script(self._displayed_script_text)
                 self.stepper.set_step(3)
             else:  # ERROR
-                self.error_banner.show_message(self._last_error or DEMO_ERROR_MESSAGE)
-                self.console.show_empty()
+                self.error_banner.show_message(self._last_error)
                 self.stepper.set_step(2, error=True)
-                self._displayed_script_text = ""
 
         self.status_file_label.setText(file_label)
         self.status_layer_label.setText(layer_text)
         self.status_delim_label.setText(delim_text)
         self.status_state_label.setText(_STATUS_TEXT[state.value])
-        self.status_state_label.setProperty("variant", "error" if state is DemoState.ERROR else "normal")
+        self.status_state_label.setProperty("variant", "error" if state is AppState.ERROR else "normal")
         restyle(self.status_state_label)
 
-        self.copy_button.setEnabled(bool(self._displayed_script_text))
-        self.save_button.setEnabled(bool(self._displayed_script_text))
-        self.generate_button.setEnabled(state is not DemoState.EMPTY)
+        self.save_button.setEnabled(self.dxf_viewer.has_document)
+        self.apply_button.setEnabled(state is not AppState.EMPTY)
 
-        self._update_preview_meta(state)
+        self._refresh_preview_panel()
         self._refresh_modified_dots()
 
-    def _file_card_data(self) -> Tuple[str, int, str]:
-        if self.file_path:
-            return os.path.basename(self.file_path), len(self.data), self.file_size_text
-        return DEMO_FILE_NAME, DEMO_POINTS_COUNT, DEMO_FILE_SIZE
-
-    def _script_text_for_display(self) -> str:
-        if self.file_path and self._has_generated and self._last_script_text:
-            return self._last_script_text
-        return DEMO_SCRIPT_TEXT
-
-    def _update_preview_meta(self, state: DemoState) -> None:
-        if state is not DemoState.GENERATED:
+    def _refresh_preview_panel(self) -> None:
+        if self.dxf_viewer.has_document:
+            self.preview_meta.setText(
+                f"{self.dxf_viewer.entity_count} entities · {self.dxf_viewer.layer_count} layers"
+            )
+        else:
             self.preview_meta.setText("")
-            return
-        text = self._script_text_for_display()
-        lines = len(text.splitlines())
-        count = len(self.data) if (self.file_path and self.data) else DEMO_POINTS_COUNT
-        self.preview_meta.setText(f"{lines} lines · {count} points")
 
     def _delimiter_display_name(self) -> str:
         key = self.delimiter_tab.gap_control.current() or "auto"
@@ -423,10 +363,6 @@ class MainWindow(QMainWindow):
     # ==================================================================
     # HELPERS
     # ==================================================================
-    def _maybe_generate(self) -> None:
-        if self.live_preview_checkbox.isChecked() and self.file_path and self.data:
-            self.generate_script()
-
     def _build_generation_config(self, layer_name: str) -> GenerationConfig:
         return GenerationConfig(
             layer_name=layer_name,
@@ -465,7 +401,6 @@ class MainWindow(QMainWindow):
             self._load_file(txt_paths[0])
 
     def _load_file(self, file_path: str) -> None:
-        self._demo_override = None
         # Record the real file/size up front, even if parsing below fails —
         # the UI should always reflect the real file that was picked, never
         # fall back to sample data once the user has actually chosen one.
@@ -476,13 +411,12 @@ class MainWindow(QMainWindow):
         except AppError as exc:
             self.data = {}
             self._last_error = str(exc)
-            self._has_generated = False
+            self._has_applied = False
             self._refresh()
             return
-        self._has_generated = False
+        self._has_applied = False
         self._last_error = None
         self._refresh()
-        self._maybe_generate()
 
     def _reparse_current_file(self) -> None:
         try:
@@ -491,46 +425,74 @@ class MainWindow(QMainWindow):
         except AppError as exc:
             self.data = {}
             self._last_error = str(exc)
-        self._has_generated = False
+        self._has_applied = False
 
     # ==================================================================
-    # SCRIPT GENERATION
+    # DXF PREVIEW
     # ==================================================================
-    def generate_script(self) -> None:
+    def select_dxf_file(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open DXF File", "", "DXF Files (*.dxf)")
+        if not file_path:
+            return
+        self._load_dxf_file(file_path)
+
+    def _on_dxf_files_dropped(self, paths: List[str]) -> None:
+        dxf_paths = [p for p in paths if p.lower().endswith(".dxf")]
+        if dxf_paths:
+            self._load_dxf_file(dxf_paths[0])
+
+    def _load_dxf_file(self, file_path: str) -> None:
+        ok, message = self.dxf_viewer.load_file(file_path)
+        if not ok:
+            self.dxf_source_row.show_error(message)
+            return
+        self.dxf_path = file_path
+        self.dxf_source_row.set_file(os.path.basename(file_path), self.dxf_viewer.entity_count)
+        self._refresh()
+
+    def clear_dxf_file(self) -> None:
+        self.dxf_path = ""
+        self.dxf_viewer.clear()
+        self.dxf_source_row.set_empty()
+        self._refresh()
+
+    # ==================================================================
+    # APPLY TO DXF
+    # ==================================================================
+    def apply_to_dxf(self) -> None:
         self.layer_tab.persist(self.settings)
-        self._demo_override = None
         try:
             ensure_has_data(self.data, self.file_path)
             layer_name = resolve_layer_name(self.layer_tab.get_layer_name())
             selected_numbers = self.selection_tab.get_selected_numbers(self.data)
             ensure_selection(selected_numbers)
             config = self._build_generation_config(layer_name)
-            script_text = self.script_generator.generate(self.data, selected_numbers, config)
+            command = self.survey_draw_service.build_command(self.data, selected_numbers, config)
         except AppError as exc:
             self._last_error = str(exc)
-            self._has_generated = False
+            self._has_applied = False
             self._refresh()
             return
         self._last_error = None
-        self._has_generated = True
-        self._last_script_text = script_text
+        self.dxf_viewer.execute_command(command)
+        self._has_applied = True
+        if not self.dxf_path:
+            self.dxf_source_row.set_file("Untitled drawing", self.dxf_viewer.entity_count)
+        else:
+            self.dxf_source_row.set_file(os.path.basename(self.dxf_path), self.dxf_viewer.entity_count)
         self._refresh()
 
     # ==================================================================
     # UTIL
     # ==================================================================
-    def copy_script(self) -> None:
-        if not self._displayed_script_text:
+    def save_dxf(self) -> None:
+        if not self.dxf_viewer.has_document:
             return
-        QApplication.clipboard().setText(self._displayed_script_text)
-        self._flash_status("Copied to clipboard")
-
-    def save_script(self) -> None:
-        if not self._displayed_script_text:
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "Save Script", "geodata.scr", "AutoCAD Script (*.scr)")
+        suggested = os.path.basename(self.dxf_path) if self.dxf_path else "drawing.dxf"
+        path, _ = QFileDialog.getSaveFileName(self, "Save DXF", suggested, "DXF Files (*.dxf)")
         if not path:
             return
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(self._displayed_script_text)
+        self.dxf_viewer.save_document(path)
+        self.dxf_path = path
+        self.dxf_source_row.set_file(os.path.basename(path), self.dxf_viewer.entity_count)
         self._flash_status(f"Saved to {os.path.basename(path)}")

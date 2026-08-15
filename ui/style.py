@@ -185,6 +185,65 @@ QPushButton#linkButton {{
 }}
 QPushButton#linkButton:hover {{ text-decoration: underline; }}
 
+/* ---------- dxf source row ---------- */
+#dxfSourceRow {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-radius: {RADIUS}px;
+}}
+#dxfSourceIcon {{ font-size: 18px; color: {c.TEXT_MUTED}; }}
+#dxfSourceTitle {{ color: {c.TEXT}; font-weight: 600; font-size: {TEXT_SM}px; }}
+#dxfSourceSubtitle {{ color: {c.TEXT_MUTED}; font-size: {TEXT_XS}px; }}
+#dxfSourceSubtitle[variant="error"] {{ color: {c.ERROR}; }}
+
+/* ---------- dxf preview canvas ---------- */
+#dxfCanvas {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-bottom: none;
+    border-top-left-radius: {RADIUS}px;
+    border-top-right-radius: {RADIUS}px;
+}}
+#dxfEmpty {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-radius: {RADIUS}px;
+}}
+#dxfEmptyIcon {{ font-size: 24px; color: {c.TEXT_FAINT}; }}
+#dxfEmptyText {{ color: {c.TEXT_FAINT}; font-size: {TEXT_SM}px; }}
+
+/* ---------- dxf command line ---------- */
+#dxfCommandLine {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-bottom-left-radius: {RADIUS}px;
+    border-bottom-right-radius: {RADIUS}px;
+}}
+QPlainTextEdit#dxfCommandHistory {{
+    background: {c.SURFACE_SUNKEN};
+    border: none;
+    border-bottom: 1px solid {c.BORDER};
+    border-radius: 0;
+    color: {c.TEXT_MUTED};
+    font-family: "{MONO_FONT_FAMILY}", "Consolas", monospace;
+    font-size: {TEXT_XS}px;
+    padding: {SPACE_XS}px {SPACE_SM}px;
+}}
+#dxfCommandInputRow {{ background: {c.SURFACE_SUNKEN}; border-bottom-left-radius: {RADIUS}px; border-bottom-right-radius: {RADIUS}px; }}
+#dxfCommandPrompt {{
+    color: {c.TEXT_FAINT};
+    font-family: "{MONO_FONT_FAMILY}", "Consolas", monospace;
+    font-size: {TEXT_SM}px;
+    background: transparent;
+}}
+QLineEdit#dxfCommandInput {{
+    background: {c.SURFACE_SUNKEN};
+    border: none;
+    color: {c.TEXT};
+    font-family: "{MONO_FONT_FAMILY}", "Consolas", monospace;
+    font-size: {TEXT_SM}px;
+}}
+
 /* ---------- accordion ---------- */
 QFrame#accordionHeader {{
     background: transparent;
@@ -254,7 +313,7 @@ QPushButton#btn[variant="secondary"] {{
 QPushButton#btn[variant="secondary"]:hover {{ border-color: {c.BORDER_STRONG}; }}
 QPushButton#btn[variant="secondary"]:disabled {{ color: {c.TEXT_FAINT}; border-color: {c.BORDER}; }}
 
-/* ---------- script preview ---------- */
+/* ---------- dxf preview header ---------- */
 #previewHeaderTitle {{ font-weight: 600; font-size: {TEXT_MD}px; color: {c.TEXT}; }}
 #previewMeta {{ color: {c.TEXT_FAINT}; font-size: {TEXT_SM}px; }}
 
@@ -265,24 +324,6 @@ QPushButton#btn[variant="secondary"]:disabled {{ color: {c.TEXT_FAINT}; border-c
 }}
 #errorBannerIcon {{ color: {c.ERROR}; font-size: {TEXT_MD}px; }}
 #errorBannerText {{ color: {c.ERROR}; font-size: {TEXT_SM}px; }}
-
-QTextEdit#console {{
-    background: {c.SURFACE_SUNKEN};
-    border: 1px solid {c.BORDER};
-    border-radius: {RADIUS}px;
-    padding: {SPACE_MD}px;
-    color: {c.TEXT};
-    font-family: "{MONO_FONT_FAMILY}", "Consolas", monospace;
-    font-size: {TEXT_SM}px;
-    selection-background-color: {c.ACCENT_SOFT};
-}}
-#consoleEmpty {{
-    background: {c.SURFACE_SUNKEN};
-    border: 1px solid {c.BORDER};
-    border-radius: {RADIUS}px;
-}}
-#consoleEmptyIcon {{ font-size: 24px; color: {c.TEXT_FAINT}; }}
-#consoleEmptyText {{ color: {c.TEXT_FAINT}; font-size: {TEXT_SM}px; }}
 
 /* ---------- status bar ---------- */
 #statusBar {{ background: {c.APP_BG}; border-top: 1px solid {c.BORDER}; }}
