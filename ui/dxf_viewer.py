@@ -55,6 +55,7 @@ from ui.theme import Color as UiColor, SPACE_SM, SPACE_XS
 
 _HANDLE_ROLE = qc.Qt.ItemDataRole.UserRole
 _CLICK_THRESHOLD_PX = 4
+_SNAP_TOLERANCE_PX = 14  # "aim assist" radius for snapping to an existing POINT or LINE endpoint
 
 
 def _x_scale(transform: qg.QTransform) -> float:
@@ -143,6 +144,18 @@ def _distance_to_item(point: qc.QPointF, item: qw.QGraphicsItem) -> float:
         return _distance_to_segment(point, item.line())
     center = item.sceneTransform().mapRect(item.boundingRect()).center()
     return math.hypot(point.x() - center.x(), point.y() - center.y())
+
+
+def _snap_candidates(item: qw.QGraphicsItem) -> Tuple[qc.QPointF, ...]:
+    """The exact scene points a draw tool's "aim assist" may snap to for
+    `item`: a POINT's own position, or a LINE's two endpoints — the same
+    entities/coordinates AutoCAD's ENDPOINT/NODE object snaps target."""
+    if isinstance(item, _PointItem):
+        return (item._pos,)
+    if isinstance(item, qw.QGraphicsLineItem):
+        line = item.line()
+        return (line.p1(), line.p2())
+    return ()
 
 
 class QtSceneBackend(Backend):
@@ -280,6 +293,8 @@ class CadGraphicsView(qw.QGraphicsView):
         self._selected_items: List[qw.QGraphicsItem] = []
         self._pan_last_pos: Optional[qc.QPoint] = None
         self._rubber_band: Optional[qw.QRubberBand] = None
+        self._snap_indicator: Optional[qc.QPointF] = None
+        self._doc: Optional[DXFDocument] = None
 
         self.setObjectName("dxfCanvas")
         self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
@@ -364,6 +379,90 @@ class CadGraphicsView(qw.QGraphicsView):
         While a tool is active, clicks place points instead of selecting."""
         self._tool = tool
         self.setCursor(qc.Qt.CursorShape.CrossCursor if tool is not None else qc.Qt.CursorShape.ArrowCursor)
+        if tool is None:
+            self._set_snap_indicator(None)
+
+    def set_document(self, doc: Optional[DXFDocument]) -> None:
+        """Keeps the aim-assist snap in sync with the live document — needed
+        to resolve a CIRCLE item's true center (see `_snap_candidates_for`),
+        which isn't recoverable from its rendered Qt geometry alone."""
+        self._doc = doc
+
+    def _snap_candidates_for(
+        self, item: qw.QGraphicsItem, raw_scene_point: qc.QPointF
+    ) -> Tuple[Tuple[qc.QPointF, qc.QPointF], ...]:
+        """The (hover_point, snap_point) pairs a draw tool's "aim assist" may
+        offer for `item`: `hover_point` is compared against the cursor to
+        decide whether this candidate is close enough to trigger at all;
+        `snap_point` is the exact coordinate the cursor then locks onto.
+
+        For a POINT or a LINE endpoint these are the same spot — you hover
+        the exact feature. For a CIRCLE (survey points are drawn as small
+        circles — see core.commands.survey.build_points_command) they
+        differ: what you actually see and naturally hover is the visible
+        ring, not its centre, but the snap should still lock onto the
+        centre — same as AutoCAD's CENTER object snap."""
+        plain = _snap_candidates(item)
+        if plain:
+            return tuple((point, point) for point in plain)
+        if self._doc is None:
+            return ()
+        handle = item.data(_HANDLE_ROLE)
+        entity = self._doc.get_entity(handle) if handle else None
+        if entity is None or entity.dxftype() != "CIRCLE":
+            return ()
+        center = entity.dxf.center
+        center_point = qc.QPointF(center.x, center.y)
+        radius = entity.dxf.radius
+        dx, dy = raw_scene_point.x() - center_point.x(), raw_scene_point.y() - center_point.y()
+        dist_to_center = math.hypot(dx, dy)
+        if radius <= 0 or dist_to_center <= 0:
+            hover_point = center_point
+        else:
+            hover_point = qc.QPointF(
+                center_point.x() + dx / dist_to_center * radius, center_point.y() + dy / dist_to_center * radius
+            )
+        return ((hover_point, center_point),)
+
+    def _snap_point(self, view_pos: qc.QPoint, raw_scene_point: qc.QPointF) -> Tuple[qc.QPointF, bool]:
+        """"Aim assist": if an existing POINT, LINE endpoint, or CIRCLE is
+        within `_SNAP_TOLERANCE_PX` screen pixels of `view_pos`, snaps to
+        its exact coordinate (a CIRCLE's true centre, even though what's in
+        reach of the cursor is its rendered ring) — same idea as AutoCAD's
+        ENDPOINT/NODE/CENTER object snap. Returns (point_to_use, whether it
+        was actually snapped)."""
+        rect = qc.QRect(
+            view_pos.x() - _SNAP_TOLERANCE_PX,
+            view_pos.y() - _SNAP_TOLERANCE_PX,
+            _SNAP_TOLERANCE_PX * 2,
+            _SNAP_TOLERANCE_PX * 2,
+        )
+        best_point: Optional[qc.QPointF] = None
+        best_distance = float(_SNAP_TOLERANCE_PX)
+        for item in self.items(rect):
+            if item.data(_HANDLE_ROLE) is None:
+                continue  # preview/marker items aren't real entities - never snap to them
+            for hover_point, snap_point in self._snap_candidates_for(item, raw_scene_point):
+                device_point = self.mapFromScene(hover_point)
+                distance = math.hypot(device_point.x() - view_pos.x(), device_point.y() - view_pos.y())
+                if distance < best_distance:
+                    best_distance = distance
+                    best_point = snap_point
+        if best_point is not None:
+            return best_point, True
+        return raw_scene_point, False
+
+    def _set_snap_indicator(self, point: Optional[qc.QPointF]) -> None:
+        # Painted in drawForeground (see below) rather than kept as a real
+        # QGraphicsItem in the scene: a document edit swaps in a whole new
+        # QGraphicsScene on every change (see DxfViewer._render), and an
+        # item recreated/re-added to a scene right after such a swap has
+        # caused a hard crash here — the same risk-free approach the
+        # selection highlight below already uses.
+        if self._snap_indicator == point:
+            return
+        self._snap_indicator = point
+        self.viewport().update()
 
     def set_selected_item(self, item: Optional[qw.QGraphicsItem]) -> None:
         """Convenience for a single-item (or empty) selection."""
@@ -409,7 +508,10 @@ class CadGraphicsView(qw.QGraphicsView):
             return
         super().mouseMoveEvent(event)
         if self._tool is not None:
-            point = self.mapToScene(event.position().toPoint())
+            view_pos = event.position().toPoint()
+            raw_point = self.mapToScene(view_pos)
+            point, snapped = self._snap_point(view_pos, raw_point)
+            self._set_snap_indicator(point if snapped else None)
             self._tool.update_preview((point.x(), point.y()), self.scene())
         elif self._press_pos is not None:
             view_pos = event.position().toPoint()
@@ -433,7 +535,8 @@ class CadGraphicsView(qw.QGraphicsView):
             # always NoDrag), so every release places a point — no distance
             # check, which is exactly what previously discarded a slightly
             # unsteady click while drawing as "a pan drag, not a click".
-            scene_point = self.mapToScene(release_pos)
+            raw_point = self.mapToScene(release_pos)
+            scene_point, _ = self._snap_point(release_pos, raw_point)
             self._tool.on_click((scene_point.x(), scene_point.y()))
             self.toolPointPlaced.emit()
             return
@@ -499,14 +602,18 @@ class CadGraphicsView(qw.QGraphicsView):
         return best_item
 
     def drawForeground(self, painter: qg.QPainter, rect: qc.QRectF) -> None:  # noqa: N802
+        scale = _x_scale(painter.transform()) or 1.0
+        color = qg.QColor(UiColor.ACCENT)
+
+        if self._snap_indicator is not None:
+            self._paint_snap_indicator(painter, self._snap_indicator, scale, color)
+
         # Retraces every *actual* selected entity in a bright, constant-width
         # accent stroke — same idea as AutoCAD's selection highlight — rather
         # than washing a translucent tint over its whole bounding box (which,
         # e.g. for a diagonal line, mostly highlights empty space around it).
         if not self._selected_items:
             return
-        scale = _x_scale(painter.transform()) or 1.0
-        color = qg.QColor(UiColor.ACCENT)
         pen = qg.QPen(color, 3)
         pen.setCosmetic(True)
         pen.setJoinStyle(qc.Qt.PenJoinStyle.RoundJoin)
@@ -527,6 +634,19 @@ class CadGraphicsView(qw.QGraphicsView):
                 fill_color = qg.QColor(color)
                 fill_color.setAlpha(90)
                 painter.fillRect(item.sceneTransform().mapRect(item.boundingRect()), fill_color)
+
+    @staticmethod
+    def _paint_snap_indicator(painter: qg.QPainter, point: qc.QPointF, scale: float, color: qg.QColor) -> None:
+        """A small constant-size square around a snapped-to point/endpoint —
+        the "aim assist" feedback for LINE/POINT/CIRCLE/MOVE, drawn the same
+        risk-free way as the selection highlight above (see
+        `_set_snap_indicator`)."""
+        pen = qg.QPen(color, 1.6)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(qc.Qt.BrushStyle.NoBrush)
+        half = 4.5 / scale
+        painter.drawRect(qc.QRectF(point.x() - half, point.y() - half, half * 2, half * 2))
 
 
 # --------------------------------------------------------------------------
@@ -641,10 +761,15 @@ class PointToolSession(ToolSession):
 
 
 class LineToolSession(ToolSession):
-    def __init__(self) -> None:
+    """AutoCAD's LINE command chains: finishing one segment doesn't exit the
+    command, it immediately prompts for the next point starting from where
+    the last one ended — see `continuation()`, used by DxfViewer to keep
+    this tool active instead of dropping back to Select after every click."""
+
+    def __init__(self, start: Optional[Tuple[float, float]] = None) -> None:
         super().__init__()
-        self.prompt = "Specify first point: "
-        self._start: Optional[Tuple[float, float]] = None
+        self.prompt = "Specify next point: " if start is not None else "Specify first point: "
+        self._start: Optional[Tuple[float, float]] = start
         self._end: Optional[Tuple[float, float]] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
 
@@ -686,6 +811,13 @@ class LineToolSession(ToolSession):
         if self._preview_item is not None:
             scene.removeItem(self._preview_item)
             self._preview_item = None
+
+    def continuation(self) -> "LineToolSession":
+        """A fresh LineToolSession picking up where this one left off, so
+        drawing a connected polyline-like run is just click, click, click —
+        no need to reselect the Line tool for every segment."""
+        assert self._end is not None
+        return LineToolSession(start=self._end)
 
 
 class CircleToolSession(ToolSession):
@@ -1332,6 +1464,7 @@ class DxfViewer(qw.QWidget):
         self.entity_count = 0
         self.layer_count = 0
         self._doc = None
+        self._view.set_document(None)
         self._history = None
         self._selected_handles = []
         self._sync_toolbar_history()
@@ -1354,6 +1487,7 @@ class DxfViewer(qw.QWidget):
             self._render(preserve_view=False)
         except Exception as exc:  # noqa: BLE001 - a bad/unsupported drawing must never crash the app
             self._doc = None
+            self._view.set_document(None)
             self._history = None
             self._sync_toolbar_history()
             return False, f"Could not render drawing: {exc}"
@@ -1477,11 +1611,18 @@ class DxfViewer(qw.QWidget):
         assert tool is not None
         doc = self.ensure_document()
         command = tool.build_command(doc.active_layer)
+        # LINE chains like AutoCAD's: finishing a segment starts a fresh
+        # LineToolSession from its endpoint instead of dropping the tool, so
+        # drawing a connected run of segments doesn't require reselecting
+        # the Line tool after every single click.
+        next_tool = tool.continuation() if isinstance(tool, LineToolSession) else None
         tool.cleanup(self._view.scene())
         self._active_tool = None
         self._view.set_tool(None)
         self._toolbar.set_active_tool(None)
         self.execute_command(command)
+        if next_tool is not None:
+            self.start_tool(next_tool)
 
     def _echo(self, message: str) -> None:
         self._command_line.show_response(message)
@@ -1493,6 +1634,7 @@ class DxfViewer(qw.QWidget):
 
     def _render(self, *, preserve_view: bool) -> None:
         assert self._doc is not None
+        self._view.set_document(self._doc)
         saved = self._view.save_view() if preserve_view else None
         scene = qw.QGraphicsScene()
         backend = QtSceneBackend(scene)

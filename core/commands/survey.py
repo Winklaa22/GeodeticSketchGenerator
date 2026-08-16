@@ -22,15 +22,17 @@ from core.commands.draw import (
     AddPolyline3DCommand,
     AddTextCommand,
 )
-from core.config import GenerationConfig
+from core.config import CableOptions, GenerationConfig
 from core.draw_modes import DrawMode
 from core.geometry import (
     AngleQuadrant,
     PointDirection,
     classify_quadrant,
+    compute_direction_angle,
     iter_point_directions,
     snap_small_rotation,
 )
+from core.patterns import route_selected_points
 from models.point import Point
 
 CABINET_LABEL_COUNT = 6
@@ -94,32 +96,75 @@ def build_lines_command(
 ) -> CompositeCommand:
     """A chain of LINE entities through consecutive selected points — the
     direct-entity equivalent of chaining multiple points into AutoCAD's LINE
-    command, which itself creates one LINE segment per consecutive pair."""
-    ordered = _ordered_points(points, selected_numbers)
+    command, which itself creates one LINE segment per consecutive pair.
+    Any skrzynka (junction box) rectangle along the way is drawn as its own
+    4 LINE entities, separate from the cable's own segments; any wcinka
+    (splice) is drawn as 2 open stub LINE entities off its entry point (see
+    core.patterns) — LINE mode already creates one entity per segment, so
+    this keeps every shape's sides just as separate as everything else."""
+    routed = route_selected_points(points, selected_numbers)
     commands = [
-        AddLineCommand((a.x, a.y, a.h), (b.x, b.y, b.h), layer) for a, b in zip(ordered, ordered[1:])
+        AddLineCommand((a.x, a.y, a.h), (b.x, b.y, b.h), layer) for a, b in zip(routed.main, routed.main[1:])
     ]
+    commands.extend(_box_line_commands(routed.boxes, layer))
+    commands.extend(_wedge_line_commands(routed.wedges, layer))
     return CompositeCommand(commands)
+
+
+def _box_line_commands(boxes: List[List[Point]], layer: str) -> List[AddLineCommand]:
+    commands = []
+    for box in boxes:
+        commands.extend(
+            AddLineCommand(
+                (box[k].x, box[k].y, box[k].h),
+                (box[(k + 1) % len(box)].x, box[(k + 1) % len(box)].y, box[(k + 1) % len(box)].h),
+                layer,
+            )
+            for k in range(len(box))
+        )
+    return commands
+
+
+def _wedge_line_commands(wedges: List[Tuple[Point, Point, Point]], layer: str) -> List[AddLineCommand]:
+    commands = []
+    for entry, wing_1, wing_2 in wedges:
+        commands.append(AddLineCommand((entry.x, entry.y, entry.h), (wing_1.x, wing_1.y, wing_1.h), layer))
+        commands.append(AddLineCommand((entry.x, entry.y, entry.h), (wing_2.x, wing_2.y, wing_2.h), layer))
+    return commands
 
 
 def build_plines_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """A single 2D LWPOLYLINE through the selected points (XY only)."""
-    ordered = _ordered_points(points, selected_numbers)
-    return CompositeCommand([AddPolyline2DCommand([(p.x, p.y) for p in ordered], layer)])
+    """A single 2D LWPOLYLINE through the selected points (XY only). Any
+    skrzynka rectangle along the way is drawn as its own separate, closed
+    LWPOLYLINE — never merged into the cable's polyline; any wcinka (splice)
+    is drawn as 2 open stub LINE entities off its entry point, which stays
+    part of the cable's own polyline (see core.patterns)."""
+    routed = route_selected_points(points, selected_numbers)
+    commands = [AddPolyline2DCommand([(p.x, p.y) for p in routed.main], layer)]
+    commands.extend(
+        AddPolyline2DCommand([(p.x, p.y) for p in box], layer, closed=True) for box in routed.boxes
+    )
+    commands.extend(_wedge_line_commands(routed.wedges, layer))
+    return CompositeCommand(commands)
 
 
 def build_poly3d_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """A single 3D POLYLINE through the selected points (X, Y, height)."""
-    ordered = _ordered_points(points, selected_numbers)
-    return CompositeCommand([AddPolyline3DCommand([(p.x, p.y, p.h) for p in ordered], layer)])
-
-
-def _ordered_points(points: Dict[int, Point], selected_numbers: List[int]) -> List[Point]:
-    return [points[n] for n in selected_numbers if n in points]
+    """A single 3D POLYLINE through the selected points (X, Y, height). Any
+    skrzynka rectangle along the way is drawn as its own separate, closed
+    3D POLYLINE — never merged into the cable's polyline; any wcinka
+    (splice) is drawn as 2 open stub LINE entities off its entry point,
+    which stays part of the cable's own polyline (see core.patterns)."""
+    routed = route_selected_points(points, selected_numbers)
+    commands = [AddPolyline3DCommand([(p.x, p.y, p.h) for p in routed.main], layer)]
+    commands.extend(
+        AddPolyline3DCommand([(p.x, p.y, p.h) for p in box], layer, closed=True) for box in routed.boxes
+    )
+    commands.extend(_wedge_line_commands(routed.wedges, layer))
+    return CompositeCommand(commands)
 
 
 def build_heights_command(
@@ -156,22 +201,94 @@ def _heights_label_offset(angle_deg: float, font_size: float) -> Tuple[float, fl
 def build_cable_marks_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """A TEXT label (config.cable.marks_text) at the midpoint of every Nth
-    selected point's segment to its successor (N = config.cable.frequency)."""
+    """The cable itself (same routed path, skrzynka and wcinka handling as
+    LINES mode — see core.patterns), plus a TEXT label
+    (config.cable.marks_text) at the midpoint of its centre segment, then
+    fanning outward every Nth segment in each direction (N =
+    config.cable.frequency) — never starting from one end. Every marked
+    segment has a small gap cut into it, sized to the mark's own text, so
+    the label sits in a notch rather than on top of a solid line."""
     options = config.cable
+    routed = route_selected_points(points, selected_numbers)
+    segments = list(zip(routed.main, routed.main[1:]))
+    mark_indices = set(_cable_mark_indices(len(segments), options.frequency)) if segments else set()
+    gap_length = _cable_mark_gap_length(options)
+
     commands = []
-    for direction in iter_point_directions(points, selected_numbers):
-        if direction.next_point is None:
-            continue
-        if direction.number % options.frequency != 0:
-            continue
-        mid_x = (direction.point.x + direction.next_point.x) / 2.0
-        mid_y = (direction.point.y + direction.next_point.y) / 2.0
-        x_offset, y_offset = _cable_label_offset(direction.angle_deg, options.font_size)
-        rotation = snap_small_rotation(direction.angle_deg, direction.rotation)
-        insert = (mid_x + x_offset, mid_y + y_offset, direction.point.h)
-        commands.append(AddTextCommand(options.marks_text, insert, options.font_size, layer, rotation))
+    for index, segment in enumerate(segments):
+        start, end = segment
+        if index in mark_indices:
+            commands.extend(_gapped_segment_line_commands(start, end, gap_length, layer))
+            commands.append(_cable_mark_command(segment, options, layer))
+        else:
+            commands.append(AddLineCommand((start.x, start.y, start.h), (end.x, end.y, end.h), layer))
+    commands.extend(_box_line_commands(routed.boxes, layer))
+    commands.extend(_wedge_line_commands(routed.wedges, layer))
     return CompositeCommand(commands)
+
+
+# Rough estimate of a DXF font character's width relative to its height —
+# used only to size the notch cut into the cable to roughly match the
+# mark's own text, not for any precise text-layout purpose.
+_CABLE_MARK_CHAR_WIDTH_RATIO = 0.7
+# Extra clearance around the estimated text width, in font-size units.
+_CABLE_MARK_GAP_PADDING = 0.5
+
+
+def _cable_mark_gap_length(options: CableOptions) -> float:
+    text_width = len(options.marks_text) * options.font_size * _CABLE_MARK_CHAR_WIDTH_RATIO
+    return text_width + options.font_size * _CABLE_MARK_GAP_PADDING
+
+
+def _gapped_segment_line_commands(start: Point, end: Point, gap_length: float, layer: str) -> List[AddLineCommand]:
+    """The segment start->end, split into two LINE entities with a gap
+    centred on its midpoint — capped at 80% of the segment's own length so
+    a short segment or a long mark never crosses the two halves over."""
+    length = math.hypot(end.x - start.x, end.y - start.y)
+    if length <= 0:
+        return [AddLineCommand((start.x, start.y, start.h), (end.x, end.y, end.h), layer)]
+    half_gap = min(gap_length, length * 0.8) / 2.0
+    ux, uy = (end.x - start.x) / length, (end.y - start.y) / length
+    mid_x, mid_y, mid_h = (start.x + end.x) / 2.0, (start.y + end.y) / 2.0, (start.h + end.h) / 2.0
+    gap_start = (mid_x - ux * half_gap, mid_y - uy * half_gap, mid_h)
+    gap_end = (mid_x + ux * half_gap, mid_y + uy * half_gap, mid_h)
+    return [
+        AddLineCommand((start.x, start.y, start.h), gap_start, layer),
+        AddLineCommand(gap_end, (end.x, end.y, end.h), layer),
+    ]
+
+
+def _cable_mark_indices(segment_count: int, frequency: int) -> List[int]:
+    """Segment indices to mark: the centre segment first, then alternating
+    outward by `frequency` segments at a time until both directions run out
+    of bounds."""
+    step = max(1, frequency)
+    center = (segment_count - 1) // 2
+    indices = {center}
+    offset = step
+    while True:
+        added = False
+        if center + offset < segment_count:
+            indices.add(center + offset)
+            added = True
+        if center - offset >= 0:
+            indices.add(center - offset)
+            added = True
+        if not added:
+            break
+        offset += step
+    return sorted(indices)
+
+
+def _cable_mark_command(segment: Tuple[Point, Point], options: CableOptions, layer: str) -> AddTextCommand:
+    start, end = segment
+    angle_deg = compute_direction_angle(start, end)
+    mid_x = (start.x + end.x) / 2.0
+    mid_y = (start.y + end.y) / 2.0
+    x_offset, y_offset = _cable_label_offset(angle_deg, options.font_size)
+    rotation = snap_small_rotation(angle_deg, round(angle_deg, 1))
+    insert = (mid_x + x_offset, mid_y + y_offset, start.h)
+    return AddTextCommand(options.marks_text, insert, options.font_size, layer, rotation)
 
 
 def _cable_label_offset(angle_deg: float, font_size: float) -> Tuple[float, float]:

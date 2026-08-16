@@ -4,11 +4,10 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtWidgets import QWidget
 
 from core.config import PointsOptions
-from ui.widgets import CheckField, SectionColumn, make_field, styled_line_edit
+from ui.widgets import CheckField, SectionColumn, decimal_validator, make_field, styled_line_edit
 
 DEFAULT_FONT_SIZE = "0.6"
 DEFAULT_DIAMETER = "0.05"
@@ -31,12 +30,12 @@ class PointsTab(QWidget):
         layout.addWidget(self.numbers_checkbox)
 
         self.font_size_input = styled_line_edit(DEFAULT_FONT_SIZE)
-        self.font_size_input.setValidator(QDoubleValidator(0.0, 9999.0, 3))
+        self.font_size_input.setValidator(decimal_validator(0.0, 9999.0, 3))
         self.font_size_input.textChanged.connect(lambda _t: self.option_changed.emit())
         layout.addWidget(make_field("Text size", self.font_size_input))
 
         self.diameter_input = styled_line_edit(DEFAULT_DIAMETER)
-        self.diameter_input.setValidator(QDoubleValidator(0.0, 9999.0, 3))
+        self.diameter_input.setValidator(decimal_validator(0.0, 9999.0, 3))
         self.diameter_input.textChanged.connect(lambda _t: self.option_changed.emit())
         layout.addWidget(make_field("Circle diameter", self.diameter_input))
         layout.addStretch(1)

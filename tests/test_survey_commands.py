@@ -93,6 +93,93 @@ def test_poly3d_mode_creates_one_3d_polyline_with_heights(
     assert [tuple(v) for v in polylines[0].points()] == [(0.0, 0.0, 10.0), (10.0, 0.0, 11.0)]
 
 
+@pytest.fixture
+def points_with_box() -> dict[int, Point]:
+    # Point 1 is a plain main-line point; 2,3,4,5 trace a rectangle; point
+    # 6 continues the main line afterwards.
+    return {
+        1: Point(x=0.0, y=0.0, h=0.0),
+        2: Point(x=10.0, y=0.0, h=0.0),
+        3: Point(x=11.0, y=0.0, h=0.0),
+        4: Point(x=11.0, y=1.0, h=0.0),
+        5: Point(x=10.0, y=1.0, h=0.0),
+        6: Point(x=20.0, y=0.0, h=0.0),
+    }
+
+
+def test_pline_mode_draws_skrzynka_as_a_separate_closed_polyline(
+    service: SurveyDrawService, points_with_box, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.PLINES)
+    service.build_command(points_with_box, [1, 2, 3, 4, 5, 6], config).execute(doc)
+    polylines = _entities_of_type(doc, "LWPOLYLINE")
+    assert len(polylines) == 2  # the cable run and the box, as separate entities
+    cable, box = polylines
+    # The cable skips straight from point 1 to point 6, touching none of
+    # the box's corners.
+    assert [pt[:2] for pt in cable.get_points("xy")] == [(0.0, 0.0), (20.0, 0.0)]
+    assert [pt[:2] for pt in box.get_points("xy")] == [(10.0, 0.0), (11.0, 0.0), (11.0, 1.0), (10.0, 1.0)]
+    assert box.closed
+
+
+def test_poly3d_mode_draws_skrzynka_as_a_separate_closed_polyline(
+    service: SurveyDrawService, points_with_box, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.POLY3D)
+    service.build_command(points_with_box, [1, 2, 3, 4, 5, 6], config).execute(doc)
+    polylines = _entities_of_type(doc, "POLYLINE")
+    assert len(polylines) == 2
+    cable, box = polylines
+    assert [tuple(v) for v in cable.points()] == [(0.0, 0.0, 0.0), (20.0, 0.0, 0.0)]
+    assert [tuple(v) for v in box.points()] == [
+        (10.0, 0.0, 0.0), (11.0, 0.0, 0.0), (11.0, 1.0, 0.0), (10.0, 1.0, 0.0),
+    ]
+    assert box.is_closed
+
+
+def test_lines_mode_draws_skrzynka_sides_alongside_the_cable_segments(
+    service: SurveyDrawService, points_with_box, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.LINES)
+    service.build_command(points_with_box, [1, 2, 3, 4, 5, 6], config).execute(doc)
+    lines = _entities_of_type(doc, "LINE")
+    # 1 cable segment (1->6, skipping the box) + 4 box sides
+    assert len(lines) == 5
+    cable_line = lines[0]
+    assert tuple(cable_line.dxf.start) == (0.0, 0.0, 0.0)
+    assert tuple(cable_line.dxf.end) == (20.0, 0.0, 0.0)
+
+
+@pytest.fixture
+def points_with_wcinka() -> dict[int, Point]:
+    # 1, 2, 3 are a tight triangle at the very start of the selection; 4 is
+    # a normal, far-away main-line point. Point 3 - nearest to 4 - should be
+    # the entry point that stays on the cable's path.
+    return {
+        1: Point(x=2.0, y=-3.0, h=0.0),
+        2: Point(x=2.0, y=3.0, h=0.0),
+        3: Point(x=0.0, y=0.0, h=0.0),
+        4: Point(x=-20.0, y=0.0, h=0.0),
+    }
+
+
+def test_pline_mode_draws_wcinka_as_open_stubs_off_its_entry_point(
+    service: SurveyDrawService, points_with_wcinka, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.PLINES)
+    service.build_command(points_with_wcinka, [1, 2, 3, 4], config).execute(doc)
+    polylines = _entities_of_type(doc, "LWPOLYLINE")
+    assert len(polylines) == 1  # the cable's own polyline - point 3 is part of it, not separate
+    assert [pt[:2] for pt in polylines[0].get_points("xy")] == [(0.0, 0.0), (-20.0, 0.0)]
+    lines = _entities_of_type(doc, "LINE")
+    assert len(lines) == 2  # the two open stubs: 3->1 and 3->2 (no 1-2 edge)
+    stub_endpoints = {(tuple(l.dxf.start), tuple(l.dxf.end)) for l in lines}
+    assert stub_endpoints == {
+        ((0.0, 0.0, 0.0), (2.0, -3.0, 0.0)),
+        ((0.0, 0.0, 0.0), (2.0, 3.0, 0.0)),
+    }
+
+
 def test_points_mode_draws_circles_with_diameter_derived_radius(
     service: SurveyDrawService, points, doc: DXFDocument
 ) -> None:
@@ -162,9 +249,70 @@ def test_cable_marks_use_segment_midpoint_and_custom_text(
     )
     service.build_command(points, [1, 2, 3], config).execute(doc)
     labels = _entities_of_type(doc, "TEXT")
-    # Point 3 has no successor in the selection, so only points 1 and 2 emit marks.
+    # 3 points -> 2 segments, and frequency=1 marks every segment.
     assert len(labels) == 2
     assert all(t.dxf.text == "CBL" for t in labels)
+
+
+def test_cable_marks_start_at_the_centre_segment_and_fan_outward(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    # 5 points -> 4 segments (indices 0-3), centre index (4-1)//2 = 1.
+    points = {n: Point(x=float(n) * 10.0, y=0.0, h=0.0) for n in range(1, 6)}
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.CABLE_MARKS,
+        cable=CableOptions(font_size=0.6, frequency=2, marks_text="eN"),
+    )
+    service.build_command(points, [1, 2, 3, 4, 5], config).execute(doc)
+    labels = _entities_of_type(doc, "TEXT")
+    # Centre segment (index 1: points 2-3) plus index 1-2=-1 (out of bounds)
+    # and index 1+2=3 (points 4-5) -> 2 marks, not starting from either end.
+    xs = sorted(round(t.dxf.insert[0]) for t in labels)
+    assert xs == [25, 45]  # midpoints of (20,30) and (40,50)
+    # The cable itself is still fully drawn: the 2 unmarked segments as one
+    # LINE each, the 2 marked segments split into 2 LINEs each (the notch).
+    lines = _entities_of_type(doc, "LINE")
+    assert len(lines) == 2 + 2 * 2
+
+
+def test_cable_marks_cut_a_gap_into_the_line_sized_to_the_mark_text(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = {1: Point(x=0.0, y=0.0, h=0.0), 2: Point(x=10.0, y=0.0, h=0.0)}
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.CABLE_MARKS,
+        cable=CableOptions(font_size=0.6, frequency=5, marks_text="eN"),
+    )
+    service.build_command(points, [1, 2], config).execute(doc)
+    labels = _entities_of_type(doc, "TEXT")
+    assert len(labels) == 1
+    assert round(labels[0].dxf.insert[0]) == 5
+
+    # gap_length = len("eN") * 0.6 * 0.7 + 0.6 * 0.5 = 0.84 + 0.3 = 1.14
+    lines = sorted(_entities_of_type(doc, "LINE"), key=lambda line: line.dxf.start[0])
+    assert len(lines) == 2  # the segment is cut into two stubs around the mark
+    assert tuple(lines[0].dxf.start)[:2] == (0.0, 0.0)
+    assert round(lines[0].dxf.end[0], 2) == 4.43
+    assert round(lines[1].dxf.start[0], 2) == 5.57
+    assert tuple(lines[1].dxf.end)[:2] == (10.0, 0.0)
+
+
+def test_cable_marks_never_land_inside_a_skipped_skrzynka(
+    service: SurveyDrawService, points_with_box, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.CABLE_MARKS,
+        cable=CableOptions(font_size=0.6, frequency=1, marks_text="eN"),
+    )
+    service.build_command(points_with_box, [1, 2, 3, 4, 5, 6], config).execute(doc)
+    labels = _entities_of_type(doc, "TEXT")
+    # Only 1 real cable segment once the box is skipped (1 -> 6): its own
+    # midpoint, nowhere near the box at x=10-11.
+    assert len(labels) == 1
+    assert round(labels[0].dxf.insert[0]) == 10
 
 
 def test_whole_batch_undoes_as_one_step(service: SurveyDrawService, points, doc: DXFDocument) -> None:

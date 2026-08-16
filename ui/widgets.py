@@ -9,7 +9,8 @@ from enum import Enum
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from PyQt6 import QtGui
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QLocale, Qt, pyqtSignal
+from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -46,6 +47,21 @@ def styled_line_edit(text: str = "") -> QLineEdit:
     edit = QLineEdit(text)
     edit.setObjectName("input")
     return edit
+
+
+def decimal_validator(bottom: float, top: float, decimals: int) -> QDoubleValidator:
+    """A QDoubleValidator pinned to '.' as the decimal point.
+
+    QDoubleValidator defaults to the OS locale's separators. On machines
+    where that locale uses ',' as the decimal point, a plain
+    QDoubleValidator rejects '.' entirely, making it impossible to type a
+    value like "0.6" into fields whose default text and parsing (float())
+    both assume a dot — the field looks like it "doesn't work". Forcing the
+    C locale keeps typing and parsing consistent regardless of OS locale.
+    """
+    validator = QDoubleValidator(bottom, top, decimals)
+    validator.setLocale(QLocale(QLocale.Language.C))
+    return validator
 
 
 def make_field(label_text: str, field_widget: QWidget) -> QWidget:
