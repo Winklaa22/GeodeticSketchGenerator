@@ -16,6 +16,7 @@ _MODE_OPTIONS = [
     ("3dpoly", "3DPOLY"),
     ("heights", "Heights marks"),
     ("cable", "Cable marks"),
+    ("pipe", "Pipe"),
 ]
 _MODE_BY_KEY = {
     "points": DrawMode.POINTS,
@@ -24,6 +25,7 @@ _MODE_BY_KEY = {
     "3dpoly": DrawMode.POLY3D,
     "heights": DrawMode.HEIGHTS,
     "cable": DrawMode.CABLE_MARKS,
+    "pipe": DrawMode.PIPE,
 }
 
 

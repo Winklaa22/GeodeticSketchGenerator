@@ -30,6 +30,7 @@ from core.geometry import (
     classify_quadrant,
     compute_direction_angle,
     iter_point_directions,
+    offset_segment_perpendicular,
     snap_small_rotation,
 )
 from core.patterns import route_selected_points
@@ -131,6 +132,25 @@ def _wedge_line_commands(wedges: List[Tuple[Point, Point, Point]], layer: str) -
         commands.append(AddLineCommand((entry.x, entry.y, entry.h), (wing_1.x, wing_1.y, wing_1.h), layer))
         commands.append(AddLineCommand((entry.x, entry.y, entry.h), (wing_2.x, wing_2.y, wing_2.h), layer))
     return commands
+
+
+def build_pipe_command(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+) -> CompositeCommand:
+    """Two parallel LINE entities per segment, straddling the routed cable
+    path by config.pipe.width/2 on each side — the "two lines" convention
+    for a protective casing pipe (RURA OSŁONOWA) drawn alongside a cable
+    run. Reuses the same routed path as LINES mode (see core.patterns), so
+    the pipe skips past any skrzynka exactly like the cable does — it
+    protects the cable run itself, not the box."""
+    half_width = max(config.pipe.width, 0.0) / 2.0
+    main = route_selected_points(points, selected_numbers).main
+    commands = []
+    for start, end in zip(main, main[1:]):
+        for offset in (half_width, -half_width):
+            a, b = offset_segment_perpendicular(start, end, offset)
+            commands.append(AddLineCommand((a.x, a.y, a.h), (b.x, b.y, b.h), layer))
+    return CompositeCommand(commands)
 
 
 def build_plines_command(
@@ -311,6 +331,7 @@ _BUILDERS: Dict[DrawMode, SurveyBuilder] = {
     DrawMode.POLY3D: build_poly3d_command,
     DrawMode.HEIGHTS: build_heights_command,
     DrawMode.CABLE_MARKS: build_cable_marks_command,
+    DrawMode.PIPE: build_pipe_command,
 }
 
 

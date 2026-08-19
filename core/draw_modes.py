@@ -11,3 +11,4 @@ class DrawMode(IntEnum):
     POLY3D = 4
     HEIGHTS = 5
     CABLE_MARKS = 6
+    PIPE = 7

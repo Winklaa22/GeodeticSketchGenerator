@@ -255,6 +255,16 @@ QToolButton#layerColorSwatch {{
     max-height: 14px;
     padding: 0;
 }}
+QToolButton#colorSwatchBtn {{
+    border: 1px solid {c.BORDER_STRONG};
+    border-radius: {RADIUS_SM}px;
+    min-width: 22px;
+    max-width: 22px;
+    min-height: 22px;
+    max-height: 22px;
+    padding: 0;
+}}
+QToolButton#colorSwatchBtn:hover {{ border-color: {c.ACCENT_BORDER}; }}
 QCheckBox#layerVisibleCheck {{ spacing: 0; }}
 QCheckBox#layerVisibleCheck::indicator {{
     width: 12px;
@@ -286,6 +296,16 @@ QToolButton#layerAddBtn {{
     padding: {SPACE_XS}px;
 }}
 QToolButton#layerAddBtn:hover {{ color: {c.ACCENT}; border-color: {c.ACCENT_BORDER}; }}
+QToolButton#layerPruneBtn {{
+    background: transparent;
+    border: 1px dashed {c.BORDER_STRONG};
+    border-radius: {RADIUS_SM}px;
+    color: {c.TEXT_MUTED};
+    font-size: {TEXT_XS}px;
+    padding: {SPACE_XS}px;
+}}
+QToolButton#layerPruneBtn:hover:enabled {{ color: {c.ACCENT}; border-color: {c.ACCENT_BORDER}; }}
+QToolButton#layerPruneBtn:disabled {{ color: {c.BORDER}; border-color: {c.BORDER}; }}
 
 /* ---------- dxf preview canvas ---------- */
 #dxfCanvas {{

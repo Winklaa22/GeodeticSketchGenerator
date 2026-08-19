@@ -42,12 +42,14 @@ from core.commands.base import Command as EditCommand
 from core.commands.draw import AddCircleCommand, AddLineCommand, AddPointCommand
 from core.commands.edit import DeleteEntityCommand, MoveCommand
 from core.commands.history import CommandHistory
+from core.commands.composite import CompositeCommand
 from core.commands.layers import (
     AddLayerCommand,
     DeleteLayerCommand,
     SetActiveLayerCommand,
     SetLayerColorCommand,
     SetLayerVisibleCommand,
+    layers_to_prune,
 )
 from core.dxf_document import DXFDocument
 from ui.layer_panel import LayerPanel
@@ -695,6 +697,25 @@ def _distance(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return math.hypot(b[0] - a[0], b[1] - a[1])
 
 
+def _offset_segment_perpendicular(
+    start: Tuple[float, float], end: Tuple[float, float], offset: float
+) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+    """`start`/`end` shifted sideways by `offset`, perpendicular to the
+    segment's own direction — the same "two parallel lines" convention as
+    core.geometry.offset_segment_perpendicular (used for the batch-generated
+    pipe), reimplemented here on plain (x, y) tuples since interactive
+    drawing in this module is 2D-only and doesn't otherwise touch
+    core.geometry/models.Point. A zero-length segment has no defined
+    direction, so it's returned unshifted."""
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length = math.hypot(dx, dy)
+    if length <= 0:
+        return start, end
+    ux, uy = -dy / length, dx / length
+    shift = (ux * offset, uy * offset)
+    return (start[0] + shift[0], start[1] + shift[1]), (end[0] + shift[0], end[1] + shift[1])
+
+
 # --------------------------------------------------------------------------
 # Interactive draw tools — collect points via canvas clicks or typed command
 # -line text, then hand back a Command for DxfViewer to run through history.
@@ -879,6 +900,124 @@ class CircleToolSession(ToolSession):
             self._preview_item = None
 
 
+class PipeToolSession(ToolSession):
+    """A protective casing pipe (RURA OSŁONOWA), drawn as two parallel LINE
+    entities straddling the segment — the same "two lines" convention as
+    core.commands.survey.build_pipe_command. Chains like LINE: finishing a
+    segment immediately starts the next one from its endpoint, reusing the
+    same width, so a multi-segment pipe run is click, click, click, ...
+    (each new segment needs only its endpoint, not a fresh width)."""
+
+    def __init__(
+        self, start: Optional[Tuple[float, float]] = None, width: Optional[float] = None
+    ) -> None:
+        super().__init__()
+        self.prompt = "Specify next point: " if start is not None else "Specify first point: "
+        self._start: Optional[Tuple[float, float]] = start
+        self._end: Optional[Tuple[float, float]] = None
+        self._width: Optional[float] = width
+        self._preview_items: List[qw.QGraphicsLineItem] = []
+
+    def on_click(self, point: Tuple[float, float]) -> None:
+        if self._start is None:
+            self._start = point
+            self.prompt = "Specify next point: "
+        elif self._end is None:
+            self._end = point
+            if self._width is None:
+                self.prompt = "Specify pipe width (or a point): "
+        elif self._width is None:
+            width = _distance(self._end, point)
+            if width > 0:
+                self._width = width
+
+    def on_text(self, text: str) -> Optional[str]:
+        if self._start is None:
+            coord = _parse_coordinate(text, last_point=None)
+            if coord is None:
+                return f'Point must be given as "x,y": "{text}".'
+            self._start = coord
+            self.prompt = "Specify next point: "
+            return None
+        if self._end is None:
+            coord = _parse_coordinate(text, last_point=self._start)
+            if coord is None:
+                return f'Point must be given as "x,y" or "@dx,dy": "{text}".'
+            self._end = coord
+            if self._width is None:
+                self.prompt = "Specify pipe width (or a point): "
+            return None
+        try:
+            width = float(text.strip())
+        except ValueError:
+            coord = _parse_coordinate(text, last_point=self._end)
+            if coord is None:
+                return f'Requires a numeric width or a point: "{text}".'
+            width = _distance(self._end, coord)
+        if width <= 0:
+            return "Width must be positive."
+        self._width = width
+        return None
+
+    def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
+        if self._start is None:
+            return
+        if self._end is None:
+            self._set_preview_segments(scene, [(self._start, point)])
+            return
+        if self._width is not None:
+            return  # nothing left to preview - width already known (or continuation started with one)
+        width = _distance(self._end, point)
+        if width <= 0:
+            self._set_preview_segments(scene, [])
+            return
+        half = width / 2.0
+        self._set_preview_segments(
+            scene,
+            [
+                _offset_segment_perpendicular(self._start, self._end, half),
+                _offset_segment_perpendicular(self._start, self._end, -half),
+            ],
+        )
+
+    def _set_preview_segments(
+        self, scene: qw.QGraphicsScene, segments: List[Tuple[Tuple[float, float], Tuple[float, float]]]
+    ) -> None:
+        while len(self._preview_items) < len(segments):
+            item = qw.QGraphicsLineItem()
+            item.setPen(_preview_pen())
+            scene.addItem(item)
+            self._preview_items.append(item)
+        while len(self._preview_items) > len(segments):
+            scene.removeItem(self._preview_items.pop())
+        for item, (a, b) in zip(self._preview_items, segments):
+            item.setLine(a[0], a[1], b[0], b[1])
+
+    def is_done(self) -> bool:
+        return self._start is not None and self._end is not None and self._width is not None
+
+    def build_command(self, layer: str) -> EditCommand:
+        assert self._start is not None and self._end is not None and self._width is not None
+        half = self._width / 2.0
+        line_a = _offset_segment_perpendicular(self._start, self._end, half)
+        line_b = _offset_segment_perpendicular(self._start, self._end, -half)
+        return CompositeCommand(
+            [AddLineCommand(line_a[0], line_a[1], layer), AddLineCommand(line_b[0], line_b[1], layer)]
+        )
+
+    def cleanup(self, scene: qw.QGraphicsScene) -> None:
+        for item in self._preview_items:
+            scene.removeItem(item)
+        self._preview_items = []
+
+    def continuation(self) -> "PipeToolSession":
+        """A fresh PipeToolSession picking up where this one left off, same
+        width — so a multi-segment pipe run needs only one click per
+        endpoint after the first segment, not a width prompt every time."""
+        assert self._end is not None and self._width is not None
+        return PipeToolSession(start=self._end, width=self._width)
+
+
 class MoveToolSession(ToolSession):
     """Select objects first, then this tool moves them: click/type a base
     point, then a destination — same as AutoCAD's MOVE. Ignores `layer` in
@@ -968,7 +1107,7 @@ class CommandLine(qw.QWidget):
         prompt.setObjectName("dxfCommandPrompt")
         self._input = qw.QLineEdit()
         self._input.setObjectName("dxfCommandInput")
-        self._input.setPlaceholderText("POINT, LINE, CIRCLE, ZOOM …")
+        self._input.setPlaceholderText("POINT, LINE, CIRCLE, PIPE, ZOOM …")
         self._input.returnPressed.connect(self._submit)
         # QLineEdit binds Ctrl+Z/Ctrl+Y to its own internal text-edit undo/redo
         # and consumes the key press before any parent QShortcut sees it — an
@@ -996,7 +1135,7 @@ class CommandLine(qw.QWidget):
 
     def reset(self) -> None:
         self._history.clear()
-        self._echo("Type POINT, LINE, CIRCLE, ERASE, U(ndo), REDO, ZOOM, PAN or REGEN.")
+        self._echo("Type POINT, LINE, CIRCLE, PIPE, ERASE, U(ndo), REDO, ZOOM, PAN or REGEN.")
 
     def show_response(self, message: str) -> None:
         if message:
@@ -1048,6 +1187,9 @@ class DxfCommandInterpreter:
             "L": self._cmd_line,
             "CIRCLE": self._cmd_circle,
             "C": self._cmd_circle,
+            "PIPE": self._cmd_pipe,
+            "RURA": self._cmd_pipe,
+            "RU": self._cmd_pipe,
             "MOVE": self._cmd_move,
             "M": self._cmd_move,
             "ERASE": self._cmd_erase,
@@ -1147,6 +1289,34 @@ class DxfCommandInterpreter:
         self._viewer.start_tool(CircleToolSession())
         return ""
 
+    def _cmd_pipe(self, args: List[str]) -> str:
+        if len(args) >= 3:
+            start = _parse_coordinate(args[0], last_point=None)
+            end = _parse_coordinate(args[1], last_point=start)
+            if start is None or end is None:
+                raise _CommandError(f'Points must be given as "x,y": "{args[0]} {args[1]}".')
+            try:
+                width = float(args[2])
+            except ValueError:
+                raise _CommandError(f'Requires a numeric width: "{args[2]}".') from None
+            if width <= 0:
+                raise _CommandError("Width must be positive.")
+            doc = self._viewer.ensure_document()
+            half = width / 2.0
+            line_a = _offset_segment_perpendicular(start, end, half)
+            line_b = _offset_segment_perpendicular(start, end, -half)
+            self._viewer.execute_command(
+                CompositeCommand(
+                    [
+                        AddLineCommand(line_a[0], line_a[1], doc.active_layer),
+                        AddLineCommand(line_b[0], line_b[1], doc.active_layer),
+                    ]
+                )
+            )
+            return ""
+        self._viewer.start_tool(PipeToolSession())
+        return ""
+
     def _cmd_move(self, args: List[str]) -> str:
         self._viewer.start_move_tool()
         return ""
@@ -1196,6 +1366,7 @@ class DxfToolbar(qw.QWidget):
     pointRequested = qc.pyqtSignal()
     lineRequested = qc.pyqtSignal()
     circleRequested = qc.pyqtSignal()
+    pipeRequested = qc.pyqtSignal()
     selectRequested = qc.pyqtSignal()
     moveRequested = qc.pyqtSignal()
     eraseRequested = qc.pyqtSignal()
@@ -1217,6 +1388,7 @@ class DxfToolbar(qw.QWidget):
             "point": self.pointRequested,
             "line": self.lineRequested,
             "circle": self.circleRequested,
+            "pipe": self.pipeRequested,
             "move": self.moveRequested,
         }
 
@@ -1224,6 +1396,7 @@ class DxfToolbar(qw.QWidget):
         self._add_tool_button(layout, "point", "•", "Point (PO)")
         self._add_tool_button(layout, "line", "╱", "Line (L)")
         self._add_tool_button(layout, "circle", "○", "Circle (C)")
+        self._add_tool_button(layout, "pipe", "∥", "Pipe (RURA)")
         layout.addWidget(self._separator())
         self._add_tool_button(layout, "move", "✥", "Move selected (M)")
         self._erase_btn = self._add_plain_button(layout, "✕", "Erase selected (Del)", self.eraseRequested)
@@ -1301,6 +1474,7 @@ _TOOL_KEYS = {
     PointToolSession: "point",
     LineToolSession: "line",
     CircleToolSession: "circle",
+    PipeToolSession: "pipe",
     MoveToolSession: "move",
 }
 
@@ -1320,6 +1494,12 @@ class DxfViewer(qw.QWidget):
         self._history: Optional[CommandHistory] = None
         self._active_tool: Optional[ToolSession] = None
         self._selected_handles: List[str] = []
+        # Snapshot of layer names as of the last DXF *import* (load_file) —
+        # None for a blank/new drawing, where "prune to core layers" has
+        # nothing to work from. Layers created afterward (Add Layer, or by
+        # drawing) are never in this set, so the prune action never touches
+        # them regardless of their name — see core.commands.layers.layers_to_prune.
+        self._imported_layer_names: Optional[set] = None
 
         # [toolbar+stack column, stretch] | [LayerPanel, fixed width] —
         # puts the layers list to the right of the DXF preview, inside this
@@ -1384,6 +1564,7 @@ class DxfViewer(qw.QWidget):
         self._toolbar.pointRequested.connect(lambda: self._start_draw_tool(PointToolSession))
         self._toolbar.lineRequested.connect(lambda: self._start_draw_tool(LineToolSession))
         self._toolbar.circleRequested.connect(lambda: self._start_draw_tool(CircleToolSession))
+        self._toolbar.pipeRequested.connect(lambda: self._start_draw_tool(PipeToolSession))
         self._toolbar.selectRequested.connect(self.cancel_tool)
         self._toolbar.moveRequested.connect(self.start_move_tool)
         self._toolbar.eraseRequested.connect(lambda: self._echo(self.delete_selected()))
@@ -1405,6 +1586,7 @@ class DxfViewer(qw.QWidget):
             lambda n: self.execute_command(SetActiveLayerCommand(n))
         )
         self._layer_panel.selectLayerRequested.connect(self.select_by_layer)
+        self._layer_panel.pruneLayersRequested.connect(self._on_prune_layers)
 
         # Undo/redo are window-scoped: they should work no matter which
         # widget in the main window currently has focus (a config field in
@@ -1467,8 +1649,10 @@ class DxfViewer(qw.QWidget):
         self._view.set_document(None)
         self._history = None
         self._selected_handles = []
+        self._imported_layer_names = None
         self._sync_toolbar_history()
         self._layer_panel.refresh([])
+        self._layer_panel.set_prune_available(False)
         self.show_empty()
 
     def load_file(self, file_path: str) -> Tuple[bool, str]:
@@ -1483,12 +1667,17 @@ class DxfViewer(qw.QWidget):
         self._doc = doc
         self._history = CommandHistory()
         self._selected_handles = []
+        # Captured before any further edit, so "prune to core layers" always
+        # has the exact set of layers this file actually arrived with —
+        # never anything added afterward, even in this same session.
+        self._imported_layer_names = {info.name for info in doc.iter_layers()}
         try:
             self._render(preserve_view=False)
         except Exception as exc:  # noqa: BLE001 - a bad/unsupported drawing must never crash the app
             self._doc = None
             self._view.set_document(None)
             self._history = None
+            self._imported_layer_names = None
             self._sync_toolbar_history()
             return False, f"Could not render drawing: {exc}"
 
@@ -1578,6 +1767,29 @@ class DxfViewer(qw.QWidget):
         self.ensure_document()
         self.execute_command(AddLayerCommand(name, rgb))
 
+    def _on_prune_layers(self) -> None:
+        if self._doc is None or self._imported_layer_names is None:
+            return
+        existing_names = {info.name for info in self._doc.iter_layers()}
+        to_delete = layers_to_prune(self._imported_layer_names, existing_names)
+        if not to_delete:
+            self._echo("No layers to remove — everything already starts with 994, 211, or 219.")
+            return
+        preview = ", ".join(to_delete[:8]) + (f", +{len(to_delete) - 8} more" if len(to_delete) > 8 else "")
+        confirmed = qw.QMessageBox.question(
+            self,
+            "Remove layers",
+            f"Delete {len(to_delete)} imported layer(s) not starting with 994, 211, or 219, "
+            f"along with everything drawn on them?\n\n{preview}\n\n"
+            "Layers added since importing are not affected. This can be undone with Ctrl+Z.",
+            qw.QMessageBox.StandardButton.Yes | qw.QMessageBox.StandardButton.No,
+            qw.QMessageBox.StandardButton.No,
+        )
+        if confirmed != qw.QMessageBox.StandardButton.Yes:
+            return
+        self.execute_command(CompositeCommand([DeleteLayerCommand(name) for name in to_delete]))
+        self._echo(f"Removed {len(to_delete)} layer(s).")
+
     # ------------------------------------------------------------------
     # Internal signal handlers
     # ------------------------------------------------------------------
@@ -1611,11 +1823,12 @@ class DxfViewer(qw.QWidget):
         assert tool is not None
         doc = self.ensure_document()
         command = tool.build_command(doc.active_layer)
-        # LINE chains like AutoCAD's: finishing a segment starts a fresh
-        # LineToolSession from its endpoint instead of dropping the tool, so
-        # drawing a connected run of segments doesn't require reselecting
-        # the Line tool after every single click.
-        next_tool = tool.continuation() if isinstance(tool, LineToolSession) else None
+        # LINE and PIPE chain like AutoCAD's LINE: finishing a segment starts
+        # a fresh session picking up from its endpoint instead of dropping
+        # the tool, so drawing a connected run of segments doesn't require
+        # reselecting the tool after every single click. Any ToolSession
+        # that supports this just needs its own continuation() method.
+        next_tool = tool.continuation() if hasattr(tool, "continuation") else None
         tool.cleanup(self._view.scene())
         self._active_tool = None
         self._view.set_tool(None)
@@ -1654,5 +1867,6 @@ class DxfViewer(qw.QWidget):
         self.entity_count = self._doc.entity_count()
         self.layer_count = self._doc.layer_count()
         self._layer_panel.refresh(self._doc.iter_layers())
+        self._layer_panel.set_prune_available(self._imported_layer_names is not None)
         self._sync_toolbar_history()
         self.documentChanged.emit()

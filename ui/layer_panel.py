@@ -123,6 +123,7 @@ class LayerPanel(qw.QWidget):
     visibilityToggled = qc.pyqtSignal(str, bool)
     setActiveRequested = qc.pyqtSignal(str)
     selectLayerRequested = qc.pyqtSignal(str)
+    pruneLayersRequested = qc.pyqtSignal()
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -149,12 +150,27 @@ class LayerPanel(qw.QWidget):
         scroll.setWidget(self._rows_container)
         layout.addWidget(scroll, 1)
 
+        bottom_row = qw.QHBoxLayout()
+        bottom_row.setContentsMargins(0, 0, 0, 0)
+        bottom_row.setSpacing(SPACE_XS)
+
         add_btn = qw.QToolButton()
         add_btn.setObjectName("layerAddBtn")
         add_btn.setText("+ Add layer")
         add_btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self._on_add_clicked)
-        layout.addWidget(add_btn)
+        bottom_row.addWidget(add_btn, 1)
+
+        self._prune_btn = qw.QToolButton()
+        self._prune_btn.setObjectName("layerPruneBtn")
+        self._prune_btn.setText("🧹")
+        self._prune_btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
+        self._prune_btn.clicked.connect(self._on_prune_clicked)
+        self._prune_btn.setEnabled(False)
+        self._set_prune_tooltip(available=False)
+        bottom_row.addWidget(self._prune_btn)
+
+        layout.addLayout(bottom_row)
 
         self._layer_count = 0
 
@@ -187,3 +203,22 @@ class LayerPanel(qw.QWidget):
         if not ok or not name:
             return
         self.addLayerRequested.emit(name, _next_color(self._layer_count))
+
+    def _on_prune_clicked(self) -> None:
+        self.pruneLayersRequested.emit()
+
+    def set_prune_available(self, available: bool) -> None:
+        """Enabled only once a DXF has actually been imported — there's no
+        "imported layers" snapshot to prune against in a blank drawing."""
+        self._prune_btn.setEnabled(available)
+        self._set_prune_tooltip(available)
+
+    def _set_prune_tooltip(self, available: bool) -> None:
+        if available:
+            text = (
+                "Remove imported layers not starting with 994, 211, or 219\n"
+                "(layers added since importing are never touched)"
+            )
+        else:
+            text = "Import a DXF file to use this"
+        self._prune_btn.setToolTip(text)

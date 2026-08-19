@@ -1,22 +1,54 @@
 """Layer management commands — section 4 of the DXF edit command spec."""
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 from core.commands.edit import DeleteEntityCommand
 from core.dxf_document import DXFDocument
 
+# Layer-name prefixes a "prune to core layers" action always keeps, even
+# among layers present when a DXF was imported — the fixed numbering
+# convention this project's real-world DXF exports use for the layers that
+# actually matter (see `layers_to_prune`).
+PROTECTED_LAYER_PREFIXES: Tuple[str, ...] = ("994", "211", "219")
+
+
+def layers_to_prune(imported_names: Iterable[str], existing_names: Iterable[str]) -> List[str]:
+    """Which layers a "prune to core layers" action should delete.
+
+    Only layers in `imported_names` (a snapshot taken when the DXF was
+    loaded) are ever candidates — anything created since (via Add Layer, or
+    by drawing into a new layer) is never touched, regardless of its name.
+    Of those, a layer is deleted unless it's layer "0", no longer exists, or
+    its name starts with one of `PROTECTED_LAYER_PREFIXES`.
+    """
+    existing = set(existing_names)
+    return sorted(
+        name
+        for name in imported_names
+        if name in existing and name != "0" and not name.startswith(PROTECTED_LAYER_PREFIXES)
+    )
+
 
 class AddLayerCommand:
+    """`DXFDocument.add_layer` is idempotent — a name that already exists is
+    left untouched, not recolored. Undo mirrors that: it only removes the
+    layer if this command actually created it, so running this against an
+    already-existing layer (e.g. one just imported from a DXF) is a true
+    no-op in both directions, never an accidental delete on undo."""
+
     def __init__(self, name: str, rgb: Optional[Tuple[int, int, int]] = None) -> None:
         self._name = name
         self._rgb = rgb
+        self._created = False
 
     def execute(self, doc: DXFDocument) -> None:
+        self._created = self._name not in doc.layers
         doc.add_layer(self._name, self._rgb)
 
     def undo(self, doc: DXFDocument) -> None:
-        doc.remove_layer(self._name)
+        if self._created:
+            doc.remove_layer(self._name)
 
 
 class SetLayerColorCommand:

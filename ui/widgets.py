@@ -10,9 +10,10 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from PyQt6 import QtGui
 from PyQt6.QtCore import QLocale, Qt, pyqtSignal
-from PyQt6.QtGui import QDoubleValidator
+from PyQt6.QtGui import QColor, QDoubleValidator
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QColorDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -20,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -121,6 +123,44 @@ class CheckField(QPushButton):
     def _paint(self, checked: bool) -> None:
         glyph = "☑" if checked else "☐"
         self.setText(f"{glyph}  {self._label}")
+
+
+# --------------------------------------------------------------------------
+# Color swatch (a solid-colored button; click opens a color picker) — used
+# for both an existing DXF layer's color (ui/layer_panel.py) and a
+# not-yet-created layer's planned color (ui/tabs/layer_tab.py).
+# --------------------------------------------------------------------------
+class ColorSwatchButton(QToolButton):
+
+    colorChanged = pyqtSignal(tuple)
+
+    def __init__(
+        self, rgb: Tuple[int, int, int], tooltip: str = "Change color", parent: Optional[QWidget] = None
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("colorSwatchBtn")
+        self.setToolTip(tooltip)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rgb = rgb
+        self._apply_style()
+        self.clicked.connect(self._pick_color)
+
+    @property
+    def rgb(self) -> Tuple[int, int, int]:
+        return self._rgb
+
+    def set_color(self, rgb: Tuple[int, int, int]) -> None:
+        self._rgb = rgb
+        self._apply_style()
+
+    def _apply_style(self) -> None:
+        self.setStyleSheet(f"background-color: rgb{self._rgb};")
+
+    def _pick_color(self) -> None:
+        color = QColorDialog.getColor(QColor(*self._rgb), self, "Choose Color")
+        if color.isValid():
+            self.set_color((color.red(), color.green(), color.blue()))
+            self.colorChanged.emit(self._rgb)
 
 
 # --------------------------------------------------------------------------
