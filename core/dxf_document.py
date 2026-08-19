@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import ezdxf
-from ezdxf import recover
+from ezdxf import colors as ezdxf_colors, recover
 from ezdxf.document import Drawing
 from ezdxf.entities import DXFGraphic
 from ezdxf.layouts import Modelspace
@@ -202,11 +202,25 @@ class DXFDocument:
             self._drawing.header["$CLAYER"] = DEFAULT_LAYER_NAME
 
     def get_layer_color(self, name: str) -> Tuple[int, int, int]:
+        """The layer's color as plain RGB, for the layer panel's swatch.
+
+        Most real-world DXFs (including typical cadastral/surveying
+        exports) color their layers the classic way — an AutoCAD Color
+        Index (ACI) in `dxf.color` — rather than a true-color RGB value.
+        `Layer.rgb` only reflects the latter and is `None` for an
+        ACI-colored layer, which used to make every such layer's swatch
+        show up plain white here even though the canvas (whose renderer
+        already resolves ACI correctly) showed its real color."""
         layer = self.layers.get(name)
         rgb = layer.rgb
-        if rgb is None:
+        if rgb is not None:
+            return (rgb.r, rgb.g, rgb.b)
+        aci = abs(layer.dxf.color)  # a negative stored value means "off", not a different color
+        try:
+            aci_rgb = ezdxf_colors.aci2rgb(aci)
+        except IndexError:
             return (255, 255, 255)
-        return (rgb.r, rgb.g, rgb.b)
+        return (aci_rgb.r, aci_rgb.g, aci_rgb.b)
 
     def set_layer_color(self, name: str, rgb: Tuple[int, int, int]) -> None:
         self.layers.get(name).rgb = rgb

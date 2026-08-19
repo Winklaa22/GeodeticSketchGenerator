@@ -32,6 +32,7 @@ from ui.tabs.delimiter_tab import DelimiterTab
 from ui.tabs.draw_tab import DrawTab
 from ui.tabs.heights_tab import HeightsTab
 from ui.tabs.layer_tab import LayerTab
+from ui.tabs.pipe_tab import PipeTab
 from ui.tabs.points_tab import PointsTab
 from ui.tabs.selection_tab import SelectionTab
 from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL
@@ -163,6 +164,7 @@ class MainWindow(QMainWindow):
         self.points_tab = PointsTab()
         self.heights_tab = HeightsTab()
         self.cable_tab = CableTab()
+        self.pipe_tab = PipeTab()
         self.selection_tab = SelectionTab()
         self.layer_tab = LayerTab(self.settings)
 
@@ -173,6 +175,7 @@ class MainWindow(QMainWindow):
             ("○", "Points", self.points_tab),
             ("☰", "Heights", self.heights_tab),
             ("╱", "Cable Marks", self.cable_tab),
+            ("═", "Pipe", self.pipe_tab),
             ("▢", "Selection", self.selection_tab),
             ("▤", "Layer", self.layer_tab),
         )
@@ -268,6 +271,7 @@ class MainWindow(QMainWindow):
         self.points_tab.option_changed.connect(self._on_config_changed)
         self.heights_tab.option_changed.connect(self._on_config_changed)
         self.cable_tab.option_changed.connect(self._on_config_changed)
+        self.pipe_tab.option_changed.connect(self._on_config_changed)
         self.selection_tab.selection_changed.connect(self._on_config_changed)
         self.layer_tab.layer_changed.connect(self._on_config_changed)
 
@@ -375,6 +379,8 @@ class MainWindow(QMainWindow):
             points=self.points_tab.get_options(),
             heights=self.heights_tab.get_options(),
             cable=self.cable_tab.get_options(),
+            pipe=self.pipe_tab.get_options(),
+            layer_rgb=self.layer_tab.get_layer_rgb(),
         )
 
     @staticmethod

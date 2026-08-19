@@ -227,3 +227,28 @@ def test_load_materializes_layers_referenced_but_not_defined(tmp_path) -> None:
     names = {info.name for info in doc.iter_layers()}
     assert "UNDEFINED-LAYER" in names
     assert doc.get_layer_color("UNDEFINED-LAYER") == (255, 255, 255)
+
+
+def test_get_layer_color_resolves_classic_aci_color(doc: DXFDocument) -> None:
+    # Most real-world DXFs (cadastral/surveying exports included) color
+    # layers the classic way - an AutoCAD Color Index, not true-color RGB.
+    doc.layers.add("RED-LAYER", color=1)  # ACI 1 = pure red
+    assert doc.get_layer_color("RED-LAYER") == (255, 0, 0)
+
+
+def test_get_layer_color_prefers_true_color_rgb_over_aci(doc: DXFDocument) -> None:
+    layer = doc.layers.add("BOTH", color=1)  # ACI red...
+    layer.rgb = (10, 20, 30)  # ...but an explicit true-color wins
+    assert doc.get_layer_color("BOTH") == (10, 20, 30)
+
+
+def test_get_layer_color_falls_back_to_white_for_invalid_aci(doc: DXFDocument) -> None:
+    layer = doc.layers.add("WEIRD")
+    layer.dxf.color = 0  # not a valid color index (BYBLOCK, meaningless on a layer)
+    assert doc.get_layer_color("WEIRD") == (255, 255, 255)
+
+
+def test_get_layer_color_ignores_the_off_sign_on_aci(doc: DXFDocument) -> None:
+    layer = doc.layers.add("OFF-LAYER", color=1)  # ACI 1 = red
+    layer.off()  # stores color as -1 internally - still red, just hidden
+    assert doc.get_layer_color("OFF-LAYER") == (255, 0, 0)

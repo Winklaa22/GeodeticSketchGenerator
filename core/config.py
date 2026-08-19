@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional, Tuple
 
 from core.draw_modes import DrawMode
 
@@ -32,6 +33,14 @@ class CableOptions:
 
 
 @dataclass(frozen=True)
+class PipeOptions:
+    """Options for the 'Pipe' drawing mode — a protective casing pipe (RURA
+    OSŁONOWA) drawn as two parallel lines straddling the cable route."""
+
+    width: float = 0.16
+
+
+@dataclass(frozen=True)
 class GenerationConfig:
     """Everything needed to generate a script for one drawing mode."""
 
@@ -41,3 +50,8 @@ class GenerationConfig:
     points: PointsOptions = field(default_factory=PointsOptions)
     heights: HeightsOptions = field(default_factory=HeightsOptions)
     cable: CableOptions = field(default_factory=CableOptions)
+    pipe: PipeOptions = field(default_factory=PipeOptions)
+    # The color to create `layer_name` with if it doesn't exist yet - never
+    # applied to an already-existing layer (e.g. one imported from a DXF),
+    # see core.commands.layers.AddLayerCommand.
+    layer_rgb: Optional[Tuple[int, int, int]] = None

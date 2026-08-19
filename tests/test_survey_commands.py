@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.config import CableOptions, GenerationConfig, HeightsOptions, PointsOptions
+from core.config import CableOptions, GenerationConfig, HeightsOptions, PipeOptions, PointsOptions
 from core.draw_modes import DrawMode
 from core.dxf_document import DXFDocument
 from core.exceptions import InvalidLayerNameError, NoDataError, NoSelectionError
@@ -60,6 +60,42 @@ def test_applying_the_command_creates_the_target_layer(service: SurveyDrawServic
     command.execute(doc)
     assert "MyLayer" in doc.layers
     assert all(e.dxf.layer == "MyLayer" for e in doc.modelspace)
+
+
+def test_layer_rgb_colors_a_newly_created_layer(service: SurveyDrawService, points, doc: DXFDocument) -> None:
+    config = GenerationConfig(layer_name="MyLayer", draw_mode=DrawMode.LINES, layer_rgb=(200, 30, 40))
+    command = service.build_command(points, [1, 2, 3], config)
+    command.execute(doc)
+    assert doc.get_layer_color("MyLayer") == (200, 30, 40)
+
+
+def test_layer_rgb_never_recolors_an_already_existing_layer(
+    service: SurveyDrawService, points, doc: DXFDocument
+) -> None:
+    doc.add_layer("MyLayer", rgb=(9, 9, 9))  # e.g. imported from a DXF
+    config = GenerationConfig(layer_name="MyLayer", draw_mode=DrawMode.LINES, layer_rgb=(200, 30, 40))
+    command = service.build_command(points, [1, 2, 3], config)
+    command.execute(doc)
+    assert doc.get_layer_color("MyLayer") == (9, 9, 9)
+
+
+def test_layer_rgb_undo_removes_the_layer_it_created_along_with_the_drawing(
+    service: SurveyDrawService, points, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="MyLayer", draw_mode=DrawMode.LINES, layer_rgb=(200, 30, 40))
+    command = service.build_command(points, [1, 2, 3], config)
+    command.execute(doc)
+    command.undo(doc)
+    assert "MyLayer" not in doc.layers
+    assert doc.entity_count() == 0
+
+
+def test_no_layer_rgb_behaves_exactly_as_before(service: SurveyDrawService, points, doc: DXFDocument) -> None:
+    config = GenerationConfig(layer_name="MyLayer", draw_mode=DrawMode.LINES)  # layer_rgb defaults to None
+    command = service.build_command(points, [1, 2, 3], config)
+    command.execute(doc)
+    assert "MyLayer" in doc.layers
+    assert doc.get_layer_color("MyLayer") == (255, 255, 255)  # ezdxf's own plain default
 
 
 def test_lines_mode_chains_line_entities_through_selected_points(
@@ -148,6 +184,35 @@ def test_lines_mode_draws_skrzynka_sides_alongside_the_cable_segments(
     cable_line = lines[0]
     assert tuple(cable_line.dxf.start) == (0.0, 0.0, 0.0)
     assert tuple(cable_line.dxf.end) == (20.0, 0.0, 0.0)
+
+
+def test_pipe_mode_draws_two_parallel_lines_straddling_each_segment(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = {1: Point(x=0.0, y=0.0, h=0.0), 2: Point(x=10.0, y=0.0, h=0.0)}
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.PIPE, pipe=PipeOptions(width=0.2))
+    service.build_command(points, [1, 2], config).execute(doc)
+    lines = sorted(_entities_of_type(doc, "LINE"), key=lambda line: line.dxf.start[1])
+    assert len(lines) == 2  # one segment -> two parallel lines
+    below, above = lines
+    assert tuple(below.dxf.start)[:2] == (0.0, -0.1)
+    assert tuple(below.dxf.end)[:2] == (10.0, -0.1)
+    assert tuple(above.dxf.start)[:2] == (0.0, 0.1)
+    assert tuple(above.dxf.end)[:2] == (10.0, 0.1)
+
+
+def test_pipe_mode_skips_straight_past_a_skrzynka_like_lines_mode(
+    service: SurveyDrawService, points_with_box, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.PIPE, pipe=PipeOptions(width=0.2))
+    service.build_command(points_with_box, [1, 2, 3, 4, 5, 6], config).execute(doc)
+    lines = _entities_of_type(doc, "LINE")
+    # 1 cable segment (1->6, skipping the box) -> 2 parallel pipe lines,
+    # and the box itself is never touched by the pipe.
+    assert len(lines) == 2
+    for line in lines:
+        assert tuple(line.dxf.start)[0] == 0.0
+        assert tuple(line.dxf.end)[0] == 20.0
 
 
 @pytest.fixture

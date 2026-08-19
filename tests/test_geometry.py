@@ -1,11 +1,14 @@
 """Tests for core.geometry direction/angle helpers."""
 from __future__ import annotations
 
+import math
+
 from core.geometry import (
     AngleQuadrant,
     classify_quadrant,
     compute_direction_angle,
     get_next_point,
+    offset_segment_perpendicular,
     snap_small_rotation,
 )
 from models.point import Point
@@ -41,3 +44,30 @@ def test_get_next_point_returns_none_for_last_selected() -> None:
     points = {1: Point(0, 0, 0), 2: Point(1, 0, 0)}
     assert get_next_point(points, 2, last_selected=2) is None
     assert get_next_point(points, 1, last_selected=2) == points[2]
+
+
+def test_offset_segment_perpendicular_shifts_a_horizontal_segment_vertically() -> None:
+    start, end = offset_segment_perpendicular(Point(0, 0, 5), Point(10, 0, 6), offset=1.0)
+    assert (start.x, start.y, start.h) == (0.0, 1.0, 5.0)
+    assert (end.x, end.y, end.h) == (10.0, 1.0, 6.0)
+
+
+def test_offset_segment_perpendicular_flips_side_for_negative_offset() -> None:
+    start, end = offset_segment_perpendicular(Point(0, 0, 0), Point(10, 0, 0), offset=-1.0)
+    assert (start.y, end.y) == (-1.0, -1.0)
+
+
+def test_offset_segment_perpendicular_stays_perpendicular_for_a_diagonal_segment() -> None:
+    start, end = offset_segment_perpendicular(Point(0, 0, 0), Point(3, 4, 0), offset=5.0)
+    # The shift itself (end - original end, same as start's) must be
+    # perpendicular to the segment's own direction (dot product == 0) and
+    # have exactly the requested length.
+    shift = (end.x - 3, end.y - 4)
+    assert math.isclose(shift[0] * 3 + shift[1] * 4, 0.0, abs_tol=1e-9)
+    assert math.isclose(math.hypot(*shift), 5.0)
+
+
+def test_offset_segment_perpendicular_leaves_a_zero_length_segment_unshifted() -> None:
+    start, end = offset_segment_perpendicular(Point(1, 1, 0), Point(1, 1, 0), offset=2.0)
+    assert (start.x, start.y) == (1.0, 1.0)
+    assert (end.x, end.y) == (1.0, 1.0)
