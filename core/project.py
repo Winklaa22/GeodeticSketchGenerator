@@ -1,12 +1,9 @@
 """Project save/load — a .gsgproj file bundles the point file, the DXF file,
 and every option tab's settings into one JSON document, so reopening a
-project (see ui/start_screen.py) puts the app back exactly where it was
-left off, not just with the same files loaded.
+project puts the app back exactly where it was left off.
 
-Pure serialization only: no Qt here (the app's other core/ modules stay
-framework-agnostic the same way) — ui/main_window.py converts between this
-and the actual tab widgets, and ui/start_screen.py owns the QSettings-backed
-"recent projects" list, since that's UI-shell state, not project data.
+Pure serialization, no Qt: ui/main_window.py converts this to/from the
+actual tab widgets, and ui/start_screen.py owns the "recent projects" list.
 """
 from __future__ import annotations
 
@@ -59,9 +56,8 @@ class PipeState:
 @dataclass
 class SelectionState:
     mode: str = "all"  # "all" | "separately" | "range" - see ui.tabs.selection_tab
-    # The last text typed into the "Separately.../In range..." prompt for
-    # each mode - restored as that dialog's pre-filled default, not applied
-    # silently, since re-confirming a selection each Apply is deliberate.
+    # Last text typed into the "Separately.../In range..." prompt - restored
+    # as that dialog's pre-filled default, not applied silently.
     separate_text: str = ""
     range_text: str = ""
 
@@ -80,12 +76,9 @@ class ProjectState:
     name: str = "Untitled"
     txt_file_path: str = ""
     dxf_file_path: str = ""
-    # A full snapshot of the DXF's actual content (see DXFDocument.to_text),
-    # embedded directly in the project file — not just a reference to
-    # dxf_file_path. Without this, any DXF edit never separately saved to
-    # its own .dxf file (drawn interactively, or via Apply) would be lost
-    # on reopening the project even though the project itself was saved.
-    # None if no DXF was loaded when the project was saved.
+    # Full snapshot of the DXF's content (see DXFDocument.to_text), not just
+    # a reference to dxf_file_path - otherwise edits never separately saved
+    # to their own .dxf would be lost on reopening the project.
     dxf_content: Optional[str] = None
     draw_mode: str = "plines"  # see ui.tabs.draw_tab's mode keys
     delimiter: DelimiterState = field(default_factory=DelimiterState)
@@ -142,14 +135,8 @@ def load_project(path: str) -> ProjectState:
 
 def open_any(path: str) -> ProjectState:
     """Resolves a .gsgproj, .dxf, or .txt path into a ProjectState ready to
-    load into the editor — shared by ui/start_screen.py's Import… and
-    ui/main_window.py's File > Open, so both understand exactly the same
-    set of openable files.
-
-    A .gsgproj is loaded as-is (see `load_project`). A bare .dxf or .txt
-    isn't wrapped in a project yet, so this starts a fresh, unsaved one
-    pointed at it rather than requiring the user to create a .gsgproj first
-    just to open one file.
+    load — shared by start_screen's Import… and main_window's File > Open.
+    A bare .dxf/.txt starts a fresh, unsaved project pointed at it.
 
     Raises `ProjectFileError` for an unsupported extension or a malformed
     .gsgproj.

@@ -62,6 +62,7 @@ from ui.widgets import (
     DxfSourceRow,
     ErrorBanner,
     FileCard,
+    SegmentedControl,
     restyle,
 )
 
@@ -75,6 +76,25 @@ _STATUS_TEXT = {
 # Characters Windows forbids in a filename — a renamed project's file must
 # still be a legal name on disk (see MainWindow.rename_project).
 _INVALID_FILENAME_CHARS = '<>:"/\\|?*'
+
+
+class _PointFileSection(QWidget):
+    """The point-file accordion section's content: the upload widget on
+    top, the delimiter options below (hidden until a file is loaded).
+    is_modified() delegates to the delimiter tab, since the file widget
+    itself is never "modified" in the option-tab sense."""
+
+    def __init__(self, file_stack: QStackedWidget, delimiter_tab: DelimiterTab) -> None:
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(SPACE_LG)
+        layout.addWidget(file_stack)
+        layout.addWidget(delimiter_tab)
+        self._delimiter_tab = delimiter_tab
+
+    def is_modified(self) -> bool:
+        return self._delimiter_tab.is_modified()
 
 
 class AppState(Enum):
@@ -141,8 +161,11 @@ class MainWindow(QMainWindow):
         content_layout = QHBoxLayout(content)
         content_layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
         content_layout.setSpacing(SPACE_XL)
+        # Built right-first: the left column's "Layers" nav item docks
+        # dxf_viewer.layer_panel, so dxf_viewer has to exist already.
+        right_column = self._build_right_column()
         content_layout.addWidget(self._build_left_column())
-        content_layout.addWidget(self._build_right_column(), 1)
+        content_layout.addWidget(right_column, 1)
         root.addWidget(content, 1)
 
         root.addWidget(self._build_status_bar())
@@ -233,6 +256,19 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(SPACE_LG)
 
+        self.dxf_source_row = DxfSourceRow()
+        self.dxf_source_row.fileRequested.connect(self.select_dxf_file)
+        self.dxf_source_row.filesDropped.connect(self._on_dxf_files_dropped)
+        self.dxf_source_row.clearRequested.connect(self.clear_dxf_file)
+        outer.addWidget(self.dxf_source_row)
+
+        # GIMP-style dock switcher: the user picks which of these two shows
+        # below, independent of whether a point file or DXF is loaded.
+        self.left_nav = SegmentedControl([("point_file", "Point File"), ("layers", "Layers")])
+        outer.addWidget(self.left_nav)
+
+        self.left_stack = QStackedWidget()
+
         self.file_stack = QStackedWidget()
         self.drop_zone = DropZone()
         self.drop_zone.fileRequested.connect(self.select_file)
@@ -241,13 +277,6 @@ class MainWindow(QMainWindow):
         self.file_card.changeRequested.connect(self.select_file)
         self.file_stack.addWidget(self.drop_zone)
         self.file_stack.addWidget(self.file_card)
-        outer.addWidget(self.file_stack)
-
-        self.dxf_source_row = DxfSourceRow()
-        self.dxf_source_row.fileRequested.connect(self.select_dxf_file)
-        self.dxf_source_row.filesDropped.connect(self._on_dxf_files_dropped)
-        self.dxf_source_row.clearRequested.connect(self.clear_dxf_file)
-        outer.addWidget(self.dxf_source_row)
 
         self.delimiter_tab = DelimiterTab()
         self.draw_tab = DrawTab()
@@ -260,25 +289,40 @@ class MainWindow(QMainWindow):
 
         self.accordion = Accordion()
         specs = (
-            ("⦿", "Source & Delimiter", self.delimiter_tab),
+            ("▭", "Point File", _PointFileSection(self.file_stack, self.delimiter_tab)),
+            ("▤", "Layer", self.layer_tab),
             ("✎", "Drawing Mode", self.draw_tab),
             ("○", "Points", self.points_tab),
             ("☰", "Heights", self.heights_tab),
             ("╱", "Cable Marks", self.cable_tab),
             ("═", "Pipe", self.pipe_tab),
             ("▢", "Selection", self.selection_tab),
-            ("▤", "Layer", self.layer_tab),
         )
         for icon, title, tab in specs:
             section = AccordionSection(icon, title, tab)
             self.accordion.add_section(section)
             self._sections.append((section, tab))
+        # The point-file section holds its own upload controls, so it must
+        # stay visible even with nothing loaded yet - the rest are hidden
+        # until there's data to mean anything (see _refresh).
+        self._point_file_section = self._sections[0][0]
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(self.accordion)
-        outer.addWidget(scroll, 1)
+        self.left_stack.addWidget(scroll)
+
+        layers_scroll = QScrollArea()
+        layers_scroll.setWidgetResizable(True)
+        layers_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        layers_scroll.setWidget(self.dxf_viewer.layer_panel)
+        self.left_stack.addWidget(layers_scroll)
+
+        self.left_nav.currentChanged.connect(
+            lambda key: self.left_stack.setCurrentIndex(0 if key == "point_file" else 1)
+        )
+        outer.addWidget(self.left_stack, 1)
 
         return wrapper
 
@@ -398,9 +442,14 @@ class MainWindow(QMainWindow):
     def _refresh(self) -> None:
         state = self._current_state()
 
+        has_file = state is not AppState.EMPTY
+        self.delimiter_tab.setVisible(has_file)
+        for section, _tab in self._sections:
+            if section is not self._point_file_section:
+                section.setVisible(has_file)
+
         if state is AppState.EMPTY:
             self.file_stack.setCurrentWidget(self.drop_zone)
-            self.accordion.setEnabled(False)
             self.error_banner.clear()
             file_label = "No file selected"
             layer_text = "Layer: –"
@@ -409,7 +458,6 @@ class MainWindow(QMainWindow):
             name, count, size = os.path.basename(self.file_path), len(self.data), self.file_size_text
             self.file_card.set_file(name, count, size)
             self.file_stack.setCurrentWidget(self.file_card)
-            self.accordion.setEnabled(True)
             file_label = f"{name} · {count} points"
             layer_text = f"Layer: {self.layer_tab.get_layer_name() or '0'}"
             delim_text = f"Delimiter: {self._delimiter_display_name()}"

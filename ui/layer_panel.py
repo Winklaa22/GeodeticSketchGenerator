@@ -16,12 +16,11 @@ from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 from core.dxf_document import LayerInfo
 from ui.theme import SPACE_XS
 
-PANEL_WIDTH = 190
 # Budget left for the name label once the active/swatch/visibility/delete
-# icon-buttons and margins/spacing take their share of PANEL_WIDTH — long
-# names (common in real-world layer naming, e.g. Polish cadastral exports)
-# get elided rather than forcing the whole panel to scroll horizontally.
-_NAME_MAX_WIDTH = 90
+# icon-buttons and margins/spacing take their share of the row — long names
+# (common in real-world layer naming, e.g. Polish cadastral exports) get
+# elided rather than forcing the whole panel to scroll horizontally.
+_NAME_MAX_WIDTH = 220
 
 # Cycled through for a new layer's default color, in the order layers are added.
 _AUTO_PALETTE: List[Tuple[int, int, int]] = [
@@ -128,7 +127,6 @@ class LayerPanel(qw.QWidget):
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("layerPanel")
-        self.setFixedWidth(PANEL_WIDTH)
 
         layout = qw.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

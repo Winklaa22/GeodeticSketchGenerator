@@ -30,11 +30,8 @@ class SelectionTab(QWidget):
         layout.addWidget(make_field("Select points", self.mode_control))
         layout.addStretch(1)
 
-        # The "Separately.../In range..." prompt is re-asked on every Apply
-        # by design (see get_selected_numbers) rather than applied silently
-        # from a stored value - but the last-confirmed text is still kept
-        # here so it can (a) pre-fill that same dialog next time, and (b) be
-        # written into a saved project (see ui.main_window/core.project).
+        # Last-confirmed text for each prompt, kept only to pre-fill the
+        # dialog next time and for project save/load - not applied silently.
         self._separate_text = ""
         self._range_text = ""
 

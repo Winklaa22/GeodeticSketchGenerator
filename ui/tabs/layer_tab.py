@@ -57,10 +57,7 @@ class LayerTab(QWidget):
         return self.layer_input.text()
 
     def get_layer_rgb(self) -> Tuple[int, int, int]:
-        """The color the target layer should end up with on Apply — set
-        whether that layer is created fresh or already existed (e.g. one
-        imported from a DXF); see
-        core.survey_draw_service.SurveyDrawService.build_command."""
+        """The color the target layer should end up with on Apply."""
         return self.color_swatch.rgb
 
     def set_state(self, name: str, rgb: Tuple[int, int, int]) -> None:

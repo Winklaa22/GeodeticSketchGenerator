@@ -25,13 +25,8 @@ class SurveyDrawService:
         draw_command = builder(points, selected_numbers, config, layer_name)
         if config.layer_rgb is None:
             return draw_command
-        # The color picked for the target layer always takes effect - a
-        # brand-new layer gets created first (AddLayerCommand, a no-op if
-        # it already exists), then SetLayerColorCommand sets its color
-        # either way, recording whatever color it had before (its own
-        # freshly-created default, or an existing/imported layer's real
-        # color) so undo restores exactly that - all as one undo step with
-        # the rest of the drawing.
+        # Create the layer if needed, then color it either way (new or
+        # already existed), as one undo step with the rest of the drawing.
         return CompositeCommand(
             [AddLayerCommand(layer_name), SetLayerColorCommand(layer_name, config.layer_rgb), draw_command]
         )

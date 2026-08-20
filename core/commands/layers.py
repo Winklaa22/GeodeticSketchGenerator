@@ -6,22 +6,15 @@ from typing import Iterable, List, Optional, Tuple
 from core.commands.edit import DeleteEntityCommand
 from core.dxf_document import DXFDocument
 
-# Layer-name prefixes a "prune to core layers" action always keeps, even
-# among layers present when a DXF was imported — the fixed numbering
-# convention this project's real-world DXF exports use for the layers that
-# actually matter (see `layers_to_prune`).
+# Layer-name prefixes a "prune to core layers" action always keeps — this
+# project's real-world DXF exports use these to mark the layers that matter.
 PROTECTED_LAYER_PREFIXES: Tuple[str, ...] = ("994", "211", "219")
 
 
 def layers_to_prune(imported_names: Iterable[str], existing_names: Iterable[str]) -> List[str]:
-    """Which layers a "prune to core layers" action should delete.
-
-    Only layers in `imported_names` (a snapshot taken when the DXF was
-    loaded) are ever candidates — anything created since (via Add Layer, or
-    by drawing into a new layer) is never touched, regardless of its name.
-    Of those, a layer is deleted unless it's layer "0", no longer exists, or
-    its name starts with one of `PROTECTED_LAYER_PREFIXES`.
-    """
+    """Layers to delete for "prune to core layers": from `imported_names`
+    (the DXF's layers as loaded, never anything created since), excluding
+    "0", already-gone layers, and anything starting with a protected prefix."""
     existing = set(existing_names)
     return sorted(
         name
@@ -31,11 +24,8 @@ def layers_to_prune(imported_names: Iterable[str], existing_names: Iterable[str]
 
 
 class AddLayerCommand:
-    """`DXFDocument.add_layer` is idempotent — a name that already exists is
-    left untouched, not recolored. Undo mirrors that: it only removes the
-    layer if this command actually created it, so running this against an
-    already-existing layer (e.g. one just imported from a DXF) is a true
-    no-op in both directions, never an accidental delete on undo."""
+    """Idempotent: a name that already exists is left untouched. Undo only
+    removes the layer if this command actually created it."""
 
     def __init__(self, name: str, rgb: Optional[Tuple[int, int, int]] = None) -> None:
         self._name = name

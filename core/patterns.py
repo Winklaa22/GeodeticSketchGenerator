@@ -1,29 +1,15 @@
 """Detects two shapes among consecutively-numbered survey points, for the
-LINES/PLINES/POLY3D drawing modes:
+LINES/PLINES/POLY3D drawing modes.
 
-  * "skrzynka" (junction box) — 4 consecutive points that trace a rectangle
-    (checked directly: every corner's interior angle is ~90°, in the points'
-    existing numeric order — survey numbering already walks a box's corners
-    in perimeter order). The box is entirely separate from the cable run: the
-    cable skips over all 4 corners and connects straight from the point
-    before the box to whatever point comes next, if any — it never touches
-    any of the box's vertices.
+"Skrzynka" (junction box): 4 consecutive points whose corners are all near
+90°. Drawn as its own closed rectangle; the cable skips over it entirely.
 
-  * "wcinka" (splice/joint) — 3 consecutive points, right at the very start
-    or end of the selection, that sit unusually close together compared to
-    the rest of the run (a real splice is a small huddle of points next to a
-    much longer cable, not just another ordinary segment of it). Unlike a
-    box, a wcinka *does* connect to the cable: whichever of the 3 is nearest
-    to the run's other end becomes the entry point and stays part of the
-    main path; the other two are drawn as two open "wing" stubs off of it —
-    a triangle with its far side left undrawn, since nothing connects those
-    two points to each other. Detection is restricted to the two ends of the
-    selection (not the middle) so an ordinary bend or wiggle partway along a
-    cable run — ordinary points that just happen to sit close together —
-    never gets mistaken for a splice.
+"Wcinka" (splice): 3 consecutive points at either end of the selection,
+much closer together than the rest of the run. Drawn as an open triangle —
+two stubs off an entry point, far side left undrawn — with the entry point
+staying on the cable's path.
 
-Anything that matches neither shape is left exactly as before: a straight
-chain in numeric order.
+Anything else is left as a straight chain in numeric order.
 """
 from __future__ import annotations
 
@@ -33,14 +19,8 @@ from typing import Dict, List, Optional, Tuple
 
 from models.point import Point
 
-# How far an interior angle may deviate from 90° and still count as a right
-# angle, for the "is this a rectangle" check.
-RIGHT_ANGLE_TOLERANCE_DEG = 15.0
-
-# A run of 3 points only counts as a wcinka if its internal edges are this
-# fraction (or less) of the selection's longest segment — i.e. it has to
-# look like a small huddle of points next to a much longer cable run.
-WCINKA_SIZE_RATIO = 0.35
+RIGHT_ANGLE_TOLERANCE_DEG = 15.0  # max deviation from 90° for a rectangle corner
+WCINKA_SIZE_RATIO = 0.35  # a 3-point run only counts as a wcinka if its edges are this small a fraction of the longest segment
 
 _RECTANGLE_SIZE = 4
 _WCINKA_SIZE = 3
@@ -48,17 +28,10 @@ _WCINKA_SIZE = 3
 
 @dataclass(frozen=True)
 class RoutedPath:
-    """The result of `route_selected_points`.
-
-    `main` is the vertex path for the cable run itself (LINE chain / single
-    PLINE / POLY3D) — it skips over each detected box entirely, but does
-    pass through each detected wcinka's entry point. `boxes` holds each
-    detected rectangle's 4 corners, in perimeter order, for drawing as its
-    own separate closed shape that shares no vertex with the cable.
-    `wedges` holds each detected wcinka as (entry, wing_1, wing_2) — draw
-    entry-wing_1 and entry-wing_2 as two separate open stubs; there is no
-    wing_1-wing_2 edge, that's the triangle's deliberately missing side.
-    """
+    """`main`: the cable's own vertex path — skips each box, passes through
+    each wcinka's entry point. `boxes`: each rectangle's 4 corners.
+    `wedges`: each wcinka as (entry, wing_1, wing_2) — draw entry-wing_1 and
+    entry-wing_2 only; there's no wing_1-wing_2 edge."""
 
     main: List[Point]
     boxes: List[List[Point]] = field(default_factory=list)
@@ -110,10 +83,8 @@ def _is_tight_triangle(window: List[Point], threshold: float) -> bool:
 
 
 def _pick_wcinka_entry(window: List[Point], prev_point: Optional[Point], next_point: Optional[Point]) -> Point:
-    # Prefer connecting onward (the wcinka is at the start of the selection,
-    # or mid-walk with more cable ahead); fall back to connecting back to
-    # where we came from if there's nothing ahead; and if the 3 points are
-    # the entire selection, there's no real neighbour to anchor on at all.
+    # Prefer connecting onward; fall back to the previous point if there's
+    # nothing ahead; no anchor at all if the wcinka is the whole selection.
     anchor = next_point if next_point is not None else prev_point
     if anchor is None:
         return window[0]
