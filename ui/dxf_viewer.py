@@ -1491,9 +1491,6 @@ class DxfViewer(qw.QWidget):
         # them regardless of their name — see core.commands.layers.layers_to_prune.
         self._imported_layer_names: Optional[set] = None
 
-        # [toolbar+stack column, stretch] | [LayerPanel, fixed width] —
-        # puts the layers list to the right of the DXF preview, inside this
-        # one widget, so main_window.py needs no layout changes at all.
         outer = qw.QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(SPACE_SM)
@@ -1548,8 +1545,11 @@ class DxfViewer(qw.QWidget):
         self._stack.addWidget(self._canvas_page)
 
         outer.addWidget(canvas_column, 1)
+        # Not added to this widget's own layout — main_window.py docks it
+        # into the left column's "Layers" navigation item instead, via the
+        # layer_panel property below. Constructed and wired here regardless,
+        # since all its signals route through this class's own commands.
         self._layer_panel = LayerPanel()
-        outer.addWidget(self._layer_panel)
 
         self._toolbar.pointRequested.connect(lambda: self._start_draw_tool(PointToolSession))
         self._toolbar.lineRequested.connect(lambda: self._start_draw_tool(LineToolSession))
@@ -1607,6 +1607,12 @@ class DxfViewer(qw.QWidget):
     @property
     def has_document(self) -> bool:
         return self._doc is not None
+
+    @property
+    def layer_panel(self) -> LayerPanel:
+        """The layers list widget — owned and wired up here, but docked
+        into main_window.py's left column rather than laid out in `self`."""
+        return self._layer_panel
 
     def save_document(self, file_path: str) -> None:
         assert self._doc is not None

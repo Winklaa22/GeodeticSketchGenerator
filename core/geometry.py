@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import math
@@ -58,12 +57,9 @@ def get_next_point(points: Dict[int, Point], number: int, last_selected: int) ->
 
 
 def offset_segment_perpendicular(start: Point, end: Point, offset: float) -> Tuple[Point, Point]:
-    """`start`/`end` shifted sideways by `offset` (scene units), perpendicular
-    to the segment's own direction in the XY plane — the "two parallel
-    lines" convention used to draw a protective casing pipe (RURA OSŁONOWA)
-    alongside a cable run. Height is carried through unchanged. A
-    zero-length segment has no defined direction, so it's returned
-    unshifted rather than guessing one."""
+    """`start`/`end` shifted sideways by `offset`, perpendicular to the
+    segment's own direction in the XY plane. Height is unchanged. A
+    zero-length segment has no direction, so it's returned as-is."""
     dx, dy = end.x - start.x, end.y - start.y
     length = math.hypot(dx, dy)
     if length <= 0:

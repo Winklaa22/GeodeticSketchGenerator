@@ -1,8 +1,5 @@
 """A group of commands that behave as one entry in `CommandHistory` — one
-Ctrl+Z undoes every sub-command it made. Not called anywhere yet; it's the
-foundation the future "geodetic" macro commands (draw points/lines/polylines
-for a whole imported point list in one undo step) will build on.
-"""
+Ctrl+Z undoes every sub-command it made."""
 from __future__ import annotations
 
 from typing import Iterable, List

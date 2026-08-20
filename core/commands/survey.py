@@ -95,14 +95,9 @@ def _points_label_offset(angle_deg: float, font_size: float) -> Tuple[float, flo
 def build_lines_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """A chain of LINE entities through consecutive selected points — the
-    direct-entity equivalent of chaining multiple points into AutoCAD's LINE
-    command, which itself creates one LINE segment per consecutive pair.
-    Any skrzynka (junction box) rectangle along the way is drawn as its own
-    4 LINE entities, separate from the cable's own segments; any wcinka
-    (splice) is drawn as 2 open stub LINE entities off its entry point (see
-    core.patterns) — LINE mode already creates one entity per segment, so
-    this keeps every shape's sides just as separate as everything else."""
+    """A chain of LINE entities through consecutive selected points, plus
+    any skrzynka/wcinka shape along the way as its own LINE entities (see
+    core.patterns)."""
     routed = route_selected_points(points, selected_numbers)
     commands = [
         AddLineCommand((a.x, a.y, a.h), (b.x, b.y, b.h), layer) for a, b in zip(routed.main, routed.main[1:])
@@ -138,11 +133,8 @@ def build_pipe_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
     """Two parallel LINE entities per segment, straddling the routed cable
-    path by config.pipe.width/2 on each side — the "two lines" convention
-    for a protective casing pipe (RURA OSŁONOWA) drawn alongside a cable
-    run. Reuses the same routed path as LINES mode (see core.patterns), so
-    the pipe skips past any skrzynka exactly like the cable does — it
-    protects the cable run itself, not the box."""
+    path by config.pipe.width/2 on each side — a protective casing pipe
+    (RURA OSŁONOWA) drawn alongside the cable run."""
     half_width = max(config.pipe.width, 0.0) / 2.0
     main = route_selected_points(points, selected_numbers).main
     commands = []
@@ -157,10 +149,8 @@ def build_plines_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
     """A single 2D LWPOLYLINE through the selected points (XY only). Any
-    skrzynka rectangle along the way is drawn as its own separate, closed
-    LWPOLYLINE — never merged into the cable's polyline; any wcinka (splice)
-    is drawn as 2 open stub LINE entities off its entry point, which stays
-    part of the cable's own polyline (see core.patterns)."""
+    skrzynka is its own separate closed LWPOLYLINE; any wcinka is two open
+    stub LINEs off its entry point (see core.patterns)."""
     routed = route_selected_points(points, selected_numbers)
     commands = [AddPolyline2DCommand([(p.x, p.y) for p in routed.main], layer)]
     commands.extend(
@@ -174,10 +164,8 @@ def build_poly3d_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
     """A single 3D POLYLINE through the selected points (X, Y, height). Any
-    skrzynka rectangle along the way is drawn as its own separate, closed
-    3D POLYLINE — never merged into the cable's polyline; any wcinka
-    (splice) is drawn as 2 open stub LINE entities off its entry point,
-    which stays part of the cable's own polyline (see core.patterns)."""
+    skrzynka is its own separate closed 3D POLYLINE; any wcinka is two open
+    stub LINEs off its entry point (see core.patterns)."""
     routed = route_selected_points(points, selected_numbers)
     commands = [AddPolyline3DCommand([(p.x, p.y, p.h) for p in routed.main], layer)]
     commands.extend(
@@ -221,13 +209,11 @@ def _heights_label_offset(angle_deg: float, font_size: float) -> Tuple[float, fl
 def build_cable_marks_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """The cable itself (same routed path, skrzynka and wcinka handling as
-    LINES mode — see core.patterns), plus a TEXT label
+    """The cable itself (see core.patterns), plus a TEXT label
     (config.cable.marks_text) at the midpoint of its centre segment, then
-    fanning outward every Nth segment in each direction (N =
-    config.cable.frequency) — never starting from one end. Every marked
-    segment has a small gap cut into it, sized to the mark's own text, so
-    the label sits in a notch rather than on top of a solid line."""
+    fanning outward every Nth segment (config.cable.frequency). Each marked
+    segment gets a gap sized to the mark's own text, so the label sits in a
+    notch rather than on top of a solid line."""
     options = config.cable
     routed = route_selected_points(points, selected_numbers)
     segments = list(zip(routed.main, routed.main[1:]))

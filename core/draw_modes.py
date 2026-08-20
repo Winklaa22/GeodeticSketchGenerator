@@ -4,7 +4,6 @@ from enum import IntEnum
 
 
 class DrawMode(IntEnum):
-
     POINTS = 1
     LINES = 2
     PLINES = 3
