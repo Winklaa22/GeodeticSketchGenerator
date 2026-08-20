@@ -51,7 +51,7 @@ class GenerationConfig:
     heights: HeightsOptions = field(default_factory=HeightsOptions)
     cable: CableOptions = field(default_factory=CableOptions)
     pipe: PipeOptions = field(default_factory=PipeOptions)
-    # The color to create `layer_name` with if it doesn't exist yet - never
-    # applied to an already-existing layer (e.g. one imported from a DXF),
-    # see core.commands.layers.AddLayerCommand.
+    # The color `layer_name` should end up with - applied whether the layer
+    # is created fresh or already existed (e.g. one imported from a DXF);
+    # see core.survey_draw_service.SurveyDrawService.build_command.
     layer_rgb: Optional[Tuple[int, int, int]] = None

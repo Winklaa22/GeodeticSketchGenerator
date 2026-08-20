@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import os
+from dataclasses import asdict
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
 from PyQt6 import QtCore
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QStackedWidget,
@@ -19,13 +24,26 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from core.config import GenerationConfig
-from core.exceptions import AppError
+from core import project as project_io
+from core.config import CableOptions, GenerationConfig, HeightsOptions, PipeOptions, PointsOptions
+from core.exceptions import AppError, ProjectFileError
 from core.parser import PointFileParser
+from core.project import (
+    CableState,
+    DelimiterState,
+    HeightsState,
+    LayerState,
+    PipeState,
+    PointsState,
+    ProjectState,
+    SelectionState,
+)
 from core.survey_draw_service import SurveyDrawService
 from core.validation import ensure_has_data, ensure_selection, resolve_layer_name
 from models.point import Point
+from ui.assets import ICON_PATH
 from ui.dxf_viewer import DxfViewer
+from ui.recent_projects import add_recent_project, list_recent_projects, remove_recent_project
 from ui.style import APP_STYLESHEET
 from ui.tabs.cable_tab import CableTab
 from ui.tabs.delimiter_tab import DelimiterTab
@@ -44,8 +62,6 @@ from ui.widgets import (
     DxfSourceRow,
     ErrorBanner,
     FileCard,
-    Tag,
-    WorkflowStepper,
     restyle,
 )
 
@@ -56,10 +72,13 @@ _STATUS_TEXT = {
     "applied": "Applied",
     "error": "Errors: 1",
 }
+# Characters Windows forbids in a filename — a renamed project's file must
+# still be a legal name on disk (see MainWindow.rename_project).
+_INVALID_FILENAME_CHARS = '<>:"/\\|?*'
 
 
 class AppState(Enum):
-    """The four states the shell can be in, driving the stepper/status bar."""
+    """The four states the shell can be in, driving the status bar."""
 
     EMPTY = "empty"
     READY = "ready"
@@ -69,11 +88,12 @@ class AppState(Enum):
 
 class MainWindow(QMainWindow):
 
-    STEP_NAMES = ("Load file", "Configure", "Preview", "Export")
-
-    def __init__(self) -> None:
+    def __init__(
+        self, initial_state: Optional[ProjectState] = None, project_path: Optional[str] = None
+    ) -> None:
         super().__init__()
         self.setWindowTitle("Geodetic Sketch Generator")
+        self.setWindowIcon(QIcon(ICON_PATH))
         self.resize(1360, 860)
         self.setMinimumSize(1080, 680)
         self.settings = QtCore.QSettings("acsg", "acsg_pro")
@@ -88,10 +108,21 @@ class MainWindow(QMainWindow):
         self._has_applied = False
         self._last_error: Optional[str] = None
         self._sections: List[Tuple[AccordionSection, QWidget]] = []
+        # None until the project has been saved at least once (or was
+        # opened from an existing .gsgproj) - see save_project/save_project_as.
+        self.project_path: Optional[str] = project_path
+        self.project_name: str = initial_state.name if initial_state is not None else "Untitled"
+        # Kept alive here once opened so Qt doesn't garbage-collect it — see
+        # new_project/_open_path_in_new_window/open_start_screen.
+        self._sibling_window: Optional[QMainWindow] = None
 
         self._build_ui()
         self._wire_signals()
         self.setStyleSheet(APP_STYLESHEET)
+        if initial_state is not None:
+            self.load_project_state(initial_state)
+        if self.project_path:
+            self.setWindowTitle(f"Geodetic Sketch Generator — {self.project_name}")
         self._refresh()
 
     # ==================================================================
@@ -105,9 +136,6 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
 
         root.addWidget(self._build_top_bar())
-
-        self.stepper = WorkflowStepper(self.STEP_NAMES)
-        root.addWidget(self.stepper)
 
         content = QWidget()
         content_layout = QHBoxLayout(content)
@@ -123,18 +151,80 @@ class MainWindow(QMainWindow):
         bar = QWidget()
         bar.setObjectName("topBar")
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(SPACE_XL, SPACE_LG, SPACE_XL, SPACE_LG)
-        layout.setSpacing(SPACE_MD)
+        layout.setContentsMargins(SPACE_MD, SPACE_SM, SPACE_MD, SPACE_SM)
+        layout.setSpacing(SPACE_SM)
 
-        title = QLabel('Geodetic Sketch Generator <span style="color:#9184d9;">PRO</span>')
-        title.setObjectName("appTitle")
-        title.setTextFormat(Qt.TextFormat.RichText)
-        version_tag = Tag("v3.2", variant="neutral")
-
-        layout.addWidget(title)
-        layout.addWidget(version_tag)
+        layout.addWidget(self._build_logo())
+        layout.addWidget(self._build_file_button())
+        layout.addWidget(self._build_edit_button())
         layout.addStretch(1)
         return bar
+
+    @staticmethod
+    def _build_logo() -> QLabel:
+        logo = QLabel()
+        logo.setObjectName("topBarLogo")
+        pixmap = QPixmap(ICON_PATH)
+        if not pixmap.isNull():
+            logo.setPixmap(
+                pixmap.scaled(
+                    24, 24, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                )
+            )
+        return logo
+
+    def _build_file_button(self) -> QPushButton:
+        """A single "File ▾" button replacing separate Projects/Save Project
+        buttons — an AutoCAD-style application menu covering the whole
+        project lifecycle (new/open/recent/save/export/close) in one place."""
+        btn = self._make_button("File  ▾", "secondary", None)
+        menu = QMenu(btn)
+        menu.setObjectName("fileMenu")
+        menu.addAction("New Project", self.new_project)
+        menu.addAction("Open Project…", self.open_project_dialog)
+        self._recent_menu = menu.addMenu("Open Recent")
+        menu.aboutToShow.connect(self._refresh_recent_menu)
+        menu.addSeparator()
+        menu.addAction("Save Project", self.save_project)
+        menu.addAction("Save Project As…", self.save_project_as)
+        menu.addAction("Rename Project…", self.rename_project)
+        menu.addAction("Export DXF…", self.save_dxf)
+        menu.addSeparator()
+        menu.addAction("Close Project", self.open_start_screen)
+        btn.setMenu(menu)
+        return btn
+
+    def _build_edit_button(self) -> QPushButton:
+        """A single "Edit ▾" button holding Undo/Redo — the DXF panel's own
+        toolbar buttons for these were removed in favor of consolidating
+        them here, next to File. Ctrl+Z/Ctrl+Y keep working exactly as
+        before (they're handled by DxfViewer's own window-scoped
+        shortcuts) — these menu actions deliberately have no shortcut of
+        their own attached, to avoid registering the same key combination
+        twice on the same window."""
+        btn = self._make_button("Edit  ▾", "secondary", None)
+        menu = QMenu(btn)
+        menu.setObjectName("editMenu")
+        self._undo_action = menu.addAction("Undo (Ctrl+Z)", lambda: self.dxf_viewer.echo(self.dxf_viewer.undo()))
+        self._redo_action = menu.addAction("Redo (Ctrl+Y)", lambda: self.dxf_viewer.echo(self.dxf_viewer.redo()))
+        menu.aboutToShow.connect(self._sync_edit_menu)
+        btn.setMenu(menu)
+        return btn
+
+    def _sync_edit_menu(self) -> None:
+        self._undo_action.setEnabled(self.dxf_viewer.can_undo())
+        self._redo_action.setEnabled(self.dxf_viewer.can_redo())
+
+    def _refresh_recent_menu(self) -> None:
+        self._recent_menu.clear()
+        paths = list_recent_projects(self.settings)
+        if not paths:
+            placeholder = self._recent_menu.addAction("No recent projects")
+            placeholder.setEnabled(False)
+            return
+        for path in paths:
+            name = os.path.splitext(os.path.basename(path))[0]
+            self._recent_menu.addAction(name, lambda checked=False, p=path: self._open_path_in_new_window(p))
 
     def _build_left_column(self) -> QWidget:
         wrapper = QWidget()
@@ -232,7 +322,8 @@ class MainWindow(QMainWindow):
         btn.setObjectName("btn")
         btn.setProperty("variant", variant)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.clicked.connect(slot)
+        if slot is not None:
+            btn.clicked.connect(slot)
         return btn
 
     def _build_status_bar(self) -> QWidget:
@@ -311,7 +402,6 @@ class MainWindow(QMainWindow):
             self.file_stack.setCurrentWidget(self.drop_zone)
             self.accordion.setEnabled(False)
             self.error_banner.clear()
-            self.stepper.set_step(0)
             file_label = "No file selected"
             layer_text = "Layer: –"
             delim_text = "Delimiter: –"
@@ -324,15 +414,10 @@ class MainWindow(QMainWindow):
             layer_text = f"Layer: {self.layer_tab.get_layer_name() or '0'}"
             delim_text = f"Delimiter: {self._delimiter_display_name()}"
 
-            if state is AppState.READY:
+            if state in (AppState.READY, AppState.APPLIED):
                 self.error_banner.clear()
-                self.stepper.set_step(2)
-            elif state is AppState.APPLIED:
-                self.error_banner.clear()
-                self.stepper.set_step(3)
             else:  # ERROR
                 self.error_banner.show_message(self._last_error)
-                self.stepper.set_step(2, error=True)
 
         self.status_file_label.setText(file_label)
         self.status_layer_label.setText(layer_text)
@@ -461,6 +546,21 @@ class MainWindow(QMainWindow):
         self.dxf_source_row.set_file(os.path.basename(file_path), self.dxf_viewer.entity_count)
         self._refresh()
 
+    def _load_dxf_from_text(self, content: str, file_path: str) -> None:
+        """Restores the DXF from an embedded project snapshot (see
+        core.project.ProjectState.dxf_content) instead of reading a file
+        from disk — `file_path` is kept only as the "Save DXF" default
+        location/display name, exactly like _load_dxf_file's bookkeeping."""
+        ok, message = self.dxf_viewer.load_from_text(content)
+        if not ok:
+            self.dxf_source_row.show_error(message)
+            return
+        self.dxf_path = file_path
+        self._has_applied = False
+        name = os.path.basename(file_path) if file_path else "Untitled drawing"
+        self.dxf_source_row.set_file(name, self.dxf_viewer.entity_count)
+        self._refresh()
+
     def clear_dxf_file(self) -> None:
         self.dxf_path = ""
         self._has_applied = False
@@ -514,3 +614,168 @@ class MainWindow(QMainWindow):
         self.dxf_path = path
         self.dxf_source_row.set_file(os.path.basename(path), self.dxf_viewer.entity_count)
         self._flash_status(f"Saved to {os.path.basename(path)}")
+
+    # ==================================================================
+    # PROJECT SAVE / LOAD — see core/project.py for the .gsgproj format and
+    # ui/start_screen.py for the AutoCAD-style launcher that opens one.
+    # ==================================================================
+    def collect_project_state(self) -> ProjectState:
+        """Every tab's current settings plus the point/DXF file paths, as
+        one serializable ProjectState — see core.project."""
+        separate_text, range_text = self.selection_tab.get_expression_state()
+        return ProjectState(
+            name=self.project_name or project_io.default_project_name(self.file_path, self.dxf_path),
+            txt_file_path=self.file_path,
+            dxf_file_path=self.dxf_path,
+            dxf_content=self.dxf_viewer.to_dxf_text(),
+            draw_mode=self.draw_tab.mode_key,
+            delimiter=DelimiterState(
+                mode=self.delimiter_tab.gap_key,
+                swap_xy=self.delimiter_tab.swap_xy_enabled,
+                cabinet_mode=self.delimiter_tab.cabinet_mode_enabled,
+            ),
+            points=PointsState(**asdict(self.points_tab.get_options())),
+            heights=HeightsState(**asdict(self.heights_tab.get_options())),
+            cable=CableState(**asdict(self.cable_tab.get_options())),
+            pipe=PipeState(**asdict(self.pipe_tab.get_options())),
+            selection=SelectionState(
+                mode=self.selection_tab.mode_key, separate_text=separate_text, range_text=range_text
+            ),
+            layer=LayerState(name=self.layer_tab.get_layer_name(), rgb=self.layer_tab.get_layer_rgb()),
+        )
+
+    def load_project_state(self, state: ProjectState) -> None:
+        """Restores every tab from a saved project, then restores the DXF
+        (from its embedded snapshot if the project has one — see
+        core.project.ProjectState.dxf_content — falling back to re-reading
+        dxf_file_path from disk for older/imported projects that don't) and
+        the point file, if still present on disk. A missing file is skipped
+        rather than treated as a failure, since the rest of the project is
+        still worth restoring."""
+        self.project_name = state.name
+        self.delimiter_tab.set_state(state.delimiter.mode, state.delimiter.swap_xy, state.delimiter.cabinet_mode)
+        self.draw_tab.set_mode_key(state.draw_mode)
+        self.points_tab.set_options(PointsOptions(**asdict(state.points)))
+        self.heights_tab.set_options(HeightsOptions(**asdict(state.heights)))
+        self.cable_tab.set_options(CableOptions(**asdict(state.cable)))
+        self.pipe_tab.set_options(PipeOptions(**asdict(state.pipe)))
+        self.selection_tab.set_state(state.selection.mode, state.selection.separate_text, state.selection.range_text)
+        self.layer_tab.set_state(state.layer.name, tuple(state.layer.rgb))
+
+        missing = []
+        if state.txt_file_path:
+            if os.path.exists(state.txt_file_path):
+                self._load_file(state.txt_file_path)
+            else:
+                missing.append(os.path.basename(state.txt_file_path))
+        if state.dxf_content:
+            self._load_dxf_from_text(state.dxf_content, state.dxf_file_path)
+        elif state.dxf_file_path:
+            if os.path.exists(state.dxf_file_path):
+                self._load_dxf_file(state.dxf_file_path)
+            else:
+                missing.append(os.path.basename(state.dxf_file_path))
+        if missing:
+            self._flash_status(f"Could not find: {', '.join(missing)} (rest of the project was restored)", ms=5000)
+
+    def save_project(self) -> None:
+        if not self.project_path:
+            self.save_project_as()
+            return
+        self._save_project_to(self.project_path, self.collect_project_state())
+
+    def save_project_as(self) -> None:
+        state = self.collect_project_state()
+        suggested = (self.project_name or project_io.default_project_name(self.file_path, self.dxf_path))
+        suggested += project_io.PROJECT_FILE_EXTENSION
+        path, _ = QFileDialog.getSaveFileName(self, "Save Project", suggested, project_io.PROJECT_FILE_FILTER)
+        if not path:
+            return
+        if not path.lower().endswith(project_io.PROJECT_FILE_EXTENSION):
+            path += project_io.PROJECT_FILE_EXTENSION
+        state.name = os.path.splitext(os.path.basename(path))[0]
+        self._save_project_to(path, state)
+
+    def _save_project_to(self, path: str, state: ProjectState) -> None:
+        try:
+            project_io.save_project(path, state)
+        except ProjectFileError as exc:
+            self._flash_status(str(exc))
+            return
+        self.project_path = path
+        self.project_name = state.name
+        self.setWindowTitle(f"Geodetic Sketch Generator — {self.project_name}")
+        add_recent_project(self.settings, path)
+        self._flash_status(f"Saved project {os.path.basename(path)}")
+
+    def rename_project(self) -> None:
+        """Renames the project — and, if it's already been saved, the
+        .gsgproj file itself on disk, keeping the two in sync (an unsaved
+        project just gets the new name to save under next time)."""
+        new_name, ok = QInputDialog.getText(self, "Rename Project", "Project name:", text=self.project_name)
+        new_name = new_name.strip()
+        if not ok or not new_name or new_name == self.project_name:
+            return
+        if any(ch in _INVALID_FILENAME_CHARS for ch in new_name):
+            QMessageBox.warning(
+                self, "Rename Project", f"A project name can't contain any of: {_INVALID_FILENAME_CHARS}"
+            )
+            return
+
+        if self.project_path:
+            new_path = os.path.join(
+                os.path.dirname(self.project_path), new_name + project_io.PROJECT_FILE_EXTENSION
+            )
+            already_taken = os.path.exists(new_path) and os.path.normcase(new_path) != os.path.normcase(
+                self.project_path
+            )
+            if already_taken:
+                QMessageBox.warning(
+                    self, "Rename Project", f'A project named "{new_name}" already exists in this folder.'
+                )
+                return
+            try:
+                os.replace(self.project_path, new_path)
+            except OSError as exc:
+                self._flash_status(f"Could not rename project file: {exc}")
+                return
+            remove_recent_project(self.settings, self.project_path)
+            self.project_path = new_path
+            add_recent_project(self.settings, new_path)
+
+        self.project_name = new_name
+        self.setWindowTitle(f"Geodetic Sketch Generator — {self.project_name}")
+        self._flash_status(f"Renamed to {new_name}")
+
+    def open_start_screen(self) -> None:
+        from ui.start_screen import StartScreen  # local import: start_screen imports MainWindow itself
+
+        self._sibling_window = StartScreen()
+        self._sibling_window.show()
+        self.close()
+
+    def new_project(self) -> None:
+        self._sibling_window = MainWindow()
+        self._sibling_window.show()
+        self.close()
+
+    def open_project_dialog(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open", "", f"{project_io.PROJECT_FILE_FILTER};;DXF Files (*.dxf);;Text Files (*.txt)"
+        )
+        if not path:
+            return
+        self._open_path_in_new_window(path)
+
+    def _open_path_in_new_window(self, path: str) -> None:
+        try:
+            state = project_io.open_any(path)
+        except ProjectFileError as exc:
+            self._flash_status(str(exc))
+            return
+        opened_project_path = project_io.project_path_if_saved(path)
+        if opened_project_path is not None:
+            add_recent_project(self.settings, opened_project_path)
+        self._sibling_window = MainWindow(initial_state=state, project_path=opened_project_path)
+        self._sibling_window.show()
+        self.close()

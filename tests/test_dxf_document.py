@@ -1,6 +1,8 @@
 """Tests for core.dxf_document.DXFDocument."""
 from __future__ import annotations
 
+import io
+
 import ezdxf
 import pytest
 
@@ -168,6 +170,45 @@ def test_set_layer_color_round_trips(doc: DXFDocument) -> None:
     assert doc.get_layer_color("SURVEY") == (10, 20, 30)
 
 
+def test_set_layer_color_also_sets_a_classic_aci_fallback(doc: DXFDocument) -> None:
+    # True-color (DXF group 420) isn't supported by every DXF version - see
+    # test_layer_color_survives_a_pre_true_color_dxf_version below for the
+    # actual bug this guards against. The color must also be approximated
+    # as a classic ACI index (group 62) so it isn't lost outright when
+    # writing to a DXF version that predates true-color support entirely.
+    doc.add_layer("SURVEY")
+    doc.set_layer_color("SURVEY", (255, 0, 0))  # pure red - exact ACI 1 match
+    layer = doc.layers.get("SURVEY")
+    assert layer.dxf.color == 1
+
+
+def test_set_layer_color_preserves_visibility_when_recoloring_a_hidden_layer(doc: DXFDocument) -> None:
+    doc.add_layer("SURVEY")
+    doc.set_layer_visible("SURVEY", False)
+    doc.set_layer_color("SURVEY", (255, 0, 0))
+    assert doc.is_layer_visible("SURVEY") is False
+
+
+def test_layer_color_survives_a_pre_true_color_dxf_version(tmp_path) -> None:
+    # AC1015 (AutoCAD 2000/R2000) predates DXF true-color support (added in
+    # AC1018/2004) - common for real-world cadastral/surveying exports.
+    # ezdxf silently drops group 420 when writing one of these, so without
+    # the classic-ACI fallback in set_layer_color, the color would be
+    # entirely lost the moment the document is saved and reloaded - the
+    # exact bug reported against a real R2000 file.
+    raw = ezdxf.new(dxfversion="AC1015")
+    path = tmp_path / "r2000.dxf"
+    raw.saveas(path)
+
+    doc = DXFDocument.load(str(path))
+    doc.add_layer("SURVEY")
+    doc.set_layer_color("SURVEY", (255, 0, 0))
+    assert doc.get_layer_color("SURVEY") == (255, 0, 0)  # correct while still in memory
+
+    reloaded = DXFDocument.from_text(doc.to_text())
+    assert reloaded.get_layer_color("SURVEY") == (255, 0, 0)
+
+
 def test_layer_visibility_defaults_to_visible_and_toggles(doc: DXFDocument) -> None:
     doc.add_layer("SURVEY")
     assert doc.is_layer_visible("SURVEY") is True
@@ -227,6 +268,41 @@ def test_load_materializes_layers_referenced_but_not_defined(tmp_path) -> None:
     names = {info.name for info in doc.iter_layers()}
     assert "UNDEFINED-LAYER" in names
     assert doc.get_layer_color("UNDEFINED-LAYER") == (255, 255, 255)
+
+
+def test_to_text_then_from_text_round_trips_entities_and_layers(doc: DXFDocument) -> None:
+    doc.add_layer("SURVEY", rgb=(9, 9, 9))
+    doc.add_line((0.0, 0.0), (1.0, 1.0), layer="SURVEY")
+    doc.add_point((2.0, 2.0), layer="SURVEY")
+
+    content = doc.to_text()
+    assert isinstance(content, str) and len(content) > 0
+
+    restored = DXFDocument.from_text(content)
+    assert restored.entity_count() == 2
+    assert "SURVEY" in restored.layers
+    assert restored.get_layer_color("SURVEY") == (9, 9, 9)
+
+
+def test_from_text_raises_dxf_error_for_garbage_content() -> None:
+    with pytest.raises(ezdxf.DXFError):
+        DXFDocument.from_text("this is not a dxf file at all")
+
+
+def test_from_text_materializes_layers_referenced_but_not_defined() -> None:
+    raw = ezdxf.new()
+    raw.modelspace().add_line((0, 0), (1, 1), dxfattribs={"layer": "UNDEFINED-LAYER"})
+    stream_content = _write_to_text(raw)
+
+    doc = DXFDocument.from_text(stream_content)
+    names = {info.name for info in doc.iter_layers()}
+    assert "UNDEFINED-LAYER" in names
+
+
+def _write_to_text(drawing) -> str:
+    stream = io.StringIO()
+    drawing.write(stream)
+    return stream.getvalue()
 
 
 def test_get_layer_color_resolves_classic_aci_color(doc: DXFDocument) -> None:

@@ -40,5 +40,9 @@ class HeightsTab(QWidget):
         frequency = int(self.frequency_input.text() or DEFAULT_FREQUENCY)
         return HeightsOptions(font_size=font_size, frequency=frequency)
 
+    def set_options(self, options: HeightsOptions) -> None:
+        self.font_size_input.setText(str(options.font_size))
+        self.frequency_input.setText(str(options.frequency))
+
     def is_modified(self) -> bool:
         return self.font_size_input.text() != DEFAULT_FONT_SIZE or self.frequency_input.text() != DEFAULT_FREQUENCY

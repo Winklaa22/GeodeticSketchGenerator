@@ -3,7 +3,8 @@
 Single source of truth for colors, radius and spacing so every widget and
 the global stylesheet agree. The accent color is used as an outline / dot /
 text color — it is deliberately almost never used as a fill (the one
-sanctioned exception is the completed step in WorkflowStepper).
+sanctioned exception is the soft accent wash behind a selected
+segmented-control / radio-card option).
 """
 from __future__ import annotations
 

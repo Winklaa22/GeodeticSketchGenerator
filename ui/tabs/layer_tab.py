@@ -41,9 +41,7 @@ class LayerTab(QWidget):
         self.layer_input.setPlaceholderText("Enter layer name")
         self.layer_input.textChanged.connect(lambda _t: self.layer_changed.emit())
 
-        self.color_swatch = ColorSwatchButton(
-            _load_rgb(settings), tooltip="Color to create this layer with, if it doesn't already exist"
-        )
+        self.color_swatch = ColorSwatchButton(_load_rgb(settings), tooltip="Color for the target layer")
         self.color_swatch.colorChanged.connect(lambda _rgb: self.layer_changed.emit())
 
         row = QWidget()
@@ -59,13 +57,15 @@ class LayerTab(QWidget):
         return self.layer_input.text()
 
     def get_layer_rgb(self) -> Tuple[int, int, int]:
-        """The color a not-yet-existing layer should be created with.
-
-        Never touches an already-existing layer's color (e.g. one imported
-        from a DXF) — see core.commands.layers.AddLayerCommand, which this
-        is passed to and is a no-op (including on undo) if the layer is
-        already there."""
+        """The color the target layer should end up with on Apply — set
+        whether that layer is created fresh or already existed (e.g. one
+        imported from a DXF); see
+        core.survey_draw_service.SurveyDrawService.build_command."""
         return self.color_swatch.rgb
+
+    def set_state(self, name: str, rgb: Tuple[int, int, int]) -> None:
+        self.layer_input.setText(name)
+        self.color_swatch.set_color(rgb)
 
     def persist(self, settings: QSettings) -> None:
         settings.setValue(SETTINGS_KEY, self.layer_input.text())

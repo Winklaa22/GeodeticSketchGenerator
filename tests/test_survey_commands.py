@@ -69,14 +69,14 @@ def test_layer_rgb_colors_a_newly_created_layer(service: SurveyDrawService, poin
     assert doc.get_layer_color("MyLayer") == (200, 30, 40)
 
 
-def test_layer_rgb_never_recolors_an_already_existing_layer(
+def test_layer_rgb_recolors_an_already_existing_layer_too(
     service: SurveyDrawService, points, doc: DXFDocument
 ) -> None:
     doc.add_layer("MyLayer", rgb=(9, 9, 9))  # e.g. imported from a DXF
     config = GenerationConfig(layer_name="MyLayer", draw_mode=DrawMode.LINES, layer_rgb=(200, 30, 40))
     command = service.build_command(points, [1, 2, 3], config)
     command.execute(doc)
-    assert doc.get_layer_color("MyLayer") == (9, 9, 9)
+    assert doc.get_layer_color("MyLayer") == (200, 30, 40)
 
 
 def test_layer_rgb_undo_removes_the_layer_it_created_along_with_the_drawing(
@@ -87,6 +87,19 @@ def test_layer_rgb_undo_removes_the_layer_it_created_along_with_the_drawing(
     command.execute(doc)
     command.undo(doc)
     assert "MyLayer" not in doc.layers
+    assert doc.entity_count() == 0
+
+
+def test_layer_rgb_undo_restores_an_already_existing_layers_previous_color(
+    service: SurveyDrawService, points, doc: DXFDocument
+) -> None:
+    doc.add_layer("MyLayer", rgb=(9, 9, 9))  # e.g. imported from a DXF
+    config = GenerationConfig(layer_name="MyLayer", draw_mode=DrawMode.LINES, layer_rgb=(200, 30, 40))
+    command = service.build_command(points, [1, 2, 3], config)
+    command.execute(doc)
+    command.undo(doc)
+    assert "MyLayer" in doc.layers  # never deleted - this command didn't create it
+    assert doc.get_layer_color("MyLayer") == (9, 9, 9)
     assert doc.entity_count() == 0
 
 

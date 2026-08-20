@@ -2,9 +2,8 @@
 
 Built from the tokens in ui/theme.py so every widget agrees on color, radius
 and spacing. The accent color is used as an outline / dot / text color and,
-deliberately, almost never as a fill — the sanctioned exceptions are the
-completed step in WorkflowStepper and the soft accent wash behind a selected
-segmented-control / radio-card option.
+deliberately, almost never as a fill — the sanctioned exception is the soft
+accent wash behind a selected segmented-control / radio-card option.
 """
 from __future__ import annotations
 
@@ -19,6 +18,8 @@ from ui.theme import (
     SPACE_MD,
     SPACE_SM,
     SPACE_XS,
+    SPACE_XXL,
+    TEXT_LG,
     TEXT_MD,
     TEXT_SM,
     TEXT_XL,
@@ -54,7 +55,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: tran
 
 /* ---------- top bar ---------- */
 #topBar {{ background: {c.APP_BG}; border-bottom: 1px solid {c.BORDER}; }}
-#appTitle {{ font-size: {TEXT_XL}px; font-weight: 600; color: {c.TEXT}; }}
+#topBarLogo {{ padding: 0; }}
 #demoStateLabel {{
     color: {c.TEXT_FAINT};
     font-size: {TEXT_XS}px;
@@ -62,41 +63,22 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: tran
     letter-spacing: 1px;
 }}
 
-/* ---------- workflow stepper ---------- */
-#stepper {{ background: {c.APP_BG}; border-bottom: 1px solid {c.BORDER}; }}
-QLabel#stepCircle {{
-    border-radius: 11px;
+/* ---------- dropdown menus (e.g. the top bar's File menu) ---------- */
+QMenu {{
+    background: {c.SURFACE_RAISED};
     border: 1px solid {c.BORDER_STRONG};
-    color: {c.TEXT_FAINT};
-    font-weight: 700;
-    font-size: {TEXT_SM}px;
-    background: transparent;
+    border-radius: {RADIUS}px;
+    padding: {SPACE_XS}px;
+    color: {c.TEXT};
 }}
-QLabel#stepCircle[state="done"] {{
-    background: {c.ACCENT};
-    border: 1px solid {c.ACCENT};
-    color: {c.APP_BG};
+QMenu::item {{
+    padding: {SPACE_SM}px {SPACE_LG}px;
+    border-radius: {RADIUS_SM}px;
 }}
-QLabel#stepCircle[state="active"] {{
-    border: 1.5px solid {c.ACCENT};
-    color: {c.ACCENT};
-    background: {c.ACCENT_SOFT};
-}}
-QLabel#stepCircle[state="upcoming"] {{
-    border: 1px solid {c.BORDER};
-    color: {c.TEXT_FAINT};
-    background: transparent;
-}}
-QLabel#stepCircle[state="error"] {{
-    border: 1.5px solid {c.ERROR};
-    color: {c.ERROR};
-    background: {c.ERROR_BG};
-}}
-QLabel#stepLabel {{ color: {c.TEXT_FAINT}; font-size: {TEXT_SM}px; }}
-QLabel#stepLabel[state="done"], QLabel#stepLabel[state="active"] {{ color: {c.TEXT}; font-weight: 600; }}
-QLabel#stepLabel[state="error"] {{ color: {c.ERROR}; font-weight: 600; }}
-QFrame#stepLine {{ background: {c.BORDER}; border: none; }}
-QFrame#stepLine[done="true"] {{ background: {c.ACCENT_BORDER}; }}
+QMenu::item:selected {{ background: {c.ACCENT_SOFT}; color: {c.TEXT}; }}
+QMenu::item:disabled {{ color: {c.TEXT_FAINT}; }}
+QMenu::separator {{ height: 1px; background: {c.BORDER}; margin: {SPACE_XS}px {SPACE_SM}px; }}
+QMenu::right-arrow {{ width: 10px; height: 10px; }}
 
 /* ---------- tags ---------- */
 QLabel#tag {{
@@ -423,6 +405,10 @@ QPushButton#btn[variant="secondary"] {{
 }}
 QPushButton#btn[variant="secondary"]:hover {{ border-color: {c.BORDER_STRONG}; }}
 QPushButton#btn[variant="secondary"]:disabled {{ color: {c.TEXT_FAINT}; border-color: {c.BORDER}; }}
+/* The dropdown arrow for a #btn with a menu attached (e.g. "File  ▾") is
+   drawn as part of the button's own text instead - suppress Qt's native
+   indicator so there's only ever one arrow, styled consistently. */
+QPushButton#btn::menu-indicator {{ image: none; width: 0px; }}
 
 /* ---------- dxf preview header ---------- */
 #previewHeaderTitle {{ font-weight: 600; font-size: {TEXT_MD}px; color: {c.TEXT}; }}
@@ -440,6 +426,35 @@ QPushButton#btn[variant="secondary"]:disabled {{ color: {c.TEXT_FAINT}; border-c
 #statusBar {{ background: {c.APP_BG}; border-top: 1px solid {c.BORDER}; }}
 #statusText {{ color: {c.TEXT_FAINT}; font-size: {TEXT_XS}px; }}
 #statusText[variant="error"] {{ color: {c.ERROR}; font-weight: 600; }}
+
+/* ---------- start screen (project launcher) ---------- */
+#startSidebar {{
+    background: {c.SURFACE};
+    border-right: 1px solid {c.BORDER};
+}}
+#startTitle {{ font-size: {TEXT_XL}px; font-weight: 600; color: {c.TEXT}; }}
+#startLogo {{ padding: 0; }}
+#startHeading {{ font-size: {TEXT_LG}px; font-weight: 600; color: {c.TEXT}; }}
+#startEmpty {{ color: {c.TEXT_FAINT}; font-size: {TEXT_SM}px; padding: {SPACE_XXL}px; }}
+QTableWidget#startTable {{
+    background: transparent;
+    border: 1px solid {c.BORDER};
+    border-radius: {RADIUS}px;
+    gridline-color: {c.BORDER};
+    color: {c.TEXT};
+    selection-background-color: {c.ACCENT_SOFT};
+    selection-color: {c.TEXT};
+}}
+QTableWidget#startTable::item {{ padding: {SPACE_SM}px; border-bottom: 1px solid {c.BORDER}; }}
+QHeaderView::section {{
+    background: {c.SURFACE_RAISED};
+    color: {c.TEXT_MUTED};
+    padding: {SPACE_SM}px;
+    border: none;
+    border-bottom: 1px solid {c.BORDER_STRONG};
+    font-size: {TEXT_SM}px;
+    font-weight: 600;
+}}
 """
 
 

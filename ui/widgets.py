@@ -5,7 +5,6 @@ logic) so they can be composed freely by ui/main_window.py and ui/tabs/*.py.
 """
 from __future__ import annotations
 
-from enum import Enum
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from PyQt6 import QtGui
@@ -20,7 +19,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -266,86 +264,6 @@ class RadioCardGroup(QWidget):
             if btn.isChecked():
                 return key
         return None
-
-
-# --------------------------------------------------------------------------
-# Workflow stepper
-# --------------------------------------------------------------------------
-class StepState(Enum):
-    DONE = "done"
-    ACTIVE = "active"
-    ERROR = "error"
-    UPCOMING = "upcoming"
-
-
-class _StepCircle(QLabel):
-    def __init__(self, number: int, parent: Optional[QWidget] = None) -> None:
-        super().__init__(str(number), parent)
-        self._number = number
-        self.setObjectName("stepCircle")
-        self.setFixedSize(22, 22)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-    def set_state(self, state: StepState) -> None:
-        self.setText("✓" if state is StepState.DONE else str(self._number))
-        self.setProperty("state", state.value)
-        restyle(self)
-
-
-class WorkflowStepper(QWidget):
-    """Numbered-circle step indicator, e.g. Load file -> Configure -> Preview -> Export."""
-
-    def __init__(self, steps: Sequence[str], parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("stepper")
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(SPACE_LG, SPACE_SM, SPACE_LG, SPACE_SM)
-        layout.setSpacing(SPACE_SM)
-
-        self._circles: List[_StepCircle] = []
-        self._labels: List[QLabel] = []
-        self._lines: List[QFrame] = []
-
-        for index, name in enumerate(steps):
-            if index > 0:
-                line = QFrame()
-                line.setObjectName("stepLine")
-                line.setFixedHeight(1)
-                line.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-                layout.addWidget(line, 1)
-                self._lines.append(line)
-
-            step_box = QHBoxLayout()
-            step_box.setSpacing(SPACE_SM)
-            circle = _StepCircle(index + 1)
-            label = QLabel(name)
-            label.setObjectName("stepLabel")
-            step_box.addWidget(circle)
-            step_box.addWidget(label)
-            layout.addLayout(step_box)
-            self._circles.append(circle)
-            self._labels.append(label)
-
-        layout.addStretch(0)
-        self.set_step(0)
-
-    def set_step(self, active_index: int, error: bool = False) -> None:
-        """Marks steps before `active_index` done, `active_index` active (or
-        error), and the rest upcoming."""
-        for i, (circle, label) in enumerate(zip(self._circles, self._labels)):
-            if i < active_index:
-                state = StepState.DONE
-            elif i == active_index:
-                state = StepState.ERROR if error else StepState.ACTIVE
-            else:
-                state = StepState.UPCOMING
-            circle.set_state(state)
-            label.setProperty("state", state.value)
-            restyle(label)
-        for i, line in enumerate(self._lines):
-            # Line i sits right after step i, so it reads as "done" once that step is.
-            line.setProperty("done", "true" if i < active_index else "false")
-            restyle(line)
 
 
 # --------------------------------------------------------------------------

@@ -10,7 +10,9 @@ the methods below.
 """
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import ezdxf
@@ -21,6 +23,21 @@ from ezdxf.layouts import Modelspace
 from ezdxf.sections.tables import LayerTable
 
 DEFAULT_LAYER_NAME = "0"
+
+
+@lru_cache(maxsize=None)
+def _nearest_aci(rgb: Tuple[int, int, int]) -> int:
+    """The AutoCAD Color Index (1-255) whose RGB is closest to `rgb` — used
+    as a fallback alongside true-color (see `DXFDocument._apply_color`)."""
+    best_aci, best_distance = 7, None
+    for aci in range(1, 256):
+        candidate = ezdxf_colors.aci2rgb(aci)
+        distance = (
+            (candidate.r - rgb[0]) ** 2 + (candidate.g - rgb[1]) ** 2 + (candidate.b - rgb[2]) ** 2
+        )
+        if best_distance is None or distance < best_distance:
+            best_distance, best_aci = distance, aci
+    return best_aci
 
 
 @dataclass(frozen=True)
@@ -61,6 +78,24 @@ class DXFDocument:
         doc._ensure_all_referenced_layers()
         return doc
 
+    @classmethod
+    def from_text(cls, content: str) -> "DXFDocument":
+        """The counterpart to `to_text()` — loads a document from embedded
+        DXF text (see core.project's ProjectState.dxf_content) rather than
+        a file on disk, recovering from a malformed document the same way
+        `load()` does.
+
+        Raises `ezdxf.DXFError` (the caller is expected to catch it — see
+        `ui/dxf_viewer.py`'s `DxfViewer.load_from_text`).
+        """
+        try:
+            drawing = ezdxf.read(io.StringIO(content))
+        except ezdxf.DXFStructureError:
+            drawing, _auditor = recover.read(io.BytesIO(content.encode("utf-8", errors="surrogateescape")))
+        doc = cls(drawing)
+        doc._ensure_all_referenced_layers()
+        return doc
+
     def _ensure_all_referenced_layers(self) -> None:
         """Some real-world DXF files (e.g. exports from surveying/cadastral
         software) have entities referencing a layer name that was never
@@ -74,6 +109,15 @@ class DXFDocument:
 
     def save(self, file_path: str) -> None:
         self._drawing.saveas(file_path)
+
+    def to_text(self) -> str:
+        """The document's content as plain ASCII DXF text — the counterpart
+        to `from_text()`, used to embed a full DXF snapshot directly inside
+        a saved project file (see core.project) rather than requiring the
+        document to have been saved to its own .dxf file first."""
+        stream = io.StringIO()
+        self._drawing.write(stream)
+        return stream.getvalue()
 
     @property
     def drawing(self) -> Drawing:
@@ -187,7 +231,7 @@ class DXFDocument:
             return
         layer = self.layers.add(name)
         if rgb is not None:
-            layer.rgb = rgb
+            self._apply_color(layer, rgb)
 
     def remove_layer(self, name: str) -> None:
         """Removes the layer table entry. Does not touch entities still on
@@ -223,7 +267,30 @@ class DXFDocument:
         return (aci_rgb.r, aci_rgb.g, aci_rgb.b)
 
     def set_layer_color(self, name: str, rgb: Tuple[int, int, int]) -> None:
-        self.layers.get(name).rgb = rgb
+        self._apply_color(self.layers.get(name), rgb)
+
+    @staticmethod
+    def _apply_color(layer, rgb: Tuple[int, int, int]) -> None:
+        """Sets both the modern true-color (DXF group 420) and the closest
+        classic AutoCAD Color Index (group 62) for `layer`.
+
+        True-color is what `get_layer_color` prefers, so it wins whenever
+        it survives — but plenty of real-world DXFs (older AutoCAD exports,
+        and many legacy surveying/cadastral tools) predate true-color
+        support entirely (added in AC1018/2004). Writing one of those back
+        out silently drops group 420 - ezdxf won't export an attribute a
+        DXF version doesn't support - which would lose the color outright
+        if the classic ACI index weren't also set as a fallback.
+
+        A layer being off is *also* stored in this same group 62 (as a
+        negative color index), so the sign is preserved rather than always
+        writing positive - otherwise recoloring a hidden layer would
+        silently turn it back on.
+        """
+        was_off = layer.is_off()
+        layer.rgb = rgb
+        aci = _nearest_aci(rgb)
+        layer.dxf.color = -aci if was_off else aci
 
     def is_layer_visible(self, name: str) -> bool:
         return not self.layers.get(name).is_off()
