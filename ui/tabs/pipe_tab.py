@@ -33,5 +33,8 @@ class PipeTab(QWidget):
         width = float(self.width_input.text() or DEFAULT_WIDTH)
         return PipeOptions(width=width)
 
+    def set_options(self, options: PipeOptions) -> None:
+        self.width_input.setText(str(options.width))
+
     def is_modified(self) -> bool:
         return self.width_input.text() != DEFAULT_WIDTH

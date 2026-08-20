@@ -46,6 +46,11 @@ class CableTab(QWidget):
         marks_text = self.marks_text_input.text() or DEFAULT_MARKS_TEXT
         return CableOptions(font_size=font_size, frequency=frequency, marks_text=marks_text)
 
+    def set_options(self, options: CableOptions) -> None:
+        self.font_size_input.setText(str(options.font_size))
+        self.frequency_input.setText(str(options.frequency))
+        self.marks_text_input.setText(options.marks_text)
+
     def is_modified(self) -> bool:
         return (
             self.font_size_input.text() != DEFAULT_FONT_SIZE

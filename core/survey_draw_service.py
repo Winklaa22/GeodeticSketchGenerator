@@ -7,7 +7,7 @@ from typing import Dict, List
 
 from core.commands.base import Command
 from core.commands.composite import CompositeCommand
-from core.commands.layers import AddLayerCommand
+from core.commands.layers import AddLayerCommand, SetLayerColorCommand
 from core.commands.survey import get_survey_builder
 from core.config import GenerationConfig
 from core.validation import ensure_has_data, ensure_selection, resolve_layer_name
@@ -25,8 +25,13 @@ class SurveyDrawService:
         draw_command = builder(points, selected_numbers, config, layer_name)
         if config.layer_rgb is None:
             return draw_command
-        # AddLayerCommand is a no-op (execute *and* undo) if layer_name
-        # already exists - e.g. one imported from a DXF - so this only ever
-        # colors a layer this call itself creates, as one undo step with
+        # The color picked for the target layer always takes effect - a
+        # brand-new layer gets created first (AddLayerCommand, a no-op if
+        # it already exists), then SetLayerColorCommand sets its color
+        # either way, recording whatever color it had before (its own
+        # freshly-created default, or an existing/imported layer's real
+        # color) so undo restores exactly that - all as one undo step with
         # the rest of the drawing.
-        return CompositeCommand([AddLayerCommand(layer_name, rgb=config.layer_rgb), draw_command])
+        return CompositeCommand(
+            [AddLayerCommand(layer_name), SetLayerColorCommand(layer_name, config.layer_rgb), draw_command]
+        )

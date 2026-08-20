@@ -30,19 +30,49 @@ class SelectionTab(QWidget):
         layout.addWidget(make_field("Select points", self.mode_control))
         layout.addStretch(1)
 
+        # The "Separately.../In range..." prompt is re-asked on every Apply
+        # by design (see get_selected_numbers) rather than applied silently
+        # from a stored value - but the last-confirmed text is still kept
+        # here so it can (a) pre-fill that same dialog next time, and (b) be
+        # written into a saved project (see ui.main_window/core.project).
+        self._separate_text = ""
+        self._range_text = ""
+
     def get_selected_numbers(self, data: Dict[int, Point]) -> List[int]:
         mode = self.mode_control.current()
         if mode == "separately":
-            text, ok = QInputDialog.getText(self, "Select Points", "Enter points (e.g. 1,2,3):")
+            text, ok = QInputDialog.getText(
+                self, "Select Points", "Enter points (e.g. 1,2,3):", text=self._separate_text
+            )
             if not ok:
                 return []
+            self._separate_text = text
             return SelectionParser.parse_separate(text)
         if mode == "range":
-            text, ok = QInputDialog.getText(self, "Select Range", "Enter range (e.g. 1-7):")
+            text, ok = QInputDialog.getText(
+                self, "Select Range", "Enter range (e.g. 1-7):", text=self._range_text
+            )
             if not ok:
                 return []
+            self._range_text = text
             return SelectionParser.parse_range(text)
         return SelectionParser.all_points(data)
+
+    @property
+    def mode_key(self) -> str:
+        """The plain "all"/"separately"/"range" key — for project save/load."""
+        return self.mode_control.current() or "all"
+
+    def get_expression_state(self) -> tuple[str, str]:
+        """(separate_text, range_text) - the last-confirmed text for each
+        prompt, for project save/load. Neither is applied to a live
+        selection on its own; see get_selected_numbers."""
+        return self._separate_text, self._range_text
+
+    def set_state(self, mode_key: str, separate_text: str, range_text: str) -> None:
+        self.mode_control.setCurrent(mode_key)
+        self._separate_text = separate_text
+        self._range_text = range_text
 
     def is_modified(self) -> bool:
         return self.mode_control.current() != "all"

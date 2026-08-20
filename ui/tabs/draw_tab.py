@@ -46,5 +46,15 @@ class DrawTab(QWidget):
     def draw_mode(self) -> DrawMode:
         return _MODE_BY_KEY.get(self.mode_group.current() or "plines", DrawMode.PLINES)
 
+    @property
+    def mode_key(self) -> str:
+        """The plain mode key — for project save/load, where `draw_mode`'s
+        DrawMode enum isn't JSON-friendly."""
+        return self.mode_group.current() or "plines"
+
+    def set_mode_key(self, key: str) -> None:
+        if key in _MODE_BY_KEY:
+            self.mode_group.setCurrent(key)
+
     def is_modified(self) -> bool:
         return self.mode_group.current() != "plines"

@@ -1358,8 +1358,9 @@ class DxfCommandInterpreter:
 
 class DxfToolbar(qw.QWidget):
     """Icon toolbar docked above the DXF preview — one-click access to the
-    same draw/edit/history/view actions the command line already exposes.
-    Kept in sync with it either way: typing "LINE" highlights the Line
+    same draw/edit/view actions the command line already exposes (undo/redo
+    live in MainWindow's own Edit menu instead, not here). Kept in sync
+    with the command line either way: typing "LINE" highlights the Line
     button exactly as clicking it would, since both paths go through
     DxfViewer.start_tool()/cancel_tool()."""
 
@@ -1370,8 +1371,6 @@ class DxfToolbar(qw.QWidget):
     selectRequested = qc.pyqtSignal()
     moveRequested = qc.pyqtSignal()
     eraseRequested = qc.pyqtSignal()
-    undoRequested = qc.pyqtSignal()
-    redoRequested = qc.pyqtSignal()
     zoomExtentsRequested = qc.pyqtSignal()
     zoomInRequested = qc.pyqtSignal()
     zoomOutRequested = qc.pyqtSignal()
@@ -1401,9 +1400,6 @@ class DxfToolbar(qw.QWidget):
         self._add_tool_button(layout, "move", "✥", "Move selected (M)")
         self._erase_btn = self._add_plain_button(layout, "✕", "Erase selected (Del)", self.eraseRequested)
         layout.addWidget(self._separator())
-        self._undo_btn = self._add_plain_button(layout, "↺", "Undo (Ctrl+Z)", self.undoRequested)
-        self._redo_btn = self._add_plain_button(layout, "↻", "Redo (Ctrl+Y)", self.redoRequested)
-        layout.addWidget(self._separator())
         self._add_plain_button(layout, "⤢", "Zoom Extents (ZOOM E)", self.zoomExtentsRequested)
         self._add_plain_button(layout, "+", "Zoom In", self.zoomInRequested)
         self._add_plain_button(layout, "−", "Zoom Out", self.zoomOutRequested)
@@ -1412,8 +1408,6 @@ class DxfToolbar(qw.QWidget):
         self._active_key = "select"
         self._tool_buttons["select"].setChecked(True)
         self._erase_btn.setEnabled(False)
-        self._undo_btn.setEnabled(False)
-        self._redo_btn.setEnabled(False)
 
     def _add_tool_button(self, layout: qw.QHBoxLayout, key: str, glyph: str, tooltip: str) -> None:
         btn = qw.QToolButton()
@@ -1461,10 +1455,6 @@ class DxfToolbar(qw.QWidget):
         self._active_key = key or "select"
         for name, btn in self._tool_buttons.items():
             btn.setChecked(name == self._active_key)
-
-    def set_history_enabled(self, can_undo: bool, can_redo: bool) -> None:
-        self._undo_btn.setEnabled(can_undo)
-        self._redo_btn.setEnabled(can_redo)
 
     def set_erase_enabled(self, enabled: bool) -> None:
         self._erase_btn.setEnabled(enabled)
@@ -1568,8 +1558,6 @@ class DxfViewer(qw.QWidget):
         self._toolbar.selectRequested.connect(self.cancel_tool)
         self._toolbar.moveRequested.connect(self.start_move_tool)
         self._toolbar.eraseRequested.connect(lambda: self._echo(self.delete_selected()))
-        self._toolbar.undoRequested.connect(lambda: self._echo(self.undo()))
-        self._toolbar.redoRequested.connect(lambda: self._echo(self.redo()))
         self._toolbar.zoomExtentsRequested.connect(self._view.fit_to_scene)
         self._toolbar.zoomInRequested.connect(lambda: self._view.zoom_by(1.25))
         self._toolbar.zoomOutRequested.connect(lambda: self._view.zoom_by(0.8))
@@ -1650,7 +1638,6 @@ class DxfViewer(qw.QWidget):
         self._history = None
         self._selected_handles = []
         self._imported_layer_names = None
-        self._sync_toolbar_history()
         self._layer_panel.refresh([])
         self._layer_panel.set_prune_available(False)
         self.show_empty()
@@ -1663,7 +1650,32 @@ class DxfViewer(qw.QWidget):
             return False, f"Could not read file: {exc}"
         except ezdxf.DXFError as exc:
             return False, f"Not a valid DXF file: {exc}"
+        return self._adopt_document(doc)
 
+    def load_from_text(self, content: str) -> Tuple[bool, str]:
+        """Loads and renders a document from embedded DXF text rather than a
+        file path — the counterpart to load_file(), used to restore a saved
+        project's embedded DXF snapshot (see core.project) so a project
+        doesn't lose in-progress DXF edits that were never separately saved
+        to their own .dxf file."""
+        try:
+            doc = DXFDocument.from_text(content)
+        except ezdxf.DXFError as exc:
+            return False, f"Could not restore the project's DXF snapshot: {exc}"
+        return self._adopt_document(doc)
+
+    def to_dxf_text(self) -> Optional[str]:
+        """The current document's DXF content as plain text, or None if no
+        document is loaded — for embedding in a saved project (see
+        core.project, ui.main_window)."""
+        if self._doc is None:
+            return None
+        return self._doc.to_text()
+
+    def _adopt_document(self, doc: DXFDocument) -> Tuple[bool, str]:
+        """Makes `doc` the current document and renders it — shared by
+        load_file() and load_from_text(), which differ only in how they
+        obtain the DXFDocument itself."""
         self._doc = doc
         self._history = CommandHistory()
         self._selected_handles = []
@@ -1678,7 +1690,6 @@ class DxfViewer(qw.QWidget):
             self._view.set_document(None)
             self._history = None
             self._imported_layer_names = None
-            self._sync_toolbar_history()
             return False, f"Could not render drawing: {exc}"
 
         self._command_line.reset()
@@ -1840,10 +1851,18 @@ class DxfViewer(qw.QWidget):
     def _echo(self, message: str) -> None:
         self._command_line.show_response(message)
 
-    def _sync_toolbar_history(self) -> None:
-        can_undo = self._history is not None and self._history.can_undo()
-        can_redo = self._history is not None and self._history.can_redo()
-        self._toolbar.set_history_enabled(can_undo, can_redo)
+    def echo(self, message: str) -> None:
+        """Shows `message` in this panel's own embedded command line — used
+        by MainWindow's Edit menu (Undo/Redo live there now, not in this
+        toolbar) so triggering this viewer's history from outside still
+        reports through the same console every other edit action does."""
+        self._echo(message)
+
+    def can_undo(self) -> bool:
+        return self._history is not None and self._history.can_undo()
+
+    def can_redo(self) -> bool:
+        return self._history is not None and self._history.can_redo()
 
     def _render(self, *, preserve_view: bool) -> None:
         assert self._doc is not None
@@ -1868,5 +1887,4 @@ class DxfViewer(qw.QWidget):
         self.layer_count = self._doc.layer_count()
         self._layer_panel.refresh(self._doc.iter_layers())
         self._layer_panel.set_prune_available(self._imported_layer_names is not None)
-        self._sync_toolbar_history()
         self.documentChanged.emit()

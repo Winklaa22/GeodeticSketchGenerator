@@ -35,3 +35,8 @@ class InvalidLayerNameError(ScriptGenerationError):
 
 class NoSelectionError(ScriptGenerationError):
     """Raised when no point numbers were selected for the script."""
+
+
+class ProjectFileError(AppError):
+    """Raised when a .gsgproj project file can't be read, written, or
+    parsed (missing, corrupt, or an unsupported/future format version)."""

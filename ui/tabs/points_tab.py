@@ -50,6 +50,11 @@ class PointsTab(QWidget):
             diameter=diameter,
         )
 
+    def set_options(self, options: PointsOptions) -> None:
+        self.numbers_checkbox.setChecked(options.numbers_enabled)
+        self.font_size_input.setText(str(options.font_size))
+        self.diameter_input.setText(str(options.diameter))
+
     def is_modified(self) -> bool:
         return (
             self.numbers_checkbox.isChecked()
