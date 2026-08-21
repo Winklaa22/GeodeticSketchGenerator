@@ -26,13 +26,17 @@ from PyQt6.QtWidgets import (
 )
 
 from core import project as project_io
+from core.commands.composite import CompositeCommand
 from core.config import CableOptions, GenerationConfig, HeightsOptions, PipeOptions, PointsOptions
+from core.draw_modes import DrawMode
 from core.exceptions import AppError, ProjectFileError
 from core.parser import PointFileParser
 from core.project import (
     CableState,
     DelimiterState,
     HeightsState,
+    LayerDefState,
+    LayerOnlyState,
     LayerState,
     PipeState,
     PointsState,
@@ -40,7 +44,7 @@ from core.project import (
     SelectionState,
 )
 from core.survey_draw_service import SurveyDrawService
-from core.validation import ensure_has_data, ensure_selection, resolve_layer_name
+from core.validation import ensure_draw_modes, ensure_has_data, ensure_selection
 from models.point import Point
 from ui.assets import ICON_PATH
 from ui.dxf_viewer import DxfViewer
@@ -50,6 +54,7 @@ from ui.tabs.cable_tab import CableTab
 from ui.tabs.delimiter_tab import DelimiterTab
 from ui.tabs.draw_tab import DrawTab
 from ui.tabs.heights_tab import HeightsTab
+from ui.tabs.layer_only_tab import LayerOnlyTab
 from ui.tabs.layer_tab import LayerTab
 from ui.tabs.pipe_tab import PipeTab
 from ui.tabs.points_tab import PointsTab
@@ -306,32 +311,58 @@ class MainWindow(QMainWindow):
 
         self.delimiter_tab = DelimiterTab()
         self.draw_tab = DrawTab()
+        self.layer_tab = LayerTab(self.settings)
         self.points_tab = PointsTab()
+        self.lines_tab = LayerOnlyTab()
+        self.plines_tab = LayerOnlyTab()
+        self.poly3d_tab = LayerOnlyTab()
         self.heights_tab = HeightsTab()
         self.cable_tab = CableTab()
         self.pipe_tab = PipeTab()
         self.selection_tab = SelectionTab()
-        self.layer_tab = LayerTab(self.settings)
+        self._layer_dependent_tabs = (
+            self.points_tab,
+            self.lines_tab,
+            self.plines_tab,
+            self.poly3d_tab,
+            self.heights_tab,
+            self.cable_tab,
+            self.pipe_tab,
+        )
+        self._sync_layer_dropdowns()  # seeds each dropdown above with the initial layer list
 
         self.accordion = Accordion()
+        # A 4th element names the Drawing Mode key (see ui.tabs.draw_tab)
+        # that gates this section's visibility - None for sections that
+        # aren't tied to one (see _refresh).
         specs = (
-            ("▭", "Point File", _PointFileSection(self.file_stack, self.delimiter_tab)),
-            ("▤", "Layer", self.layer_tab),
-            ("✎", "Drawing Mode", self.draw_tab),
-            ("○", "Points", self.points_tab),
-            ("☰", "Heights", self.heights_tab),
-            ("╱", "Cable Marks", self.cable_tab),
-            ("═", "Pipe", self.pipe_tab),
-            ("▢", "Selection", self.selection_tab),
+            ("▭", "Point File", _PointFileSection(self.file_stack, self.delimiter_tab), None),
+            ("✎", "Drawing Mode", self.draw_tab, None),
+            ("▤", "Layer", self.layer_tab, None),
+            ("○", "Points", self.points_tab, "points"),
+            ("╲", "Lines", self.lines_tab, "lines"),
+            ("∿", "PLines", self.plines_tab, "plines"),
+            ("◇", "3DPOLY", self.poly3d_tab, "3dpoly"),
+            ("☰", "Heights", self.heights_tab, "heights"),
+            ("╱", "Cable Marks", self.cable_tab, "cable"),
+            ("═", "Pipe", self.pipe_tab, "pipe"),
+            ("▢", "Selection", self.selection_tab, None),
         )
-        for icon, title, tab in specs:
+        self._mode_sections: Dict[str, AccordionSection] = {}
+        for icon, title, tab, mode_key in specs:
             section = AccordionSection(icon, title, tab)
             self.accordion.add_section(section)
             self._sections.append((section, tab))
+            if mode_key is not None:
+                self._mode_sections[mode_key] = section
+        self._section_mode_key = {section: key for key, section in self._mode_sections.items()}
         # The point-file section holds its own upload controls, so it must
         # stay visible even with nothing loaded yet - the rest are hidden
         # until there's data to mean anything (see _refresh).
         self._point_file_section = self._sections[0][0]
+        # Layer only means something once a drawing mode is actually
+        # checked - hidden the rest of the time (see _refresh).
+        self._layer_section = self._sections[2][0]
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -427,14 +458,17 @@ class MainWindow(QMainWindow):
         self.delimiter_tab.cabinet_mode_toggled.connect(self._on_config_changed)
         self.delimiter_tab.delimiter_changed.connect(self._on_delimiter_changed)
 
-        self.draw_tab.mode_changed.connect(self._on_config_changed)
+        self.draw_tab.modes_changed.connect(self._on_config_changed)
         self.points_tab.numbers_toggled.connect(self._on_config_changed)
         self.points_tab.option_changed.connect(self._on_config_changed)
+        self.lines_tab.option_changed.connect(self._on_config_changed)
+        self.plines_tab.option_changed.connect(self._on_config_changed)
+        self.poly3d_tab.option_changed.connect(self._on_config_changed)
         self.heights_tab.option_changed.connect(self._on_config_changed)
         self.cable_tab.option_changed.connect(self._on_config_changed)
         self.pipe_tab.option_changed.connect(self._on_config_changed)
         self.selection_tab.selection_changed.connect(self._on_config_changed)
-        self.layer_tab.layer_changed.connect(self._on_config_changed)
+        self.layer_tab.layers_changed.connect(self._on_layers_changed)
 
         self.dxf_viewer.documentChanged.connect(self._refresh)
 
@@ -457,6 +491,19 @@ class MainWindow(QMainWindow):
         self._has_applied = False
         self._refresh()
 
+    def _sync_layer_dropdowns(self) -> None:
+        """Pushes the Layer section's current list into every dependent
+        tab's own layer picker — called whenever that list changes, and
+        once up front to seed them (see _build_left_column)."""
+        names = self.layer_tab.layer_names()
+        default = self.layer_tab.default_layer_name()
+        for tab in self._layer_dependent_tabs:
+            tab.set_available_layers(names, default)
+
+    def _on_layers_changed(self) -> None:
+        self._sync_layer_dropdowns()
+        self._on_config_changed()
+
     def _on_delimiter_changed(self) -> None:
         if self.file_path:
             self._reparse_current_file()
@@ -469,9 +516,19 @@ class MainWindow(QMainWindow):
         state = self._current_state()
 
         has_file = state is not AppState.EMPTY
+        checked_modes = set(self.draw_tab.mode_keys)
         self.delimiter_tab.setVisible(has_file)
         for section, _tab in self._sections:
-            if section is not self._point_file_section:
+            if section is self._point_file_section:
+                continue
+            mode_key = self._section_mode_key.get(section)
+            if mode_key is not None:
+                # Points/Lines/PLines/3DPOLY/Heights/Cable Marks/Pipe: only
+                # worth showing once that exact mode is actually checked.
+                section.setVisible(has_file and mode_key in checked_modes)
+            elif section is self._layer_section:
+                section.setVisible(has_file and bool(checked_modes))
+            else:
                 section.setVisible(has_file)
 
         if state is AppState.EMPTY:
@@ -485,7 +542,7 @@ class MainWindow(QMainWindow):
             self.file_card.set_file(name, count, size)
             self.file_stack.setCurrentWidget(self.file_card)
             file_label = f"{name} · {count} points"
-            layer_text = f"Layer: {self.layer_tab.get_layer_name() or '0'}"
+            layer_text = f"Layer: {self.layer_tab.default_layer_name()}"
             delim_text = f"Delimiter: {self._delimiter_display_name()}"
 
             if state in (AppState.READY, AppState.APPLIED):
@@ -530,16 +587,35 @@ class MainWindow(QMainWindow):
     # ==================================================================
     # HELPERS
     # ==================================================================
-    def _build_generation_config(self, layer_name: str) -> GenerationConfig:
+    # Modes with their own options tab target whichever layer that tab's
+    # dropdown currently shows; the rest (Lines/PLines/3DPOLY have no
+    # options tab of their own) fall back to the Layer section's default.
+    _LAYER_PICKER_TABS = {
+        DrawMode.POINTS: "points_tab",
+        DrawMode.LINES: "lines_tab",
+        DrawMode.PLINES: "plines_tab",
+        DrawMode.POLY3D: "poly3d_tab",
+        DrawMode.HEIGHTS: "heights_tab",
+        DrawMode.CABLE_MARKS: "cable_tab",
+        DrawMode.PIPE: "pipe_tab",
+    }
+
+    def _layer_name_for_mode(self, draw_mode: DrawMode) -> str:
+        tab_name = self._LAYER_PICKER_TABS.get(draw_mode)
+        if tab_name is not None:
+            return getattr(self, tab_name).get_layer_name()
+        return self.layer_tab.default_layer_name()
+
+    def _build_generation_config(self, layer_name: str, draw_mode: DrawMode) -> GenerationConfig:
         return GenerationConfig(
             layer_name=layer_name,
-            draw_mode=self.draw_tab.draw_mode,
+            draw_mode=draw_mode,
             cabinet_mode=self.delimiter_tab.cabinet_mode_enabled,
             points=self.points_tab.get_options(),
             heights=self.heights_tab.get_options(),
             cable=self.cable_tab.get_options(),
             pipe=self.pipe_tab.get_options(),
-            layer_rgb=self.layer_tab.get_layer_rgb(),
+            layer_rgb=self.layer_tab.get_rgb(layer_name),
         )
 
     @staticmethod
@@ -649,11 +725,23 @@ class MainWindow(QMainWindow):
         self.layer_tab.persist(self.settings)
         try:
             ensure_has_data(self.data, self.file_path)
-            layer_name = resolve_layer_name(self.layer_tab.get_layer_name())
             selected_numbers = self.selection_tab.get_selected_numbers(self.data)
             ensure_selection(selected_numbers)
-            config = self._build_generation_config(layer_name)
-            command = self.survey_draw_service.build_command(self.data, selected_numbers, config)
+            draw_modes = self.draw_tab.draw_modes
+            ensure_draw_modes(draw_modes)
+            # Each checked mode becomes its own command, targeting whichever
+            # layer that mode's own picker is set to, all bundled into one
+            # undo step - so e.g. PLines + Heights marks + Cable marks apply
+            # (and later undo) together as a single Apply.
+            commands = [
+                self.survey_draw_service.build_command(
+                    self.data,
+                    selected_numbers,
+                    self._build_generation_config(self._layer_name_for_mode(mode), mode),
+                )
+                for mode in draw_modes
+            ]
+            command = commands[0] if len(commands) == 1 else CompositeCommand(commands)
         except AppError as exc:
             self._last_error = str(exc)
             self._has_applied = False
@@ -697,25 +785,33 @@ class MainWindow(QMainWindow):
         """Every tab's current settings plus the point/DXF file paths, as
         one serializable ProjectState — see core.project."""
         separate_text, range_text = self.selection_tab.get_expression_state()
+        layers, default_name = self.layer_tab.get_state()
         return ProjectState(
             name=self.project_name or project_io.default_project_name(self.file_path, self.dxf_path),
             txt_file_path=self.file_path,
             dxf_file_path=self.dxf_path,
             dxf_content=self.dxf_viewer.to_dxf_text(),
-            draw_mode=self.draw_tab.mode_key,
+            draw_modes=self.draw_tab.mode_keys,
             delimiter=DelimiterState(
                 mode=self.delimiter_tab.gap_key,
                 swap_xy=self.delimiter_tab.swap_xy_enabled,
                 cabinet_mode=self.delimiter_tab.cabinet_mode_enabled,
             ),
-            points=PointsState(**asdict(self.points_tab.get_options())),
-            heights=HeightsState(**asdict(self.heights_tab.get_options())),
-            cable=CableState(**asdict(self.cable_tab.get_options())),
-            pipe=PipeState(**asdict(self.pipe_tab.get_options())),
+            points=PointsState(**asdict(self.points_tab.get_options()), layer_name=self.points_tab.get_layer_name()),
+            lines=LayerOnlyState(layer_name=self.lines_tab.get_layer_name()),
+            plines=LayerOnlyState(layer_name=self.plines_tab.get_layer_name()),
+            poly3d=LayerOnlyState(layer_name=self.poly3d_tab.get_layer_name()),
+            heights=HeightsState(
+                **asdict(self.heights_tab.get_options()), layer_name=self.heights_tab.get_layer_name()
+            ),
+            cable=CableState(**asdict(self.cable_tab.get_options()), layer_name=self.cable_tab.get_layer_name()),
+            pipe=PipeState(**asdict(self.pipe_tab.get_options()), layer_name=self.pipe_tab.get_layer_name()),
             selection=SelectionState(
                 mode=self.selection_tab.mode_key, separate_text=separate_text, range_text=range_text
             ),
-            layer=LayerState(name=self.layer_tab.get_layer_name(), rgb=self.layer_tab.get_layer_rgb()),
+            layer=LayerState(
+                layers=[LayerDefState(name=name, rgb=rgb) for name, rgb in layers], default_name=default_name
+            ),
         )
 
     def load_project_state(self, state: ProjectState) -> None:
@@ -728,13 +824,33 @@ class MainWindow(QMainWindow):
         still worth restoring."""
         self.project_name = state.name
         self.delimiter_tab.set_state(state.delimiter.mode, state.delimiter.swap_xy, state.delimiter.cabinet_mode)
-        self.draw_tab.set_mode_key(state.draw_mode)
-        self.points_tab.set_options(PointsOptions(**asdict(state.points)))
-        self.heights_tab.set_options(HeightsOptions(**asdict(state.heights)))
-        self.cable_tab.set_options(CableOptions(**asdict(state.cable)))
-        self.pipe_tab.set_options(PipeOptions(**asdict(state.pipe)))
+        self.draw_tab.set_mode_keys(state.draw_modes)
+        self.layer_tab.set_state([(l.name, tuple(l.rgb)) for l in state.layer.layers], state.layer.default_name)
+        self._sync_layer_dropdowns()  # populate each tab's picker before selecting a specific layer_name below
+        self.points_tab.set_options(
+            PointsOptions(
+                numbers_enabled=state.points.numbers_enabled,
+                font_size=state.points.font_size,
+                diameter=state.points.diameter,
+            )
+        )
+        self.points_tab.set_layer_name(state.points.layer_name)
+        self.lines_tab.set_layer_name(state.lines.layer_name)
+        self.plines_tab.set_layer_name(state.plines.layer_name)
+        self.poly3d_tab.set_layer_name(state.poly3d.layer_name)
+        self.heights_tab.set_options(
+            HeightsOptions(font_size=state.heights.font_size, frequency=state.heights.frequency)
+        )
+        self.heights_tab.set_layer_name(state.heights.layer_name)
+        self.cable_tab.set_options(
+            CableOptions(
+                font_size=state.cable.font_size, frequency=state.cable.frequency, marks_text=state.cable.marks_text
+            )
+        )
+        self.cable_tab.set_layer_name(state.cable.layer_name)
+        self.pipe_tab.set_options(PipeOptions(width=state.pipe.width))
+        self.pipe_tab.set_layer_name(state.pipe.layer_name)
         self.selection_tab.set_state(state.selection.mode, state.selection.separate_text, state.selection.range_text)
-        self.layer_tab.set_state(state.layer.name, tuple(state.layer.rgb))
 
         missing = []
         if state.txt_file_path:

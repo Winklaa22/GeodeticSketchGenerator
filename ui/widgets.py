@@ -5,7 +5,7 @@ logic) so they can be composed freely by ui/main_window.py and ui/tabs/*.py.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from PyQt6 import QtGui
 from PyQt6.QtCore import QLocale, Qt, pyqtSignal
@@ -13,6 +13,7 @@ from PyQt6.QtGui import QColor, QDoubleValidator
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QColorDialog,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -155,10 +156,49 @@ class ColorSwatchButton(QToolButton):
         self.setStyleSheet(f"background-color: rgb{self._rgb};")
 
     def _pick_color(self) -> None:
-        color = QColorDialog.getColor(QColor(*self._rgb), self, "Choose Color")
-        if color.isValid():
-            self.set_color((color.red(), color.green(), color.blue()))
-            self.colorChanged.emit(self._rgb)
+        dialog = QColorDialog(QColor(*self._rgb), self)
+        dialog.setWindowTitle("Choose Color")
+        # Without this, the dialog inherits this button's own inline
+        # "background-color: rgb(...)" (it's the dialog's Qt parent),
+        # painting the whole picker in whatever color was last chosen
+        # instead of its normal native chrome.
+        dialog.setStyleSheet("")
+        if dialog.exec() == QColorDialog.DialogCode.Accepted:
+            color = dialog.selectedColor()
+            if color.isValid():
+                self.set_color((color.red(), color.green(), color.blue()))
+                self.colorChanged.emit(self._rgb)
+
+
+# --------------------------------------------------------------------------
+# Layer dropdown — targets one of the layers defined in ui/tabs/layer_tab.py,
+# used by Points/Heights/Cable Marks/Pipe to each pick their own.
+# --------------------------------------------------------------------------
+class LayerDropdown(QComboBox):
+    layerChanged = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("layerDropdown")
+        self.currentTextChanged.connect(lambda _text: self.layerChanged.emit())
+
+    def set_available_layers(self, names: Sequence[str], default_name: str) -> None:
+        """Repopulates the list, keeping the current pick if it still
+        exists, otherwise falling back to `default_name`."""
+        wanted = self.currentText() or default_name
+        self.blockSignals(True)
+        self.clear()
+        self.addItems(names)
+        self.setCurrentText(wanted if wanted in names else default_name)
+        self.blockSignals(False)
+
+    def layer_name(self) -> str:
+        return self.currentText()
+
+    def set_layer_name(self, name: str) -> None:
+        index = self.findText(name)
+        if index >= 0:
+            self.setCurrentIndex(index)
 
 
 # --------------------------------------------------------------------------
@@ -220,18 +260,29 @@ class SegmentedControl(QWidget):
 # Radio-card group (bordered cards, used for Drawing Mode)
 # --------------------------------------------------------------------------
 class RadioCardGroup(QWidget):
-    """A grid of bordered, checkable "radio cards" — one exclusive choice."""
+    """A grid of bordered, checkable cards: either one exclusive choice
+    (radio bullets, the default) or an independent multi-choice (checkbox
+    bullets, `multi_select=True`) — used for Drawing Mode, where several
+    modes can now be applied together in one Apply."""
 
-    currentChanged = pyqtSignal(str)
+    currentChanged = pyqtSignal(str)  # single-select only: the new current key
+    selectionChanged = pyqtSignal(list)  # multi-select only: all checked keys
 
-    def __init__(self, options: Sequence[Tuple[str, str]], columns: int = 2, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        options: Sequence[Tuple[str, str]],
+        columns: int = 2,
+        parent: Optional[QWidget] = None,
+        multi_select: bool = False,
+    ) -> None:
         super().__init__(parent)
+        self._multi_select = multi_select
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(SPACE_SM)
 
         self._group = QButtonGroup(self)
-        self._group.setExclusive(True)
+        self._group.setExclusive(not multi_select)
         self._buttons: Dict[str, QPushButton] = {}
         self._labels: Dict[str, str] = dict(options)
         for index, (key, label) in enumerate(options):
@@ -240,20 +291,26 @@ class RadioCardGroup(QWidget):
             btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.toggled.connect(lambda checked, b=btn, lbl=label: self._paint(b, lbl, checked))
-            btn.clicked.connect(lambda _checked, k=key: self.currentChanged.emit(k))
+            if multi_select:
+                btn.toggled.connect(lambda _checked: self.selectionChanged.emit(self.current_keys()))
+            else:
+                btn.clicked.connect(lambda _checked, k=key: self.currentChanged.emit(k))
             self._paint(btn, label, False)
             self._group.addButton(btn)
             grid.addWidget(btn, index // columns, index % columns)
             self._buttons[key] = btn
-        if options:
+        if options and not multi_select:
             self._buttons[options[0][0]].setChecked(True)
             self._paint(self._buttons[options[0][0]], options[0][1], True)
 
-    @staticmethod
-    def _paint(button: QPushButton, label: str, checked: bool) -> None:
-        bullet = "●" if checked else "○"
+    def _paint(self, button: QPushButton, label: str, checked: bool) -> None:
+        if self._multi_select:
+            bullet = "☑" if checked else "☐"
+        else:
+            bullet = "●" if checked else "○"
         button.setText(f"{bullet}  {label}")
 
+    # -- single-select API --------------------------------------------------
     def setCurrent(self, key: str) -> None:
         btn = self._buttons.get(key)
         if btn is not None and not btn.isChecked():
@@ -264,6 +321,15 @@ class RadioCardGroup(QWidget):
             if btn.isChecked():
                 return key
         return None
+
+    # -- multi-select API -----------------------------------------------
+    def current_keys(self) -> List[str]:
+        return [key for key, btn in self._buttons.items() if btn.isChecked()]
+
+    def set_current_keys(self, keys: Iterable[str]) -> None:
+        checked = set(keys)
+        for key, btn in self._buttons.items():
+            btn.setChecked(key in checked)
 
 
 # --------------------------------------------------------------------------

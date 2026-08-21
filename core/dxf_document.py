@@ -156,10 +156,14 @@ class DXFDocument:
         entity = self.modelspace.add_polyline3d(points, close=closed, dxfattribs={"layer": layer})
         return entity.dxf.handle
 
-    def unlink_entity(self, handle: str) -> DXFGraphic:
+    def _require_entity(self, handle: str) -> DXFGraphic:
         entity = self.get_entity(handle)
         if entity is None:
             raise KeyError(f"No entity with handle {handle!r}")
+        return entity
+
+    def unlink_entity(self, handle: str) -> DXFGraphic:
+        entity = self._require_entity(handle)
         self.modelspace.unlink_entity(entity)
         return entity
 
@@ -167,10 +171,44 @@ class DXFDocument:
         self.modelspace.add_entity(entity)
 
     def translate_entity(self, handle: str, dx: float, dy: float, dz: float = 0.0) -> None:
-        entity = self.get_entity(handle)
-        if entity is None:
-            raise KeyError(f"No entity with handle {handle!r}")
-        entity.translate(dx, dy, dz)
+        self._require_entity(handle).translate(dx, dy, dz)
+
+    # -- TEXT entity properties — content/height/rotation/color -----------
+    def get_text_content(self, handle: str) -> str:
+        return self._require_entity(handle).dxf.text
+
+    def set_text_content(self, handle: str, text: str) -> None:
+        self._require_entity(handle).dxf.text = text
+
+    def get_text_height(self, handle: str) -> float:
+        return self._require_entity(handle).dxf.height
+
+    def set_text_height(self, handle: str, height: float) -> None:
+        self._require_entity(handle).dxf.height = height
+
+    def get_text_rotation(self, handle: str) -> float:
+        return self._require_entity(handle).dxf.rotation
+
+    def set_text_rotation(self, handle: str, rotation: float) -> None:
+        self._require_entity(handle).dxf.rotation = rotation
+
+    def get_entity_color(self, handle: str) -> Tuple[int, int, int]:
+        """The entity's *effective* color: its own override if it has one,
+        otherwise its layer's (DXF's "ByLayer" default, color 256)."""
+        entity = self._require_entity(handle)
+        if entity.dxf.color in (0, 256):  # ByBlock / ByLayer — no override set
+            return self.get_layer_color(entity.dxf.layer)
+        rgb = entity.rgb
+        if rgb is not None:
+            return (rgb.r, rgb.g, rgb.b)
+        try:
+            aci_rgb = ezdxf_colors.aci2rgb(abs(entity.dxf.color))
+        except IndexError:
+            return (255, 255, 255)
+        return (aci_rgb.r, aci_rgb.g, aci_rgb.b)
+
+    def set_entity_color(self, handle: str, rgb: Tuple[int, int, int]) -> None:
+        self._apply_color(self._require_entity(handle), rgb)
 
     # -- Layers — visibility/color/active-layer/delete --------------------
     def add_layer(self, name: str, rgb: Optional[Tuple[int, int, int]] = None) -> None:
@@ -205,11 +243,14 @@ class DXFDocument:
         self._apply_color(self.layers.get(name), rgb)
 
     @staticmethod
-    def _apply_color(layer, rgb: Tuple[int, int, int]) -> None:
-        was_off = layer.dxf.color < 0
-        layer.rgb = rgb
+    def _apply_color(target, rgb: Tuple[int, int, int]) -> None:
+        """Sets both true-color and its nearest-ACI fallback on a layer or
+        an entity — see `_nearest_aci`. Only a *layer's* stored color can
+        ever be negative (meaning "off"), and that sign is preserved."""
+        was_off = target.dxf.color < 0
+        target.rgb = rgb
         aci = _nearest_aci(rgb)
-        layer.dxf.color = -aci if was_off else aci
+        target.dxf.color = -aci if was_off else aci
 
     def is_layer_visible(self, name: str) -> bool:
         return not self.layers.get(name).is_off()
@@ -230,8 +271,6 @@ class DXFDocument:
         self._drawing.header["$CLAYER"] = name
 
     def iter_layers(self) -> List[LayerInfo]:
-        """A snapshot of every layer for the UI panel, layer "0" first, then
-        alphabetical."""
         counts: Dict[str, int] = {}
         for entity in self.modelspace:
             counts[entity.dxf.layer] = counts.get(entity.dxf.layer, 0) + 1

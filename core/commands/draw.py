@@ -82,6 +82,12 @@ class AddTextCommand:
         if self._handle is not None:
             doc.unlink_entity(self._handle)
 
+    @property
+    def handle(self) -> Optional[str]:
+        """The created entity's handle, once executed — lets the Text tool
+        select what it just placed (see DxfViewer._finish_tool)."""
+        return self._handle
+
 
 class AddPolyline2DCommand:
     def __init__(self, points: Iterable[Sequence[float]], layer: str = DEFAULT_LAYER, closed: bool = False) -> None:

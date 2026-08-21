@@ -10,6 +10,7 @@ from core.project import (
     CableState,
     DelimiterState,
     HeightsState,
+    LayerDefState,
     LayerState,
     PipeState,
     PointsState,
@@ -29,14 +30,17 @@ def test_save_then_load_round_trips_every_field(tmp_path) -> None:
         txt_file_path="C:/data/points.txt",
         dxf_file_path="C:/data/drawing.dxf",
         dxf_content="0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
-        draw_mode="lines",
+        draw_modes=["lines", "heights"],
         delimiter=DelimiterState(mode="tab", swap_xy=False, cabinet_mode=True),
-        points=PointsState(numbers_enabled=True, font_size=0.8, diameter=0.1),
-        heights=HeightsState(font_size=0.5, frequency=3),
+        points=PointsState(numbers_enabled=True, font_size=0.8, diameter=0.1, layer_name="RURA"),
+        heights=HeightsState(font_size=0.5, frequency=3, layer_name="RZEDNE"),
         cable=CableState(font_size=0.7, frequency=2, marks_text="CBL"),
         pipe=PipeState(width=0.2),
         selection=SelectionState(mode="range", separate_text="1,2,3", range_text="1-10"),
-        layer=LayerState(name="RURA", rgb=(200, 30, 40)),
+        layer=LayerState(
+            layers=[LayerDefState(name="RURA", rgb=(200, 30, 40)), LayerDefState(name="RZEDNE", rgb=(30, 200, 40))],
+            default_name="RURA",
+        ),
     )
     path = str(tmp_path / "project.gsgproj")
     save_project(path, state)
@@ -93,10 +97,29 @@ def test_load_rejects_unknown_field_types(tmp_path) -> None:
 
 
 def test_open_any_loads_a_gsgproj_as_is(tmp_path) -> None:
-    state = ProjectState(name="Real", draw_mode="pipe")
+    state = ProjectState(name="Real", draw_modes=["pipe"])
     path = str(tmp_path / "real.gsgproj")
     save_project(path, state)
     assert open_any(path) == state
+
+
+def test_load_reads_pre_multi_select_single_draw_mode(tmp_path) -> None:
+    # Project files saved before multi-select drawing modes stored one mode
+    # as a plain string under "draw_mode" - still readable as a 1-item list.
+    path = tmp_path / "legacy.gsgproj"
+    path.write_text(json.dumps({"draw_mode": "pipe"}), encoding="utf-8")
+    assert load_project(str(path)).draw_modes == ["pipe"]
+
+
+def test_load_reads_pre_multi_layer_single_layer(tmp_path) -> None:
+    # Project files saved before multi-layer support stored one layer as
+    # plain "name"/"rgb" fields under "layer" - still readable as a 1-item
+    # layer list, used as both the only layer and the default.
+    path = tmp_path / "legacy_layer.gsgproj"
+    path.write_text(json.dumps({"layer": {"name": "RURA", "rgb": [200, 30, 40]}}), encoding="utf-8")
+    layer = load_project(str(path)).layer
+    assert layer.layers == [LayerDefState(name="RURA", rgb=(200, 30, 40))]
+    assert layer.default_name == "RURA"
 
 
 def test_open_any_wraps_a_bare_dxf_in_a_fresh_project(tmp_path) -> None:

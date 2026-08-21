@@ -341,6 +341,22 @@ QLineEdit#dxfCommandInput {{
     font-size: {TEXT_SM}px;
 }}
 
+/* ---------- text options bar (floats above a selected TEXT entity) ---------- */
+QFrame#textOptionsBar {{
+    background: {c.SURFACE_RAISED};
+    border: 1px solid {c.BORDER_STRONG};
+    border-radius: {RADIUS_SM}px;
+}}
+QLineEdit#textOptionsContent, QLineEdit#textOptionsField {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-radius: {RADIUS_SM}px;
+    color: {c.TEXT};
+    font-size: {TEXT_SM}px;
+    padding: {SPACE_XS}px {SPACE_SM}px;
+}}
+QLineEdit#textOptionsContent:focus, QLineEdit#textOptionsField:focus {{ border-color: {c.ACCENT_BORDER}; }}
+
 /* ---------- accordion ---------- */
 QFrame#accordionHeader {{
     background: transparent;
@@ -375,6 +391,22 @@ QLineEdit#input {{
 }}
 QLineEdit#input:focus {{ border: 1px solid {c.ACCENT_BORDER}; }}
 QLineEdit#input:disabled {{ color: {c.TEXT_FAINT}; }}
+QComboBox#layerDropdown {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-radius: {RADIUS_SM}px;
+    padding: {SPACE_SM}px;
+    color: {c.TEXT};
+}}
+QComboBox#layerDropdown:focus {{ border: 1px solid {c.ACCENT_BORDER}; }}
+QComboBox#layerDropdown::drop-down {{ border: none; width: 20px; }}
+QComboBox#layerDropdown QAbstractItemView {{
+    background: {c.SURFACE_RAISED};
+    border: 1px solid {c.BORDER_STRONG};
+    color: {c.TEXT};
+    selection-background-color: {c.ACCENT_SOFT};
+    outline: none;
+}}
 
 QPushButton#checkField {{
     text-align: left;

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.exceptions import ProjectFileError
 
@@ -33,12 +33,14 @@ class PointsState:
     numbers_enabled: bool = False
     font_size: float = 0.6
     diameter: float = 0.05
+    layer_name: str = ""  # "" means "use Layer's default" - see ui.tabs.layer_tab
 
 
 @dataclass
 class HeightsState:
     font_size: float = 0.6
     frequency: int = 5
+    layer_name: str = ""
 
 
 @dataclass
@@ -46,11 +48,22 @@ class CableState:
     font_size: float = 0.6
     frequency: int = 5
     marks_text: str = "eN"
+    layer_name: str = ""
 
 
 @dataclass
 class PipeState:
     width: float = 0.16
+    layer_name: str = ""
+
+
+@dataclass
+class LayerOnlyState:
+    """Lines, PLines and 3DPOLY have nothing to configure besides which
+    layer they target — one of these per mode, unlike Points/Heights/Cable
+    Marks/Pipe, which carry real options alongside the same field."""
+
+    layer_name: str = ""
 
 
 @dataclass
@@ -63,9 +76,19 @@ class SelectionState:
 
 
 @dataclass
-class LayerState:
+class LayerDefState:
     name: str = "0"
     rgb: Tuple[int, int, int] = DEFAULT_LAYER_RGB
+
+
+@dataclass
+class LayerState:
+    """Several layers can now be defined up front and picked per drawing
+    mode (see ui.tabs.layer_tab) — `default_name` is the fallback for any
+    mode whose own layer_name field is left blank."""
+
+    layers: List[LayerDefState] = field(default_factory=lambda: [LayerDefState()])
+    default_name: str = "0"
 
 
 @dataclass
@@ -80,9 +103,14 @@ class ProjectState:
     # a reference to dxf_file_path - otherwise edits never separately saved
     # to their own .dxf would be lost on reopening the project.
     dxf_content: Optional[str] = None
-    draw_mode: str = "plines"  # see ui.tabs.draw_tab's mode keys
+    # See ui.tabs.draw_tab's mode keys — multiple modes can be applied
+    # together (e.g. "plines" + "heights" + "cable" in one Apply).
+    draw_modes: List[str] = field(default_factory=lambda: ["plines"])
     delimiter: DelimiterState = field(default_factory=DelimiterState)
     points: PointsState = field(default_factory=PointsState)
+    lines: LayerOnlyState = field(default_factory=LayerOnlyState)
+    plines: LayerOnlyState = field(default_factory=LayerOnlyState)
+    poly3d: LayerOnlyState = field(default_factory=LayerOnlyState)
     heights: HeightsState = field(default_factory=HeightsState)
     cable: CableState = field(default_factory=CableState)
     pipe: PipeState = field(default_factory=PipeState)
@@ -112,25 +140,46 @@ def load_project(path: str) -> ProjectState:
         raise ProjectFileError("Not a valid project file: expected a JSON object.")
 
     try:
-        layer_payload = payload.get("layer") or {}
-        rgb = layer_payload.get("rgb", DEFAULT_LAYER_RGB)
         dxf_content = payload.get("dxf_content")
+        draw_modes = payload.get("draw_modes")
+        if draw_modes is None:
+            # Pre-multi-select project files stored one mode as "draw_mode".
+            draw_modes = [payload["draw_mode"]] if "draw_mode" in payload else ["plines"]
         return ProjectState(
             name=str(payload.get("name", "Untitled")),
             txt_file_path=str(payload.get("txt_file_path", "")),
             dxf_file_path=str(payload.get("dxf_file_path", "")),
             dxf_content=str(dxf_content) if dxf_content is not None else None,
-            draw_mode=str(payload.get("draw_mode", "plines")),
+            draw_modes=[str(mode) for mode in draw_modes] or ["plines"],
             delimiter=DelimiterState(**(payload.get("delimiter") or {})),
             points=PointsState(**(payload.get("points") or {})),
+            lines=LayerOnlyState(**(payload.get("lines") or {})),
+            plines=LayerOnlyState(**(payload.get("plines") or {})),
+            poly3d=LayerOnlyState(**(payload.get("poly3d") or {})),
             heights=HeightsState(**(payload.get("heights") or {})),
             cable=CableState(**(payload.get("cable") or {})),
             pipe=PipeState(**(payload.get("pipe") or {})),
             selection=SelectionState(**(payload.get("selection") or {})),
-            layer=LayerState(name=str(layer_payload.get("name", "0")), rgb=tuple(rgb)),
+            layer=_load_layer_state(payload.get("layer") or {}),
         )
     except (TypeError, ValueError) as exc:
         raise ProjectFileError(f"Not a valid project file: {exc}") from exc
+
+
+def _load_layer_state(layer_payload: Dict[str, Any]) -> LayerState:
+    layers_payload = layer_payload.get("layers")
+    if layers_payload is None:
+        # Pre-multi-layer project files stored one layer as "name"/"rgb".
+        name = str(layer_payload.get("name", "0"))
+        rgb = tuple(layer_payload.get("rgb", DEFAULT_LAYER_RGB))
+        return LayerState(layers=[LayerDefState(name=name, rgb=rgb)], default_name=name)
+    layers = [LayerDefState(name=str(item["name"]), rgb=tuple(item["rgb"])) for item in layers_payload]
+    if not layers:
+        layers = [LayerDefState()]
+    default_name = str(layer_payload.get("default_name", layers[0].name))
+    if default_name not in {layer.name for layer in layers}:
+        default_name = layers[0].name
+    return LayerState(layers=layers, default_name=default_name)
 
 
 def open_any(path: str) -> ProjectState:

@@ -105,9 +105,13 @@ class _LayerRow(qw.QFrame):
 
     def _pick_color(self, current_rgb: Tuple[int, int, int]) -> None:
         initial = qg.QColor(*current_rgb)
-        color = qw.QColorDialog.getColor(initial, self, "Layer Color")
-        if color.isValid():
-            self.colorRequested.emit(self._name, (color.red(), color.green(), color.blue()))
+        dialog = qw.QColorDialog(initial, self)
+        dialog.setWindowTitle("Layer Color")
+        dialog.setStyleSheet("")  # don't inherit any row/swatch background color - see ColorSwatchButton
+        if dialog.exec() == qw.QColorDialog.DialogCode.Accepted:
+            color = dialog.selectedColor()
+            if color.isValid():
+                self.colorRequested.emit(self._name, (color.red(), color.green(), color.blue()))
 
 
 class LayerPanel(qw.QWidget):
