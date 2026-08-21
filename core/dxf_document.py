@@ -80,7 +80,6 @@ class DXFDocument:
         return doc
 
     def _ensure_all_referenced_layers(self) -> None:
-
         for entity in self.modelspace:
             self.ensure_layer(entity.dxf.layer)
 
