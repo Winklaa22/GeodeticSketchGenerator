@@ -130,6 +130,12 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(ICON_PATH))
         self.resize(1360, 860)
         self.setMinimumSize(1080, 680)
+        # Starts maximized regardless of which of the several call sites
+        # ends up calling .show() on it (New Project, Open Project, the
+        # launcher's Open…) - setting this before the first show is honored
+        # without needing to touch each of those separately. The launcher
+        # (StartScreen) is unaffected - it opens at its own normal size.
+        self.setWindowState(Qt.WindowState.WindowMaximized)
         self.settings = QtCore.QSettings("acsg", "acsg_pro")
 
         self.parser = PointFileParser()
