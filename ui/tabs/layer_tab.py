@@ -1,72 +1,192 @@
-"""Layer accordion section."""
+"""Layer accordion section — defines several named/colored layers up
+front, picked per drawing mode via that mode's own options tab (see e.g.
+ui.tabs.points_tab). Lines/PLines/3DPOLY have no options tab of their own,
+so they always draw onto whichever layer is marked default here."""
 from __future__ import annotations
 
-from typing import Optional, Tuple
+import json
+from typing import List, Optional, Tuple
 
-from PyQt6.QtCore import QSettings, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QWidget
+from PyQt6.QtCore import QSettings, Qt, pyqtSignal
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QInputDialog, QToolButton, QVBoxLayout, QWidget
 
-from ui.theme import SPACE_SM
-from ui.widgets import ColorSwatchButton, SectionColumn, make_field, styled_line_edit
+from ui.theme import SPACE_XS
+from ui.widgets import ColorSwatchButton, SectionColumn
 
 DEFAULT_LAYER_NAME = "0"
-# Same family as the app's own accent color - a reasonable default for a
-# layer that doesn't exist yet, distinct from ezdxf's own plain-white default.
 DEFAULT_LAYER_RGB: Tuple[int, int, int] = (145, 132, 217)
-SETTINGS_KEY = "layer"
-SETTINGS_COLOR_KEY = "layer_color"
+SETTINGS_KEY = "layers_v2"
+
+# Cycled through for a newly-added layer's default color, same idea as
+# ui.layer_panel's own auto-palette for a freshly added DXF layer.
+_AUTO_PALETTE: List[Tuple[int, int, int]] = [
+    (145, 132, 217),  # accent purple
+    (127, 207, 158),  # green
+    (229, 130, 138),  # red
+    (232, 181, 104),  # amber
+    (110, 180, 219),  # blue
+    (216, 143, 209),  # pink
+]
 
 
-def _load_rgb(settings: QSettings) -> Tuple[int, int, int]:
-    raw = settings.value(SETTINGS_COLOR_KEY, None)
-    if raw:
-        try:
-            r, g, b = (int(part) for part in str(raw).split(","))
-            if all(0 <= value <= 255 for value in (r, g, b)):
-                return (r, g, b)
-        except ValueError:
-            pass
-    return DEFAULT_LAYER_RGB
+class _LayerDefRow(QFrame):
+    """One defined layer: default-marker, name, color swatch, delete."""
+
+    defaultRequested = pyqtSignal(str)
+    colorRequested = pyqtSignal(str, tuple)
+    deleteRequested = pyqtSignal(str)
+
+    def __init__(self, name: str, rgb: Tuple[int, int, int], is_default: bool, deletable: bool) -> None:
+        super().__init__()
+        # Reuses ui.layer_panel's row styling (#layerRow, [active="true"])
+        # so a "default" layer here looks exactly like an "active" one
+        # there — same visual language, different underlying concept.
+        self.setObjectName("layerRow")
+        self.setProperty("active", "true" if is_default else "false")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(SPACE_XS, SPACE_XS, SPACE_XS, SPACE_XS)
+        layout.setSpacing(SPACE_XS)
+
+        default_btn = QToolButton()
+        default_btn.setObjectName("layerActiveBtn")
+        default_btn.setText("●" if is_default else "○")
+        default_btn.setToolTip("Set as default — used by modes with no layer picker of their own")
+        default_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        default_btn.clicked.connect(lambda: self.defaultRequested.emit(name))
+        layout.addWidget(default_btn)
+
+        label = QToolButton()
+        label.setObjectName("layerNameBtn")
+        label.setText(name)  # inert - not connected to anything, just styled as a label
+        layout.addWidget(label, 1)
+
+        swatch = ColorSwatchButton(rgb, "Change color")
+        swatch.colorChanged.connect(lambda new_rgb: self.colorRequested.emit(name, new_rgb))
+        layout.addWidget(swatch)
+
+        delete_btn = QToolButton()
+        delete_btn.setObjectName("layerDeleteBtn")
+        delete_btn.setText("✕")
+        delete_btn.setEnabled(deletable)
+        delete_btn.setToolTip("Delete layer" if deletable else 'Layer "0" cannot be deleted')
+        delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        delete_btn.clicked.connect(lambda: self.deleteRequested.emit(name))
+        layout.addWidget(delete_btn)
 
 
 class LayerTab(QWidget):
+    """A small list of layers (name + color), one marked default. Points,
+    Heights, Cable Marks and Pipe each get a dropdown fed by `layer_names()`
+    to target a different one; Lines/PLines/3DPOLY use `default_layer_name()`.
+    """
 
-    layer_changed = pyqtSignal()
+    layers_changed = pyqtSignal()
 
     def __init__(self, settings: QSettings, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self._layers, self._default_name = self._load(settings)
+
         layout = SectionColumn(self)
 
-        self.layer_input = styled_line_edit(settings.value(SETTINGS_KEY, DEFAULT_LAYER_NAME))
-        self.layer_input.setPlaceholderText("Enter layer name")
-        self.layer_input.textChanged.connect(lambda _t: self.layer_changed.emit())
+        self._rows_container = QWidget()
+        self._rows_layout = QVBoxLayout(self._rows_container)
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(2)
+        layout.addWidget(self._rows_container)
 
-        self.color_swatch = ColorSwatchButton(_load_rgb(settings), tooltip="Color for the target layer")
-        self.color_swatch.colorChanged.connect(lambda _rgb: self.layer_changed.emit())
-
-        row = QWidget()
-        row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(SPACE_SM)
-        row_layout.addWidget(self.layer_input, 1)
-        row_layout.addWidget(self.color_swatch)
-        layout.addWidget(make_field("Layer name", row))
+        add_btn = QToolButton()
+        add_btn.setObjectName("layerAddBtn")
+        add_btn.setText("+ Add layer")
+        add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_btn.clicked.connect(self._on_add_clicked)
+        layout.addWidget(add_btn)
         layout.addStretch(1)
 
-    def get_layer_name(self) -> str:
-        return self.layer_input.text()
+        self._rebuild_rows()
 
-    def get_layer_rgb(self) -> Tuple[int, int, int]:
-        """The color the target layer should end up with on Apply."""
-        return self.color_swatch.rgb
+    # -- reading ----------------------------------------------------------
+    def layer_names(self) -> List[str]:
+        return [name for name, _rgb in self._layers]
 
-    def set_state(self, name: str, rgb: Tuple[int, int, int]) -> None:
-        self.layer_input.setText(name)
-        self.color_swatch.set_color(rgb)
+    def get_rgb(self, name: str) -> Tuple[int, int, int]:
+        for layer_name, rgb in self._layers:
+            if layer_name == name:
+                return rgb
+        return DEFAULT_LAYER_RGB
+
+    def default_layer_name(self) -> str:
+        return self._default_name if self._default_name in self.layer_names() else DEFAULT_LAYER_NAME
+
+    # -- editing ------------------------------------------------------------
+    def _on_add_clicked(self) -> None:
+        name, ok = QInputDialog.getText(self, "New Layer", "Layer name:")
+        name = name.strip()
+        if not ok or not name or name in self.layer_names():
+            return
+        rgb = _AUTO_PALETTE[len(self._layers) % len(_AUTO_PALETTE)]
+        self._layers.append((name, rgb))
+        self._rebuild_rows()
+        self.layers_changed.emit()
+
+    def _on_delete(self, name: str) -> None:
+        if name == DEFAULT_LAYER_NAME or len(self._layers) <= 1:
+            return
+        self._layers = [(n, rgb) for n, rgb in self._layers if n != name]
+        if self._default_name == name:
+            self._default_name = self._layers[0][0]
+        self._rebuild_rows()
+        self.layers_changed.emit()
+
+    def _on_color_changed(self, name: str, rgb: Tuple[int, int, int]) -> None:
+        self._layers = [(n, rgb if n == name else old_rgb) for n, old_rgb in self._layers]
+        self.layers_changed.emit()
+
+    def _on_set_default(self, name: str) -> None:
+        if self._default_name == name:
+            return
+        self._default_name = name
+        self._rebuild_rows()
+        self.layers_changed.emit()
+
+    def _rebuild_rows(self) -> None:
+        while self._rows_layout.count():
+            item = self._rows_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+        deletable = len(self._layers) > 1
+        for name, rgb in self._layers:
+            row = _LayerDefRow(name, rgb, name == self._default_name, name != DEFAULT_LAYER_NAME and deletable)
+            row.defaultRequested.connect(self._on_set_default)
+            row.colorRequested.connect(self._on_color_changed)
+            row.deleteRequested.connect(self._on_delete)
+            self._rows_layout.addWidget(row)
+
+    # -- project save/load --------------------------------------------------
+    def get_state(self) -> Tuple[List[Tuple[str, Tuple[int, int, int]]], str]:
+        return list(self._layers), self._default_name
+
+    def set_state(self, layers: List[Tuple[str, Tuple[int, int, int]]], default_name: str) -> None:
+        self._layers = list(layers) or [(DEFAULT_LAYER_NAME, DEFAULT_LAYER_RGB)]
+        self._default_name = default_name if default_name in self.layer_names() else self._layers[0][0]
+        self._rebuild_rows()
+
+    # -- QSettings persistence (last-used default, across projects) --------
+    def _load(self, settings: QSettings) -> Tuple[List[Tuple[str, Tuple[int, int, int]]], str]:
+        raw = settings.value(SETTINGS_KEY, None)
+        if raw:
+            try:
+                payload = json.loads(str(raw))
+                layers = [(str(name), tuple(rgb)) for name, rgb in payload["layers"]]
+                if layers:
+                    return layers, str(payload.get("default_name", layers[0][0]))
+            except (ValueError, KeyError, TypeError):
+                pass
+        return [(DEFAULT_LAYER_NAME, DEFAULT_LAYER_RGB)], DEFAULT_LAYER_NAME
 
     def persist(self, settings: QSettings) -> None:
-        settings.setValue(SETTINGS_KEY, self.layer_input.text())
-        settings.setValue(SETTINGS_COLOR_KEY, ",".join(str(value) for value in self.color_swatch.rgb))
+        settings.setValue(SETTINGS_KEY, json.dumps({"layers": self._layers, "default_name": self._default_name}))
 
     def is_modified(self) -> bool:
-        return self.layer_input.text() != DEFAULT_LAYER_NAME or self.color_swatch.rgb != DEFAULT_LAYER_RGB
+        return self._layers != [(DEFAULT_LAYER_NAME, DEFAULT_LAYER_RGB)] or self._default_name != DEFAULT_LAYER_NAME

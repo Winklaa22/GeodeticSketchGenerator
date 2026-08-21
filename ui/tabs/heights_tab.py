@@ -1,17 +1,18 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import QWidget
 
 from core.config import HeightsOptions
-from ui.widgets import SectionColumn, decimal_validator, make_field, styled_line_edit
+from ui.widgets import LayerDropdown, SectionColumn, decimal_validator, make_field, styled_line_edit
 
 DEFAULT_FONT_SIZE = "0.6"
 DEFAULT_FREQUENCY = "5"
+DEFAULT_LAYER_NAME = "0"
 
 
 class HeightsTab(QWidget):
@@ -32,7 +33,20 @@ class HeightsTab(QWidget):
         self.frequency_input.setValidator(QIntValidator(1, 10**6))
         self.frequency_input.textChanged.connect(lambda _t: self.option_changed.emit())
         layout.addWidget(make_field("Frequency (every Nth point)", self.frequency_input))
+
+        self.layer_dropdown = LayerDropdown()
+        self.layer_dropdown.layerChanged.connect(self.option_changed.emit)
+        layout.addWidget(make_field("Layer", self.layer_dropdown))
         layout.addStretch(1)
+
+    def set_available_layers(self, names: Sequence[str], default_name: str) -> None:
+        self.layer_dropdown.set_available_layers(names, default_name)
+
+    def get_layer_name(self) -> str:
+        return self.layer_dropdown.layer_name()
+
+    def set_layer_name(self, name: str) -> None:
+        self.layer_dropdown.set_layer_name(name)
 
     def get_options(self) -> HeightsOptions:
         """Reads the current widget state into a HeightsOptions value object."""
@@ -45,4 +59,8 @@ class HeightsTab(QWidget):
         self.frequency_input.setText(str(options.frequency))
 
     def is_modified(self) -> bool:
-        return self.font_size_input.text() != DEFAULT_FONT_SIZE or self.frequency_input.text() != DEFAULT_FREQUENCY
+        return (
+            self.font_size_input.text() != DEFAULT_FONT_SIZE
+            or self.frequency_input.text() != DEFAULT_FREQUENCY
+            or self.get_layer_name() not in ("", DEFAULT_LAYER_NAME)
+        )

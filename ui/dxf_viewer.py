@@ -39,7 +39,7 @@ from ezdxf.math import Vec2
 from ezdxf.path import Command
 
 from core.commands.base import Command as EditCommand
-from core.commands.draw import AddCircleCommand, AddLineCommand, AddPointCommand
+from core.commands.draw import AddCircleCommand, AddLineCommand, AddPointCommand, AddTextCommand
 from core.commands.edit import DeleteEntityCommand, MoveCommand
 from core.commands.history import CommandHistory
 from core.commands.composite import CompositeCommand
@@ -51,9 +51,16 @@ from core.commands.layers import (
     SetLayerVisibleCommand,
     layers_to_prune,
 )
+from core.commands.text import (
+    SetEntityColorCommand,
+    SetTextContentCommand,
+    SetTextHeightCommand,
+    SetTextRotationCommand,
+)
 from core.dxf_document import DXFDocument
 from ui.layer_panel import LayerPanel
 from ui.theme import Color as UiColor, SPACE_SM, SPACE_XS
+from ui.widgets import ColorSwatchButton, decimal_validator
 
 _HANDLE_ROLE = qc.Qt.ItemDataRole.UserRole
 _CLICK_THRESHOLD_PX = 4
@@ -283,6 +290,8 @@ class CadGraphicsView(qw.QGraphicsView):
 
     entitySelected = qc.pyqtSignal(list)  # list[str] of handles, [] for "nothing selected"
     toolPointPlaced = qc.pyqtSignal()
+    itemsDragMoved = qc.pyqtSignal(list, float, float)  # handles, dx, dy — see _finish_drag_items
+    viewportChanged = qc.pyqtSignal()  # transform or scroll position changed — see TextOptionsBar
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -297,8 +306,17 @@ class CadGraphicsView(qw.QGraphicsView):
         self._rubber_band: Optional[qw.QRubberBand] = None
         self._snap_indicator: Optional[qc.QPointF] = None
         self._doc: Optional[DXFDocument] = None
+        # Click-and-drag move (no tool active, press starts on an entity) —
+        # see mousePressEvent/_ensure_dragging_items/_finish_drag_items.
+        self._drag_candidate: Optional[qw.QGraphicsItem] = None
+        self._dragging_items = False
+        self._drag_items: List[qw.QGraphicsItem] = []
+        self._drag_start_scene: Optional[qc.QPointF] = None
 
         self.setObjectName("dxfCanvas")
+        # So DxfViewer._finish_tool can return focus here (away from the
+        # command line) once a tool session ends — see setFocus() there.
+        self.setFocusPolicy(qc.Qt.FocusPolicy.StrongFocus)
         self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(qw.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         # Panning is handled manually via the middle mouse button (see
@@ -329,6 +347,7 @@ class CadGraphicsView(qw.QGraphicsView):
         self.setSceneRect(rect)
         self.fitInView(rect, qc.Qt.AspectRatioMode.KeepAspectRatio)
         self._base_scale = _x_scale(self.transform())
+        self.viewportChanged.emit()
 
     def zoom_by(self, factor: float) -> bool:
         """Scales the view by `factor` around its center. Returns False (and
@@ -339,6 +358,7 @@ class CadGraphicsView(qw.QGraphicsView):
         if resulting_zoom < self._min_zoom or resulting_zoom > self._max_zoom:
             return False
         self.scale(factor, factor)
+        self.viewportChanged.emit()
         return True
 
     def zoom_window(self, p1: Tuple[float, float], p2: Tuple[float, float]) -> bool:
@@ -354,6 +374,7 @@ class CadGraphicsView(qw.QGraphicsView):
         drawing itself, so PAN 10,0 always moves by 10 drawing units."""
         center = self.mapToScene(self.viewport().rect().center())
         self.centerOn(center.x() + dx, center.y() + dy)
+        self.viewportChanged.emit()
 
     def save_view(self) -> Tuple[qg.QTransform, int, int]:
         """Captures the current transform + scroll position, so a full scene
@@ -365,6 +386,11 @@ class CadGraphicsView(qw.QGraphicsView):
         self.setTransform(transform)
         self.horizontalScrollBar().setValue(h_value)
         self.verticalScrollBar().setValue(v_value)
+        self.viewportChanged.emit()
+
+    def resizeEvent(self, event: qg.QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self.viewportChanged.emit()
 
     def wheelEvent(self, event: qg.QWheelEvent) -> None:  # noqa: N802 (Qt override)
         notches = event.angleDelta().y() / 120
@@ -493,6 +519,12 @@ class CadGraphicsView(qw.QGraphicsView):
             self.setCursor(qc.Qt.CursorShape.ClosedHandCursor)
             return
         self._press_pos = event.position().toPoint()
+        self._drag_candidate = None
+        if self._tool is None and event.button() == qc.Qt.MouseButton.LeftButton:
+            # Remembered so a later drag (see mouseMoveEvent) can move
+            # whatever was actually pressed on, without re-hit-testing at a
+            # possibly-different position once the drag is under way.
+            self._drag_candidate = self._topmost_handled_item(self._press_pos)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: qg.QMouseEvent) -> None:  # noqa: N802
@@ -518,8 +550,34 @@ class CadGraphicsView(qw.QGraphicsView):
         elif self._press_pos is not None:
             view_pos = event.position().toPoint()
             moved = (view_pos - self._press_pos).manhattanLength()
-            if moved > _CLICK_THRESHOLD_PX:
+            if moved <= _CLICK_THRESHOLD_PX:
+                return
+            if self._drag_candidate is not None:
+                self._ensure_dragging_items(view_pos)
+            else:
                 self._update_rubber_band(view_pos)
+
+    def _ensure_dragging_items(self, view_pos: qc.QPoint) -> None:
+        """Live-previews a click-and-drag move: the first call (once the
+        drag clears the click threshold) picks which items follow the
+        cursor — the whole current selection if the press landed on a
+        member of it, otherwise just the pressed item, which also becomes
+        the new selection (matching AutoCAD's press-and-drag-to-move)."""
+        if not self._dragging_items:
+            self._dragging_items = True
+            if self._drag_candidate in self._selected_items:
+                self._drag_items = list(self._selected_items)
+            else:
+                self._drag_items = [self._drag_candidate]
+                self.set_selected_items(self._drag_items)
+                self._emit_selection()
+            self._drag_start_scene = self.mapToScene(self._press_pos)
+        assert self._drag_start_scene is not None
+        current_scene = self.mapToScene(view_pos)
+        dx = current_scene.x() - self._drag_start_scene.x()
+        dy = current_scene.y() - self._drag_start_scene.y()
+        for item in self._drag_items:
+            item.setPos(dx, dy)
 
     def mouseReleaseEvent(self, event: qg.QMouseEvent) -> None:  # noqa: N802
         if event.button() == qc.Qt.MouseButton.MiddleButton:
@@ -542,6 +600,9 @@ class CadGraphicsView(qw.QGraphicsView):
             self._tool.on_click((scene_point.x(), scene_point.y()))
             self.toolPointPlaced.emit()
             return
+        if self._dragging_items:
+            self._finish_drag_items(release_pos)
+            return
         shift = bool(event.modifiers() & qc.Qt.KeyboardModifier.ShiftModifier)
         moved = (release_pos - press_pos).manhattanLength()
         if moved > _CLICK_THRESHOLD_PX:
@@ -553,6 +614,24 @@ class CadGraphicsView(qw.QGraphicsView):
         else:
             self.set_selected_items([item] if item is not None else [])
         self._emit_selection()
+
+    def _finish_drag_items(self, release_pos: qc.QPoint) -> None:
+        assert self._drag_start_scene is not None
+        current_scene = self.mapToScene(release_pos)
+        dx = current_scene.x() - self._drag_start_scene.x()
+        dy = current_scene.y() - self._drag_start_scene.y()
+        handles = [item.data(_HANDLE_ROLE) for item in self._drag_items]
+        for item in self._drag_items:
+            # The real move is committed as a Command below and applied via
+            # a full re-render — this per-item offset was only ever a live
+            # preview, so it's undone rather than left to fight the redraw.
+            item.setPos(0, 0)
+        self._dragging_items = False
+        self._drag_items = []
+        self._drag_candidate = None
+        self._drag_start_scene = None
+        if handles and (abs(dx) > 1e-9 or abs(dy) > 1e-9):
+            self.itemsDragMoved.emit(handles, dx, dy)
 
     def _update_rubber_band(self, current_pos: qc.QPoint) -> None:
         if self._press_pos is None:
@@ -779,6 +858,49 @@ class PointToolSession(ToolSession):
     def build_command(self, layer: str) -> EditCommand:
         assert self._point is not None
         return AddPointCommand(self._point, layer)
+
+
+_DEFAULT_TEXT_HEIGHT = 0.6
+
+
+class TextToolSession(ToolSession):
+    """AutoCAD's TEXT command, simplified to one shot: click (or type) an
+    insertion point, then type the string itself — committed as soon as
+    that text is entered, rather than staying in a live on-canvas edit."""
+
+    def __init__(self, height: float = _DEFAULT_TEXT_HEIGHT) -> None:
+        super().__init__()
+        self.prompt = "Specify text insertion point: "
+        self._insert: Optional[Tuple[float, float]] = None
+        self._text: Optional[str] = None
+        self._height = height
+
+    def on_click(self, point: Tuple[float, float]) -> None:
+        if self._insert is None:
+            self._insert = point
+            self.prompt = "Enter text: "
+        # A stray click once only the text content is left to fill in has
+        # nothing to do — that step only accepts typed input (see on_text).
+
+    def on_text(self, text: str) -> Optional[str]:
+        if self._insert is None:
+            coord = _parse_coordinate(text, last_point=None)
+            if coord is None:
+                return f'Point must be given as "x,y": "{text}".'
+            self._insert = coord
+            self.prompt = "Enter text: "
+            return None
+        if not text.strip():
+            return "Text cannot be empty."
+        self._text = text
+        return None
+
+    def is_done(self) -> bool:
+        return self._insert is not None and self._text is not None
+
+    def build_command(self, layer: str) -> EditCommand:
+        assert self._insert is not None and self._text is not None
+        return AddTextCommand(self._text, self._insert, self._height, layer)
 
 
 class LineToolSession(ToolSession):
@@ -1107,7 +1229,7 @@ class CommandLine(qw.QWidget):
         prompt.setObjectName("dxfCommandPrompt")
         self._input = qw.QLineEdit()
         self._input.setObjectName("dxfCommandInput")
-        self._input.setPlaceholderText("POINT, LINE, CIRCLE, PIPE, ZOOM …")
+        self._input.setPlaceholderText("POINT, TEXT, LINE, CIRCLE, PIPE, ZOOM …")
         self._input.returnPressed.connect(self._submit)
         # QLineEdit binds Ctrl+Z/Ctrl+Y to its own internal text-edit undo/redo
         # and consumes the key press before any parent QShortcut sees it — an
@@ -1135,7 +1257,7 @@ class CommandLine(qw.QWidget):
 
     def reset(self) -> None:
         self._history.clear()
-        self._echo("Type POINT, LINE, CIRCLE, PIPE, ERASE, U(ndo), REDO, ZOOM, PAN or REGEN.")
+        self._echo("Type POINT, TEXT, LINE, CIRCLE, PIPE, ERASE, U(ndo), REDO, ZOOM, PAN or REGEN.")
 
     def show_response(self, message: str) -> None:
         if message:
@@ -1143,6 +1265,13 @@ class CommandLine(qw.QWidget):
 
     def set_placeholder(self, text: str) -> None:
         self._input.setPlaceholderText(text)
+
+    def focus_input(self) -> None:
+        """Moves keyboard focus to the Command: field — called whenever an
+        active tool's next step needs typed input (e.g. TEXT's content),
+        so the user can start typing right away instead of having to click
+        into this field first."""
+        self._input.setFocus()
 
     def _submit(self) -> None:
         text = self._input.text().strip()
@@ -1158,6 +1287,101 @@ class CommandLine(qw.QWidget):
         scrollbar.setValue(scrollbar.maximum())
 
 
+class TextOptionsBar(qw.QFrame):
+    """Floating panel above a selected TEXT entity, in AutoCAD's in-place
+    text editor spirit — but scoped to what a plain single-line DXF TEXT
+    actually has: content, height, rotation, color. No MTEXT-style
+    per-character bold/italic/underline, since a single-line TEXT has no
+    such formatting to carry.
+
+    Pure UI like LayerPanel: each field commits as a plain-value signal
+    once its value actually changes, and DxfViewer turns that into the
+    matching core.commands.text Command."""
+
+    contentChanged = qc.pyqtSignal(str, str)  # handle, new text
+    heightChanged = qc.pyqtSignal(str, float)  # handle, new height
+    rotationChanged = qc.pyqtSignal(str, float)  # handle, new rotation (degrees)
+    colorChanged = qc.pyqtSignal(str, tuple)  # handle, new rgb
+
+    def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("textOptionsBar")
+        self.handle: Optional[str] = None
+        self._orig_text = ""
+        self._orig_height = 0.0
+        self._orig_rotation = 0.0
+        self.hide()
+
+        layout = qw.QHBoxLayout(self)
+        layout.setContentsMargins(SPACE_SM, SPACE_XS, SPACE_SM, SPACE_XS)
+        layout.setSpacing(SPACE_XS)
+
+        self._content = qw.QLineEdit()
+        self._content.setObjectName("textOptionsContent")
+        self._content.setFixedWidth(150)
+        self._content.setToolTip("Text content")
+        self._content.editingFinished.connect(self._emit_content)
+        layout.addWidget(self._content)
+
+        self._height = qw.QLineEdit()
+        self._height.setObjectName("textOptionsField")
+        self._height.setFixedWidth(54)
+        self._height.setToolTip("Text height")
+        self._height.setValidator(decimal_validator(0.001, 9999.0, 3))
+        self._height.editingFinished.connect(self._emit_height)
+        layout.addWidget(self._height)
+
+        self._rotation = qw.QLineEdit()
+        self._rotation.setObjectName("textOptionsField")
+        self._rotation.setFixedWidth(54)
+        self._rotation.setToolTip("Rotation (degrees)")
+        self._rotation.setValidator(decimal_validator(-360.0, 360.0, 2))
+        self._rotation.editingFinished.connect(self._emit_rotation)
+        layout.addWidget(self._rotation)
+
+        self._color = ColorSwatchButton((255, 255, 255), "Text color")
+        self._color.colorChanged.connect(self._emit_color)
+        layout.addWidget(self._color)
+
+    def bind(self, handle: str, text: str, height: float, rotation: float, rgb: Tuple[int, int, int]) -> None:
+        """Points this bar at one TEXT entity and fills it with that
+        entity's current values — called by DxfViewer.sync_text_options_bar
+        every time the selection or the document changes."""
+        self.handle = handle
+        self._orig_text, self._orig_height, self._orig_rotation = text, height, rotation
+        self._content.setText(text)
+        self._height.setText(f"{height:g}")
+        self._rotation.setText(f"{rotation:g}")
+        self._color.set_color(rgb)
+        self.show()
+        self.adjustSize()
+
+    def _emit_content(self) -> None:
+        text = self._content.text()
+        if self.handle and text and text != self._orig_text:
+            self.contentChanged.emit(self.handle, text)
+
+    def _emit_height(self) -> None:
+        text = self._height.text()
+        if not self.handle or not text:
+            return
+        height = float(text.replace(",", "."))
+        if height > 0 and height != self._orig_height:
+            self.heightChanged.emit(self.handle, height)
+
+    def _emit_rotation(self) -> None:
+        text = self._rotation.text()
+        if not self.handle or not text:
+            return
+        rotation = float(text.replace(",", "."))
+        if rotation != self._orig_rotation:
+            self.rotationChanged.emit(self.handle, rotation)
+
+    def _emit_color(self, rgb: Tuple[int, int, int]) -> None:
+        if self.handle:
+            self.colorChanged.emit(self.handle, rgb)
+
+
 class _CommandError(Exception):
     """Raised by a command handler for a malformed argument; the message is
     shown in the command line, same as an invalid AutoCAD command prompt."""
@@ -1166,8 +1390,8 @@ class _CommandError(Exception):
 class DxfCommandInterpreter:
     """Parses a small set of AutoCAD-style commands: view control
     (ZOOM/PAN/REGEN, applied directly to the CadGraphicsView) and editing
-    (POINT/LINE/CIRCLE/ERASE/UNDO/REDO, applied through the owning
-    DxfViewer's DXFDocument + CommandHistory)."""
+    (POINT/TEXT/LINE/CIRCLE/PIPE/MOVE/ERASE/UNDO/REDO, applied through the
+    owning DxfViewer's DXFDocument + CommandHistory)."""
 
     def __init__(self, dxf_viewer: "DxfViewer") -> None:
         self._viewer = dxf_viewer
@@ -1183,6 +1407,8 @@ class DxfCommandInterpreter:
             "REDRAW": self._cmd_regen,
             "POINT": self._cmd_point,
             "PO": self._cmd_point,
+            "TEXT": self._cmd_text,
+            "T": self._cmd_text,
             "LINE": self._cmd_line,
             "L": self._cmd_line,
             "CIRCLE": self._cmd_circle,
@@ -1258,6 +1484,13 @@ class DxfCommandInterpreter:
             self._viewer.execute_command(AddPointCommand(coord, doc.active_layer))
             return ""
         self._viewer.start_tool(PointToolSession())
+        return ""
+
+    def _cmd_text(self, args: List[str]) -> str:
+        # No direct-args form (unlike POINT/LINE/CIRCLE/PIPE): the text
+        # content itself can contain spaces, which this command line's
+        # naive whitespace split can't round-trip — always interactive.
+        self._viewer.start_tool(TextToolSession())
         return ""
 
     def _cmd_line(self, args: List[str]) -> str:
@@ -1365,6 +1598,7 @@ class DxfToolbar(qw.QWidget):
     DxfViewer.start_tool()/cancel_tool()."""
 
     pointRequested = qc.pyqtSignal()
+    textRequested = qc.pyqtSignal()
     lineRequested = qc.pyqtSignal()
     circleRequested = qc.pyqtSignal()
     pipeRequested = qc.pyqtSignal()
@@ -1385,6 +1619,7 @@ class DxfToolbar(qw.QWidget):
         self._tool_buttons: Dict[str, qw.QToolButton] = {}
         self._tool_signals = {
             "point": self.pointRequested,
+            "text": self.textRequested,
             "line": self.lineRequested,
             "circle": self.circleRequested,
             "pipe": self.pipeRequested,
@@ -1393,6 +1628,7 @@ class DxfToolbar(qw.QWidget):
 
         self._add_tool_button(layout, "select", "↖", "Select / cancel current tool (Esc)")
         self._add_tool_button(layout, "point", "•", "Point (PO)")
+        self._add_tool_button(layout, "text", "A", "Text (T)")
         self._add_tool_button(layout, "line", "╱", "Line (L)")
         self._add_tool_button(layout, "circle", "○", "Circle (C)")
         self._add_tool_button(layout, "pipe", "∥", "Pipe (RURA)")
@@ -1462,6 +1698,7 @@ class DxfToolbar(qw.QWidget):
 
 _TOOL_KEYS = {
     PointToolSession: "point",
+    TextToolSession: "text",
     LineToolSession: "line",
     CircleToolSession: "circle",
     PipeToolSession: "pipe",
@@ -1532,6 +1769,13 @@ class DxfViewer(qw.QWidget):
         self._view = CadGraphicsView()
         self._view.entitySelected.connect(self._on_entity_selected)
         self._view.toolPointPlaced.connect(self._on_tool_point_placed)
+        self._view.itemsDragMoved.connect(self._on_items_drag_moved)
+        self._view.viewportChanged.connect(self._reposition_text_options_bar)
+        self._text_options_bar = TextOptionsBar(self)
+        self._text_options_bar.contentChanged.connect(self._on_text_content_changed)
+        self._text_options_bar.heightChanged.connect(self._on_text_height_changed)
+        self._text_options_bar.rotationChanged.connect(self._on_text_rotation_changed)
+        self._text_options_bar.colorChanged.connect(self._on_text_color_changed)
         self._command_line = CommandLine()
         self._command_line.commandEntered.connect(self._on_command_entered)
         self._command_line.undoRequested.connect(lambda: self._echo(self.undo()))
@@ -1552,6 +1796,7 @@ class DxfViewer(qw.QWidget):
         self._layer_panel = LayerPanel()
 
         self._toolbar.pointRequested.connect(lambda: self._start_draw_tool(PointToolSession))
+        self._toolbar.textRequested.connect(lambda: self._start_draw_tool(TextToolSession))
         self._toolbar.lineRequested.connect(lambda: self._start_draw_tool(LineToolSession))
         self._toolbar.circleRequested.connect(lambda: self._start_draw_tool(CircleToolSession))
         self._toolbar.pipeRequested.connect(lambda: self._start_draw_tool(PipeToolSession))
@@ -1736,6 +1981,7 @@ class DxfViewer(qw.QWidget):
         self._selected_handles = []
         self._view.set_selected_items([])
         self._toolbar.set_erase_enabled(False)
+        self._sync_text_options_bar()
 
     def select_by_layer(self, name: str) -> None:
         """Selects every entity on layer `name` — the "select by layer" half
@@ -1743,10 +1989,18 @@ class DxfViewer(qw.QWidget):
         if self._doc is None:
             return
         handles = {entity.dxf.handle for entity in self._doc.modelspace if entity.dxf.layer == name}
-        items = [item for item in self._view.scene().items() if item.data(_HANDLE_ROLE) in handles]
+        self._select_handles(handles)
+
+    def _select_handles(self, handles: Iterable[str]) -> None:
+        """Selects/highlights exactly the entities named by `handles`,
+        looked up in the *current* scene — used after anything that changes
+        what should be selected without going through a canvas click."""
+        handle_set = set(handles)
+        items = [item for item in self._view.scene().items() if item.data(_HANDLE_ROLE) in handle_set]
         self._view.set_selected_items(items)
-        self._selected_handles = list(handles)
-        self._toolbar.set_erase_enabled(bool(handles))
+        self._selected_handles = [item.data(_HANDLE_ROLE) for item in items]
+        self._toolbar.set_erase_enabled(bool(items))
+        self._sync_text_options_bar()
 
     def start_tool(self, tool: ToolSession) -> None:
         self.cancel_tool()
@@ -1754,6 +2008,7 @@ class DxfViewer(qw.QWidget):
         self._active_tool = tool
         self._view.set_tool(tool)
         self._command_line.show_response(tool.prompt)
+        self._command_line.focus_input()
         self._toolbar.set_active_tool(_TOOL_KEYS.get(type(tool)))
 
     def cancel_tool(self) -> None:
@@ -1777,6 +2032,11 @@ class DxfViewer(qw.QWidget):
         document (there's nothing to move in a blank one)."""
         if not self._selected_handles:
             self._echo("Select objects to move first.")
+            # The toolbar button already toggled itself checked on click
+            # (Qt does that before this slot even runs) — since the tool
+            # never actually started, put it back or it's left showing
+            # "Move" active while clicks still do plain selection.
+            self._toolbar.set_active_tool(None)
             return
         self.start_tool(MoveToolSession(list(self._selected_handles)))
 
@@ -1830,10 +2090,84 @@ class DxfViewer(qw.QWidget):
             self._finish_tool()
         else:
             self._command_line.show_response(self._active_tool.prompt)
+            self._command_line.focus_input()
 
     def _on_entity_selected(self, handles: List[str]) -> None:
         self._selected_handles = list(handles)
         self._toolbar.set_erase_enabled(bool(handles))
+        self._sync_text_options_bar()
+
+    def _on_items_drag_moved(self, handles: List[str], dx: float, dy: float) -> None:
+        """Click-and-drag move finished on the canvas — same underlying
+        MoveCommand as the Move tool, just triggered directly by dragging
+        an entity instead of the base-point/second-point click sequence."""
+        self._selected_handles = list(handles)
+        self.execute_command(MoveCommand(handles, dx, dy))
+
+    # -- Text options bar: shown above a single selected TEXT entity ------
+    def _sync_text_options_bar(self) -> None:
+        """Shows/hides/rebinds the floating text-options bar for whatever
+        is selected right now — called after every selection change and
+        after every render (edits, undo/redo, load/clear)."""
+        if self._doc is None or len(self._selected_handles) != 1:
+            self._text_options_bar.hide()
+            return
+        handle = self._selected_handles[0]
+        entity = self._doc.get_entity(handle)
+        if entity is None or entity.dxftype() != "TEXT":
+            self._text_options_bar.hide()
+            return
+        self._text_options_bar.bind(
+            handle, entity.dxf.text, entity.dxf.height, entity.dxf.rotation, self._doc.get_entity_color(handle)
+        )
+        self._reposition_text_options_bar()
+
+    def _reposition_text_options_bar(self) -> None:
+        bar = self._text_options_bar
+        if not bar.isVisible() or bar.handle is None:
+            return
+        item = self._find_item(bar.handle)
+        if item is None:
+            bar.hide()
+            return
+        # Mapped via on-screen corners, not scene-space top/bottom: the
+        # canvas is flipped (DXF is Y-up, Qt's scene is Y-down — see
+        # CadGraphicsView.__init__), so "highest on screen" isn't simply
+        # whichever corner has the smaller scene Y.
+        rect = item.sceneBoundingRect()
+        corners = [
+            self._view.mapFromScene(rect.topLeft()),
+            self._view.mapFromScene(rect.topRight()),
+            self._view.mapFromScene(rect.bottomLeft()),
+            self._view.mapFromScene(rect.bottomRight()),
+        ]
+        center_x = sum(p.x() for p in corners) / len(corners)
+        top_y = min(p.y() for p in corners)
+        global_point = self._view.viewport().mapToGlobal(qc.QPoint(round(center_x), round(top_y)))
+        anchor = self.mapFromGlobal(global_point)
+        bar.move(anchor.x() - bar.width() // 2, anchor.y() - bar.height() - SPACE_SM)
+        bar.raise_()
+
+    def _find_item(self, handle: str) -> Optional[qw.QGraphicsItem]:
+        for item in self._view.scene().items():
+            if item.data(_HANDLE_ROLE) == handle:
+                return item
+        return None
+
+    # Selection carries over automatically: execute_command -> _render()
+    # re-derives it from self._selected_handles, which already names this
+    # entity (the bar is only bound/visible for a single selected TEXT).
+    def _on_text_content_changed(self, handle: str, text: str) -> None:
+        self.execute_command(SetTextContentCommand(handle, text))
+
+    def _on_text_height_changed(self, handle: str, height: float) -> None:
+        self.execute_command(SetTextHeightCommand(handle, height))
+
+    def _on_text_rotation_changed(self, handle: str, rotation: float) -> None:
+        self.execute_command(SetTextRotationCommand(handle, rotation))
+
+    def _on_text_color_changed(self, handle: str, rgb: Tuple[int, int, int]) -> None:
+        self.execute_command(SetEntityColorCommand(handle, rgb))
 
     def _finish_tool(self) -> None:
         tool = self._active_tool
@@ -1853,6 +2187,17 @@ class DxfViewer(qw.QWidget):
         self.execute_command(command)
         if next_tool is not None:
             self.start_tool(next_tool)
+            return
+        # A command that exposes what it created (currently just
+        # AddTextCommand) gets it auto-selected — e.g. so a just-placed
+        # text is immediately ready for Delete/Move without a re-click.
+        handle = getattr(command, "handle", None)
+        if handle is not None:
+            self._select_handles([handle])
+        # Typing the last step's value (TEXT's content, an "@dx,dy" point,
+        # ...) leaves focus in the command line — return it to the canvas
+        # so Delete/Esc reach this widget's own shortcuts right away.
+        self._view.setFocus()
 
     def _echo(self, message: str) -> None:
         self._command_line.show_response(message)
@@ -1883,7 +2228,7 @@ class DxfViewer(qw.QWidget):
             self._view.restore_view(saved)
         else:
             self._view.fit_to_scene()
-            
+
         handle_set = set(self._selected_handles)
         matched = [item for item in scene.items() if item.data(_HANDLE_ROLE) in handle_set]
         self._view.set_selected_items(matched)
@@ -1893,4 +2238,5 @@ class DxfViewer(qw.QWidget):
         self.layer_count = self._doc.layer_count()
         self._layer_panel.refresh(self._doc.iter_layers())
         self._layer_panel.set_prune_available(self._imported_layer_names is not None)
+        self._sync_text_options_bar()
         self.documentChanged.emit()
