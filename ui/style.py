@@ -53,6 +53,10 @@ QScrollBar::handle:vertical:hover {{ background: {c.TEXT_FAINT}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
 
+/* ---------- main splitter (drag to resize the left column) ---------- */
+QSplitter#mainSplitter::handle {{ background: transparent; width: {SPACE_LG}px; }}
+QSplitter#mainSplitter::handle:hover {{ background: {c.ACCENT_SOFT}; }}
+
 /* ---------- top bar ---------- */
 #topBar {{ background: {c.APP_BG}; border-bottom: 1px solid {c.BORDER}; }}
 #topBarLogo {{ padding: 0; }}

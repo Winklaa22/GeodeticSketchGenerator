@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSplitter,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -53,7 +54,15 @@ from ui.tabs.layer_tab import LayerTab
 from ui.tabs.pipe_tab import PipeTab
 from ui.tabs.points_tab import PointsTab
 from ui.tabs.selection_tab import SelectionTab
-from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL
+from ui.theme import (
+    LEFT_COLUMN_MAX_WIDTH,
+    LEFT_COLUMN_MIN_WIDTH,
+    LEFT_COLUMN_WIDTH,
+    SPACE_LG,
+    SPACE_MD,
+    SPACE_SM,
+    SPACE_XL,
+)
 from ui.widgets import (
     Accordion,
     AccordionSection,
@@ -160,12 +169,25 @@ class MainWindow(QMainWindow):
         content = QWidget()
         content_layout = QHBoxLayout(content)
         content_layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
-        content_layout.setSpacing(SPACE_XL)
+        content_layout.setSpacing(0)
+
+        # A draggable splitter, not a fixed-width column — lets the user
+        # resize the left panel like a dockable panel in GIMP/VS Code/AutoCAD.
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setObjectName("mainSplitter")
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setHandleWidth(SPACE_LG)
         # Built right-first: the left column's "Layers" nav item docks
         # dxf_viewer.layer_panel, so dxf_viewer has to exist already.
         right_column = self._build_right_column()
-        content_layout.addWidget(self._build_left_column())
-        content_layout.addWidget(right_column, 1)
+        self.main_splitter.addWidget(self._build_left_column())
+        self.main_splitter.addWidget(right_column)
+        self.main_splitter.setStretchFactor(0, 0)
+        self.main_splitter.setStretchFactor(1, 1)
+        saved_width = self.settings.value("ui/leftColumnWidth", LEFT_COLUMN_WIDTH, type=int)
+        self.main_splitter.setSizes([saved_width, max(1, 1000 - saved_width)])
+        self.main_splitter.splitterMoved.connect(self._on_splitter_moved)
+        content_layout.addWidget(self.main_splitter)
         root.addWidget(content, 1)
 
         root.addWidget(self._build_status_bar())
@@ -249,9 +271,13 @@ class MainWindow(QMainWindow):
             name = os.path.splitext(os.path.basename(path))[0]
             self._recent_menu.addAction(name, lambda checked=False, p=path: self._open_path_in_new_window(p))
 
+    def _on_splitter_moved(self, _pos: int, _index: int) -> None:
+        self.settings.setValue("ui/leftColumnWidth", self.main_splitter.sizes()[0])
+
     def _build_left_column(self) -> QWidget:
         wrapper = QWidget()
-        wrapper.setFixedWidth(LEFT_COLUMN_WIDTH)
+        wrapper.setMinimumWidth(LEFT_COLUMN_MIN_WIDTH)
+        wrapper.setMaximumWidth(LEFT_COLUMN_MAX_WIDTH)
         outer = QVBoxLayout(wrapper)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(SPACE_LG)
