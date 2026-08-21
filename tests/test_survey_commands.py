@@ -327,9 +327,12 @@ def test_cable_marks_use_segment_midpoint_and_custom_text(
     )
     service.build_command(points, [1, 2, 3], config).execute(doc)
     labels = _entities_of_type(doc, "TEXT")
-    # 3 points -> 2 segments, and frequency=1 marks every segment.
+    # 3 points -> 2 segments, and frequency=1 marks every segment - text
+    # only, no connecting/gapped lines drawn for the cable itself.
     assert len(labels) == 2
     assert all(t.dxf.text == "CBL" for t in labels)
+    assert _entities_of_type(doc, "LINE") == []
+    assert _entities_of_type(doc, "LWPOLYLINE") == []
 
 
 def test_cable_marks_start_at_the_centre_segment_and_fan_outward(
@@ -348,33 +351,6 @@ def test_cable_marks_start_at_the_centre_segment_and_fan_outward(
     # and index 1+2=3 (points 4-5) -> 2 marks, not starting from either end.
     xs = sorted(round(t.dxf.insert[0]) for t in labels)
     assert xs == [25, 45]  # midpoints of (20,30) and (40,50)
-    # The cable itself is still fully drawn: the 2 unmarked segments as one
-    # LINE each, the 2 marked segments split into 2 LINEs each (the notch).
-    lines = _entities_of_type(doc, "LINE")
-    assert len(lines) == 2 + 2 * 2
-
-
-def test_cable_marks_cut_a_gap_into_the_line_sized_to_the_mark_text(
-    service: SurveyDrawService, doc: DXFDocument
-) -> None:
-    points = {1: Point(x=0.0, y=0.0, h=0.0), 2: Point(x=10.0, y=0.0, h=0.0)}
-    config = GenerationConfig(
-        layer_name="0",
-        draw_mode=DrawMode.CABLE_MARKS,
-        cable=CableOptions(font_size=0.6, frequency=5, marks_text="eN"),
-    )
-    service.build_command(points, [1, 2], config).execute(doc)
-    labels = _entities_of_type(doc, "TEXT")
-    assert len(labels) == 1
-    assert round(labels[0].dxf.insert[0]) == 5
-
-    # gap_length = len("eN") * 0.6 * 0.7 + 0.6 * 0.5 = 0.84 + 0.3 = 1.14
-    lines = sorted(_entities_of_type(doc, "LINE"), key=lambda line: line.dxf.start[0])
-    assert len(lines) == 2  # the segment is cut into two stubs around the mark
-    assert tuple(lines[0].dxf.start)[:2] == (0.0, 0.0)
-    assert round(lines[0].dxf.end[0], 2) == 4.43
-    assert round(lines[1].dxf.start[0], 2) == 5.57
-    assert tuple(lines[1].dxf.end)[:2] == (10.0, 0.0)
 
 
 def test_cable_marks_never_land_inside_a_skipped_skrzynka(

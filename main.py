@@ -10,9 +10,6 @@ from ui.start_screen import StartScreen
 
 
 def _set_windows_taskbar_identity() -> None:
-    """Without this, Windows groups the app under the generic Python icon
-    in the taskbar instead of its own — a well-known PyQt-on-Windows quirk,
-    harmless (and skipped) on any other platform."""
     if sys.platform != "win32":
         return
     import ctypes

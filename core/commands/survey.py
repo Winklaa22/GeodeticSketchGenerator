@@ -187,7 +187,7 @@ def build_heights_command(
         if direction.number % options.frequency != 0:
             continue
         point = direction.point
-        x_offset, y_offset = _heights_label_offset(direction.angle_deg, options.font_size)
+        x_offset, y_offset = _direction_label_offset(direction.angle_deg, options.font_size)
         rotation = snap_small_rotation(direction.angle_deg, direction.rotation)
         rounded_height = math.ceil(point.h * 10) / 10
         insert = (point.x + x_offset, point.y + y_offset, point.h)
@@ -195,7 +195,11 @@ def build_heights_command(
     return CompositeCommand(commands)
 
 
-def _heights_label_offset(angle_deg: float, font_size: float) -> Tuple[float, float]:
+def _direction_label_offset(angle_deg: float, font_size: float) -> Tuple[float, float]:
+    """A small offset away from a point's own direction of travel, so a
+    TEXT label placed there doesn't sit right on top of the point/line —
+    shared by Heights marks and Cable marks (both are plain per-point text,
+    nothing else)."""
     half = font_size / 2.0
     offsets = {
         AngleQuadrant.NORTH_EAST: (half, 0.5),
@@ -209,59 +213,16 @@ def _heights_label_offset(angle_deg: float, font_size: float) -> Tuple[float, fl
 def build_cable_marks_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """The cable itself (see core.patterns), plus a TEXT label
-    (config.cable.marks_text) at the midpoint of its centre segment, then
-    fanning outward every Nth segment (config.cable.frequency). Each marked
-    segment gets a gap sized to the mark's own text, so the label sits in a
-    notch rather than on top of a solid line."""
+    """A TEXT label (config.cable.marks_text) at the midpoint of the routed
+    cable's centre segment (see core.patterns for skrzynka-skipping), then
+    fanning outward every Nth segment (config.cable.frequency) — same
+    placement as before, just text, with no connecting/gapped lines drawn
+    for it (draw a Lines/PLines/3DPOLY mode alongside this one for those)."""
     options = config.cable
     routed = route_selected_points(points, selected_numbers)
     segments = list(zip(routed.main, routed.main[1:]))
-    mark_indices = set(_cable_mark_indices(len(segments), options.frequency)) if segments else set()
-    gap_length = _cable_mark_gap_length(options)
-
-    commands = []
-    for index, segment in enumerate(segments):
-        start, end = segment
-        if index in mark_indices:
-            commands.extend(_gapped_segment_line_commands(start, end, gap_length, layer))
-            commands.append(_cable_mark_command(segment, options, layer))
-        else:
-            commands.append(AddLineCommand((start.x, start.y, start.h), (end.x, end.y, end.h), layer))
-    commands.extend(_box_line_commands(routed.boxes, layer))
-    commands.extend(_wedge_line_commands(routed.wedges, layer))
-    return CompositeCommand(commands)
-
-
-# Rough estimate of a DXF font character's width relative to its height —
-# used only to size the notch cut into the cable to roughly match the
-# mark's own text, not for any precise text-layout purpose.
-_CABLE_MARK_CHAR_WIDTH_RATIO = 0.7
-# Extra clearance around the estimated text width, in font-size units.
-_CABLE_MARK_GAP_PADDING = 0.5
-
-
-def _cable_mark_gap_length(options: CableOptions) -> float:
-    text_width = len(options.marks_text) * options.font_size * _CABLE_MARK_CHAR_WIDTH_RATIO
-    return text_width + options.font_size * _CABLE_MARK_GAP_PADDING
-
-
-def _gapped_segment_line_commands(start: Point, end: Point, gap_length: float, layer: str) -> List[AddLineCommand]:
-    """The segment start->end, split into two LINE entities with a gap
-    centred on its midpoint — capped at 80% of the segment's own length so
-    a short segment or a long mark never crosses the two halves over."""
-    length = math.hypot(end.x - start.x, end.y - start.y)
-    if length <= 0:
-        return [AddLineCommand((start.x, start.y, start.h), (end.x, end.y, end.h), layer)]
-    half_gap = min(gap_length, length * 0.8) / 2.0
-    ux, uy = (end.x - start.x) / length, (end.y - start.y) / length
-    mid_x, mid_y, mid_h = (start.x + end.x) / 2.0, (start.y + end.y) / 2.0, (start.h + end.h) / 2.0
-    gap_start = (mid_x - ux * half_gap, mid_y - uy * half_gap, mid_h)
-    gap_end = (mid_x + ux * half_gap, mid_y + uy * half_gap, mid_h)
-    return [
-        AddLineCommand((start.x, start.y, start.h), gap_start, layer),
-        AddLineCommand(gap_end, (end.x, end.y, end.h), layer),
-    ]
+    mark_indices = _cable_mark_indices(len(segments), options.frequency) if segments else []
+    return CompositeCommand([_cable_mark_command(segments[index], options, layer) for index in mark_indices])
 
 
 def _cable_mark_indices(segment_count: int, frequency: int) -> List[int]:
