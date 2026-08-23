@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 from PyQt6.QtGui import QIcon
@@ -20,8 +21,14 @@ def _set_windows_taskbar_identity() -> None:
         pass
 
 
+def _disable_linux_native_theme_integration() -> None:
+    if sys.platform.startswith("linux"):
+        os.environ.setdefault("QT_QPA_PLATFORMTHEME", "generic")
+
+
 def main() -> int:
     _set_windows_taskbar_identity()
+    _disable_linux_native_theme_integration()
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(ICON_PATH))
     window = StartScreen()
