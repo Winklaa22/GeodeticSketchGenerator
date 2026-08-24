@@ -29,9 +29,10 @@ from PyQt6.QtWidgets import (
 from core.exceptions import ProjectFileError
 from core.project import PROJECT_FILE_FILTER, ProjectState, open_any, project_path_if_saved
 from ui.assets import ICON_PATH
+from ui.icons import icon_manager
 from ui.recent_projects import add_recent_project, list_recent_projects, remove_recent_project
 from ui.style import APP_STYLESHEET
-from ui.theme import SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL
+from ui.theme import Color, ICON_SM, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL
 
 _SETTINGS_ORG = "acsg"
 _SETTINGS_APP = "acsg_pro"
@@ -100,7 +101,9 @@ class StartScreen(QMainWindow):
         layout.addLayout(header)
         layout.addSpacing(SPACE_LG)
 
-        layout.addWidget(self._make_button("+ New Project", "primary", self._on_new_project))
+        new_project_btn = self._make_button("New Project", "primary", self._on_new_project)
+        new_project_btn.setIcon(icon_manager.get("new_project_icon", size=ICON_SM, color=Color.ACCENT))
+        layout.addWidget(new_project_btn)
         layout.addWidget(self._make_button("Import…", "secondary", self._on_import))
         layout.addStretch(1)
         return sidebar

@@ -48,6 +48,7 @@ from core.validation import ensure_draw_modes, ensure_has_data, ensure_selection
 from models.point import Point
 from ui.assets import ICON_PATH
 from ui.dxf_viewer import DxfViewer
+from ui.icons import icon_manager
 from ui.recent_projects import add_recent_project, list_recent_projects, remove_recent_project
 from ui.style import APP_STYLESHEET
 from ui.tabs.cable_tab import CableTab
@@ -60,6 +61,8 @@ from ui.tabs.pipe_tab import PipeTab
 from ui.tabs.points_tab import PointsTab
 from ui.tabs.selection_tab import SelectionTab
 from ui.theme import (
+    Color,
+    ICON_SM,
     LEFT_COLUMN_MAX_WIDTH,
     LEFT_COLUMN_MIN_WIDTH,
     LEFT_COLUMN_WIDTH,
@@ -233,7 +236,9 @@ class MainWindow(QMainWindow):
         """A single "File ▾" button replacing separate Projects/Save Project
         buttons — an AutoCAD-style application menu covering the whole
         project lifecycle (new/open/recent/save/export/close) in one place."""
-        btn = self._make_button("File  ▾", "secondary", None)
+        btn = self._make_button("File", "secondary", None)
+        btn.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        btn.setIcon(icon_manager.get("menu_chevron", size=ICON_SM, color=Color.TEXT))
         menu = QMenu(btn)
         menu.setObjectName("fileMenu")
         menu.addAction("New Project", self.new_project)
@@ -258,7 +263,9 @@ class MainWindow(QMainWindow):
         shortcuts) — these menu actions deliberately have no shortcut of
         their own attached, to avoid registering the same key combination
         twice on the same window."""
-        btn = self._make_button("Edit  ▾", "secondary", None)
+        btn = self._make_button("Edit", "secondary", None)
+        btn.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        btn.setIcon(icon_manager.get("menu_chevron", size=ICON_SM, color=Color.TEXT))
         menu = QMenu(btn)
         menu.setObjectName("editMenu")
         self._undo_action = menu.addAction("Undo (Ctrl+Z)", lambda: self.dxf_viewer.echo(self.dxf_viewer.undo()))
@@ -342,17 +349,17 @@ class MainWindow(QMainWindow):
         # that gates this section's visibility - None for sections that
         # aren't tied to one (see _refresh).
         specs = (
-            ("▭", "Point File", _PointFileSection(self.file_stack, self.delimiter_tab), None),
-            ("✎", "Drawing Mode", self.draw_tab, None),
-            ("▤", "Layer", self.layer_tab, None),
-            ("○", "Points", self.points_tab, "points"),
-            ("╲", "Lines", self.lines_tab, "lines"),
-            ("∿", "PLines", self.plines_tab, "plines"),
-            ("◇", "3DPOLY", self.poly3d_tab, "3dpoly"),
-            ("☰", "Heights", self.heights_tab, "heights"),
-            ("╱", "Cable Marks", self.cable_tab, "cable"),
-            ("═", "Pipe", self.pipe_tab, "pipe"),
-            ("▢", "Selection", self.selection_tab, None),
+            ("point_file_section", "Point File", _PointFileSection(self.file_stack, self.delimiter_tab), None),
+            ("drawing_mode_section", "Drawing Mode", self.draw_tab, None),
+            ("layer_section", "Layer", self.layer_tab, None),
+            ("points_section", "Points", self.points_tab, "points"),
+            ("lines_section", "Lines", self.lines_tab, "lines"),
+            ("plines_section", "PLines", self.plines_tab, "plines"),
+            ("poly3d_section", "3DPOLY", self.poly3d_tab, "3dpoly"),
+            ("heights_section", "Heights", self.heights_tab, "heights"),
+            ("cable_marks_section", "Cable Marks", self.cable_tab, "cable"),
+            ("pipe_section", "Pipe", self.pipe_tab, "pipe"),
+            ("selection_section", "Selection", self.selection_tab, None),
         )
         self._mode_sections: Dict[str, AccordionSection] = {}
         for icon, title, tab, mode_key in specs:
@@ -415,7 +422,9 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         button_row.setSpacing(SPACE_SM)
         self.save_button = self._make_button("Save DXF", "secondary", self.save_dxf)
-        self.apply_button = self._make_button("Apply to DXF  →", "primary", self.apply_to_dxf)
+        self.apply_button = self._make_button("Apply to DXF", "primary", self.apply_to_dxf)
+        self.apply_button.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.apply_button.setIcon(icon_manager.get("arrow_right", size=ICON_SM, color=Color.ACCENT))
         button_row.addWidget(self.save_button)
         button_row.addStretch(1)
         button_row.addWidget(self.apply_button)

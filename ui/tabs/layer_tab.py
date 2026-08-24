@@ -7,10 +7,11 @@ from __future__ import annotations
 import json
 from typing import List, Optional, Tuple
 
-from PyQt6.QtCore import QSettings, Qt, pyqtSignal
+from PyQt6.QtCore import QSettings, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QInputDialog, QToolButton, QVBoxLayout, QWidget
 
-from ui.theme import SPACE_XS
+from ui.icons import icon_manager
+from ui.theme import Color, ICON_SM, SPACE_XS
 from ui.widgets import ColorSwatchButton, SectionColumn
 
 DEFAULT_LAYER_NAME = "0"
@@ -50,7 +51,9 @@ class _LayerDefRow(QFrame):
 
         default_btn = QToolButton()
         default_btn.setObjectName("layerActiveBtn")
-        default_btn.setText("●" if is_default else "○")
+        active_icon = "layer_active" if is_default else "layer_inactive"
+        default_btn.setIcon(icon_manager.get(active_icon, size=ICON_SM, color=Color.ACCENT))
+        default_btn.setIconSize(QSize(ICON_SM, ICON_SM))
         default_btn.setToolTip("Set as default — used by modes with no layer picker of their own")
         default_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         default_btn.clicked.connect(lambda: self.defaultRequested.emit(name))
@@ -67,7 +70,8 @@ class _LayerDefRow(QFrame):
 
         delete_btn = QToolButton()
         delete_btn.setObjectName("layerDeleteBtn")
-        delete_btn.setText("✕")
+        delete_btn.setIcon(icon_manager.get("layer_row_delete", size=ICON_SM, color=Color.TEXT_FAINT))
+        delete_btn.setIconSize(QSize(ICON_SM, ICON_SM))
         delete_btn.setEnabled(deletable)
         delete_btn.setToolTip("Delete layer" if deletable else 'Layer "0" cannot be deleted')
         delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -97,7 +101,10 @@ class LayerTab(QWidget):
 
         add_btn = QToolButton()
         add_btn.setObjectName("layerAddBtn")
-        add_btn.setText("+ Add layer")
+        add_btn.setIcon(icon_manager.get("layer_add", size=ICON_SM, color=Color.TEXT_MUTED))
+        add_btn.setIconSize(QSize(ICON_SM, ICON_SM))
+        add_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        add_btn.setText("Add layer")
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self._on_add_clicked)
         layout.addWidget(add_btn)
