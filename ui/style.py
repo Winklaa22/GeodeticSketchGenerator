@@ -150,7 +150,6 @@ QFrame#card {{
     border: 1.5px dashed {c.BORDER_STRONG};
     border-radius: {RADIUS_LG}px;
 }}
-#dropZoneIcon {{ font-size: 26px; color: {c.TEXT_FAINT}; }}
 #dropZoneHint {{ color: {c.TEXT_MUTED}; font-size: {TEXT_SM}px; }}
 
 /* ---------- file card ---------- */
@@ -159,7 +158,6 @@ QFrame#card {{
     border: 1px solid {c.BORDER};
     border-radius: {RADIUS_LG}px;
 }}
-#fileCardIcon {{ font-size: 22px; }}
 #fileCardName {{ font-weight: 600; color: {c.TEXT}; }}
 #fileCardMeta {{ color: {c.TEXT_MUTED}; font-size: {TEXT_SM}px; }}
 QPushButton#linkButton {{
@@ -177,7 +175,6 @@ QPushButton#linkButton:hover {{ text-decoration: underline; }}
     border: 1px solid {c.BORDER};
     border-radius: {RADIUS}px;
 }}
-#dxfSourceIcon {{ font-size: 18px; color: {c.TEXT_MUTED}; }}
 #dxfSourceTitle {{ color: {c.TEXT}; font-weight: 600; font-size: {TEXT_SM}px; }}
 #dxfSourceSubtitle {{ color: {c.TEXT_MUTED}; font-size: {TEXT_XS}px; }}
 #dxfSourceSubtitle[variant="error"] {{ color: {c.ERROR}; }}
@@ -306,7 +303,6 @@ QToolButton#layerPruneBtn:disabled {{ color: {c.BORDER}; border-color: {c.BORDER
     border: 1px solid {c.BORDER};
     border-radius: {RADIUS}px;
 }}
-#dxfEmptyIcon {{ font-size: 24px; color: {c.TEXT_FAINT}; }}
 #dxfEmptyText {{ color: {c.TEXT_FAINT}; font-size: {TEXT_SM}px; }}
 
 /* ---------- dxf command line ---------- */
@@ -369,10 +365,8 @@ QFrame#accordionHeader[expanded="true"] {{
     background: {c.SURFACE_HOVER};
     border-left: 2px solid {c.ACCENT};
 }}
-#accordionIcon {{ color: {c.TEXT_MUTED}; font-size: {TEXT_MD}px; min-width: 16px; }}
+#accordionIcon {{ min-width: 16px; }}
 #accordionTitle {{ color: {c.TEXT}; font-weight: 600; font-size: {TEXT_MD}px; }}
-#accordionDot {{ color: {c.ACCENT}; font-size: 8px; }}
-#accordionChevron {{ color: {c.TEXT_FAINT}; font-size: {TEXT_SM}px; }}
 QWidget#accordionContent {{
     background: transparent;
     border-left: 2px solid transparent;
@@ -455,7 +449,6 @@ QPushButton#btn::menu-indicator {{ image: none; width: 0px; }}
     border: 1px solid {c.ERROR_BORDER};
     border-radius: {RADIUS}px;
 }}
-#errorBannerIcon {{ color: {c.ERROR}; font-size: {TEXT_MD}px; }}
 #errorBannerText {{ color: {c.ERROR}; font-size: {TEXT_SM}px; }}
 
 /* ---------- status bar ---------- */

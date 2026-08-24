@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from PyQt6 import QtGui
-from PyQt6.QtCore import QLocale, Qt, pyqtSignal
+from PyQt6.QtCore import QLocale, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QDoubleValidator
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -25,7 +25,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ui.theme import SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS
+from ui.icons import icon_manager
+from ui.theme import ICON_MD, ICON_SM, Color, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS
 
 
 def restyle(widget: QWidget) -> None:
@@ -120,8 +121,11 @@ class CheckField(QPushButton):
         self._paint(False)
 
     def _paint(self, checked: bool) -> None:
-        glyph = "☑" if checked else "☐"
-        self.setText(f"{glyph}  {self._label}")
+        icon_name = "checkbox_checked" if checked else "checkbox_unchecked"
+        color = Color.ACCENT if checked else Color.TEXT_MUTED
+        self.setIcon(icon_manager.get(icon_name, size=ICON_SM, color=color))
+        self.setIconSize(QSize(ICON_SM, ICON_SM))
+        self.setText(self._label)
 
 
 # --------------------------------------------------------------------------
@@ -305,10 +309,13 @@ class RadioCardGroup(QWidget):
 
     def _paint(self, button: QPushButton, label: str, checked: bool) -> None:
         if self._multi_select:
-            bullet = "☑" if checked else "☐"
+            icon_name = "checkbox_checked" if checked else "checkbox_unchecked"
         else:
-            bullet = "●" if checked else "○"
-        button.setText(f"{bullet}  {label}")
+            icon_name = "radio_checked" if checked else "radio_unchecked"
+        color = Color.ACCENT if checked else Color.TEXT_MUTED
+        button.setIcon(icon_manager.get(icon_name, size=ICON_SM, color=color))
+        button.setIconSize(QSize(ICON_SM, ICON_SM))
+        button.setText(label)
 
     # -- single-select API --------------------------------------------------
     def setCurrent(self, key: str) -> None:
@@ -375,15 +382,20 @@ class AccordionSection(QWidget):
         header_layout.setContentsMargins(SPACE_LG, SPACE_MD, SPACE_LG, SPACE_MD)
         header_layout.setSpacing(SPACE_SM)
 
-        icon_label = QLabel(icon)
+        icon_label = QLabel()
         icon_label.setObjectName("accordionIcon")
+        icon_label.setPixmap(icon_manager.get(icon, size=ICON_MD, color=Color.TEXT_MUTED).pixmap(ICON_MD, ICON_MD))
         title_label = QLabel(title)
         title_label.setObjectName("accordionTitle")
-        self._dot = QLabel("●")
+        self._dot = QLabel()
         self._dot.setObjectName("accordionDot")
+        self._dot.setPixmap(icon_manager.get("modified_dot", size=ICON_SM, color=Color.ACCENT).pixmap(ICON_SM, ICON_SM))
         self._dot.setVisible(False)
-        self._chevron = QLabel("▾")
+        self._chevron = QLabel()
         self._chevron.setObjectName("accordionChevron")
+        self._chevron.setPixmap(
+            icon_manager.get("chevron_collapsed", size=ICON_SM, color=Color.TEXT_FAINT).pixmap(ICON_SM, ICON_SM)
+        )
 
         header_layout.addWidget(icon_label)
         header_layout.addWidget(title_label)
@@ -403,7 +415,10 @@ class AccordionSection(QWidget):
     def set_expanded(self, expanded: bool) -> None:
         self._expanded = expanded
         self._content.setVisible(expanded)
-        self._chevron.setText("▴" if expanded else "▾")
+        chevron_name = "chevron_expanded" if expanded else "chevron_collapsed"
+        self._chevron.setPixmap(
+            icon_manager.get(chevron_name, size=ICON_SM, color=Color.TEXT_FAINT).pixmap(ICON_SM, ICON_SM)
+        )
         self._header.setProperty("expanded", "true" if expanded else "false")
         restyle(self._header)
 
@@ -458,8 +473,9 @@ class DropZone(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(SPACE_SM)
 
-        icon = QLabel("\U0001F4C4")
+        icon = QLabel()
         icon.setObjectName("dropZoneIcon")
+        icon.setPixmap(icon_manager.get("txt_file_icon", size=26, color=Color.TEXT_FAINT).pixmap(26, 26))
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         hint = QLabel("Drag & drop a .TXT file here")
@@ -503,8 +519,9 @@ class DxfSourceRow(QWidget):
         layout.setContentsMargins(SPACE_MD, SPACE_SM, SPACE_MD, SPACE_SM)
         layout.setSpacing(SPACE_SM)
 
-        icon = QLabel("⬡")
+        icon = QLabel()
         icon.setObjectName("dxfSourceIcon")
+        icon.setPixmap(icon_manager.get("dxf_icon", size=18, color=Color.TEXT_MUTED).pixmap(18, 18))
         layout.addWidget(icon)
 
         text_col = QVBoxLayout()
@@ -526,7 +543,8 @@ class DxfSourceRow(QWidget):
         self._button.clicked.connect(self.fileRequested.emit)
         layout.addWidget(self._button)
 
-        self._clear_button = QPushButton("✕")
+        self._clear_button = QPushButton()
+        self._clear_button.setIcon(icon_manager.get("dxf_source_clear", size=ICON_SM, color=Color.ACCENT))
         self._clear_button.setObjectName("linkButton")
         self._clear_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._clear_button.clicked.connect(self.clearRequested.emit)
@@ -578,8 +596,9 @@ class FileCard(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(SPACE_XS)
 
-        icon = QLabel("\U0001F4C4")
+        icon = QLabel()
         icon.setObjectName("fileCardIcon")
+        icon.setPixmap(icon_manager.get("txt_file_icon", size=22, color=Color.TEXT).pixmap(22, 22))
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._name = QLabel("")
@@ -626,8 +645,9 @@ class ErrorBanner(QWidget):
         layout.setContentsMargins(SPACE_MD, SPACE_SM, SPACE_MD, SPACE_SM)
         layout.setSpacing(SPACE_SM)
 
-        icon = QLabel("⚠")
+        icon = QLabel()
         icon.setObjectName("errorBannerIcon")
+        icon.setPixmap(icon_manager.get("warning_icon", size=ICON_MD, color=Color.ERROR).pixmap(ICON_MD, ICON_MD))
         self._text = QLabel("")
         self._text.setObjectName("errorBannerText")
         self._text.setWordWrap(True)

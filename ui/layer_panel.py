@@ -14,7 +14,8 @@ from typing import List, Optional, Tuple
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 from core.dxf_document import LayerInfo
-from ui.theme import SPACE_XS
+from ui.icons import icon_manager
+from ui.theme import Color, ICON_SM, SPACE_XS
 
 # Budget left for the name label once the active/swatch/visibility/delete
 # icon-buttons and margins/spacing take their share of the row — long names
@@ -61,7 +62,9 @@ class _LayerRow(qw.QFrame):
 
         active_btn = qw.QToolButton()
         active_btn.setObjectName("layerActiveBtn")
-        active_btn.setText("●" if info.is_active else "○")
+        active_icon = "layer_active" if info.is_active else "layer_inactive"
+        active_btn.setIcon(icon_manager.get(active_icon, size=ICON_SM, color=Color.ACCENT))
+        active_btn.setIconSize(qc.QSize(ICON_SM, ICON_SM))
         active_btn.setToolTip("Set as active layer — new entities draw here")
         active_btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         active_btn.clicked.connect(lambda: self.activateRequested.emit(self._name))
@@ -96,7 +99,8 @@ class _LayerRow(qw.QFrame):
 
         delete_btn = qw.QToolButton()
         delete_btn.setObjectName("layerDeleteBtn")
-        delete_btn.setText("✕")
+        delete_btn.setIcon(icon_manager.get("layer_row_delete", size=ICON_SM, color=Color.TEXT_FAINT))
+        delete_btn.setIconSize(qc.QSize(ICON_SM, ICON_SM))
         delete_btn.setToolTip("Delete layer" if info.name != "0" else 'Layer "0" cannot be deleted')
         delete_btn.setEnabled(info.name != "0")
         delete_btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
@@ -158,14 +162,18 @@ class LayerPanel(qw.QWidget):
 
         add_btn = qw.QToolButton()
         add_btn.setObjectName("layerAddBtn")
-        add_btn.setText("+ Add layer")
+        add_btn.setIcon(icon_manager.get("layer_add", size=ICON_SM, color=Color.TEXT_MUTED))
+        add_btn.setIconSize(qc.QSize(ICON_SM, ICON_SM))
+        add_btn.setToolButtonStyle(qc.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        add_btn.setText("Add layer")
         add_btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self._on_add_clicked)
         bottom_row.addWidget(add_btn, 1)
 
         self._prune_btn = qw.QToolButton()
         self._prune_btn.setObjectName("layerPruneBtn")
-        self._prune_btn.setText("🧹")
+        self._prune_btn.setIcon(icon_manager.get("prune_layers", size=ICON_SM, color=Color.TEXT_MUTED))
+        self._prune_btn.setIconSize(qc.QSize(ICON_SM, ICON_SM))
         self._prune_btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         self._prune_btn.clicked.connect(self._on_prune_clicked)
         self._prune_btn.setEnabled(False)

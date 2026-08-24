@@ -7,7 +7,10 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
 from ui.assets import ICON_PATH
+from ui.icons import IconManager
 from ui.start_screen import StartScreen
+
+icon_manager = IconManager()
 
 
 def _set_windows_taskbar_identity() -> None:

@@ -58,8 +58,9 @@ from core.commands.text import (
     SetTextRotationCommand,
 )
 from core.dxf_document import DXFDocument
+from ui.icons import icon_manager
 from ui.layer_panel import LayerPanel
-from ui.theme import Color as UiColor, SPACE_SM, SPACE_XS
+from ui.theme import Color as UiColor, ICON_MD, SPACE_SM, SPACE_XS
 from ui.widgets import ColorSwatchButton, decimal_validator
 
 _HANDLE_ROLE = qc.Qt.ItemDataRole.UserRole
@@ -1625,30 +1626,39 @@ class DxfToolbar(qw.QWidget):
             "pipe": self.pipeRequested,
             "move": self.moveRequested,
         }
+        self._tool_icon_names = {
+            "select": "select_tool",
+            "point": "point_tool",
+            "text": "text_tool",
+            "line": "line_tool",
+            "circle": "circle_tool",
+            "pipe": "pipe_tool",
+            "move": "move_tool",
+        }
 
-        self._add_tool_button(layout, "select", "↖", "Select / cancel current tool (Esc)")
-        self._add_tool_button(layout, "point", "•", "Point (PO)")
-        self._add_tool_button(layout, "text", "A", "Text (T)")
-        self._add_tool_button(layout, "line", "╱", "Line (L)")
-        self._add_tool_button(layout, "circle", "○", "Circle (C)")
-        self._add_tool_button(layout, "pipe", "∥", "Pipe (RURA)")
+        self._add_tool_button(layout, "select", "select_tool", "Select / cancel current tool (Esc)")
+        self._add_tool_button(layout, "point", "point_tool", "Point (PO)")
+        self._add_tool_button(layout, "text", "text_tool", "Text (T)")
+        self._add_tool_button(layout, "line", "line_tool", "Line (L)")
+        self._add_tool_button(layout, "circle", "circle_tool", "Circle (C)")
+        self._add_tool_button(layout, "pipe", "pipe_tool", "Pipe (RURA)")
         layout.addWidget(self._separator())
-        self._add_tool_button(layout, "move", "✥", "Move selected (M)")
-        self._erase_btn = self._add_plain_button(layout, "✕", "Erase selected (Del)", self.eraseRequested)
+        self._add_tool_button(layout, "move", "move_tool", "Move selected (M)")
+        self._erase_btn = self._add_plain_button(layout, "erase_tool", "Erase selected (Del)", self.eraseRequested)
         layout.addWidget(self._separator())
-        self._add_plain_button(layout, "⤢", "Zoom Extents (ZOOM E)", self.zoomExtentsRequested)
-        self._add_plain_button(layout, "+", "Zoom In", self.zoomInRequested)
-        self._add_plain_button(layout, "−", "Zoom Out", self.zoomOutRequested)
+        self._add_plain_button(layout, "zoom_extents_tool", "Zoom Extents (ZOOM E)", self.zoomExtentsRequested)
+        self._add_plain_button(layout, "zoom_in_tool", "Zoom In", self.zoomInRequested)
+        self._add_plain_button(layout, "zoom_out_tool", "Zoom Out", self.zoomOutRequested)
         layout.addStretch(1)
 
-        self._active_key = "select"
-        self._tool_buttons["select"].setChecked(True)
+        self.set_active_tool(None)
         self._erase_btn.setEnabled(False)
 
-    def _add_tool_button(self, layout: qw.QHBoxLayout, key: str, glyph: str, tooltip: str) -> None:
+    def _add_tool_button(self, layout: qw.QHBoxLayout, key: str, icon_name: str, tooltip: str) -> None:
         btn = qw.QToolButton()
         btn.setObjectName("dxfToolBtn")
-        btn.setText(glyph)
+        btn.setIcon(icon_manager.get(icon_name, size=ICON_MD, color=UiColor.TEXT_MUTED))
+        btn.setIconSize(qc.QSize(ICON_MD, ICON_MD))
         btn.setToolTip(tooltip)
         btn.setCheckable(True)
         btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
@@ -1658,11 +1668,12 @@ class DxfToolbar(qw.QWidget):
 
     @staticmethod
     def _add_plain_button(
-        layout: qw.QHBoxLayout, glyph: str, tooltip: str, signal: qc.pyqtBoundSignal
+        layout: qw.QHBoxLayout, icon_name: str, tooltip: str, signal: qc.pyqtBoundSignal
     ) -> qw.QToolButton:
         btn = qw.QToolButton()
         btn.setObjectName("dxfToolBtn")
-        btn.setText(glyph)
+        btn.setIcon(icon_manager.get(icon_name, size=ICON_MD, color=UiColor.TEXT_MUTED))
+        btn.setIconSize(qc.QSize(ICON_MD, ICON_MD))
         btn.setToolTip(tooltip)
         btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(signal.emit)
@@ -1690,7 +1701,10 @@ class DxfToolbar(qw.QWidget):
     def set_active_tool(self, key: Optional[str]) -> None:
         self._active_key = key or "select"
         for name, btn in self._tool_buttons.items():
-            btn.setChecked(name == self._active_key)
+            checked = name == self._active_key
+            btn.setChecked(checked)
+            color = UiColor.ACCENT if checked else UiColor.TEXT_MUTED
+            btn.setIcon(icon_manager.get(self._tool_icon_names[name], size=ICON_MD, color=color))
 
     def set_erase_enabled(self, enabled: bool) -> None:
         self._erase_btn.setEnabled(enabled)
@@ -1751,8 +1765,9 @@ class DxfViewer(qw.QWidget):
         empty_layout = qw.QVBoxLayout(self._empty_page)
         empty_layout.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
         empty_layout.setSpacing(SPACE_SM)
-        icon = qw.QLabel("⬡")
+        icon = qw.QLabel()
         icon.setObjectName("dxfEmptyIcon")
+        icon.setPixmap(icon_manager.get("dxf_icon", size=24, color=UiColor.TEXT_FAINT).pixmap(24, 24))
         icon.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
         text = qw.QLabel("Load a .DXF file, or press Apply to DXF to start a new drawing.")
         text.setObjectName("dxfEmptyText")
