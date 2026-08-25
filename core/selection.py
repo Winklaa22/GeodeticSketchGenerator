@@ -22,5 +22,4 @@ class SelectionParser:
 
     @staticmethod
     def all_points(data: Dict[int, Point]) -> List[int]:
-        """Returns every known point number, ascending."""
         return sorted(data.keys())

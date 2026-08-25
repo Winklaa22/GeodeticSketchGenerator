@@ -1,4 +1,3 @@
-"""Tests for core.selection.SelectionParser."""
 from __future__ import annotations
 
 from core.selection import SelectionParser

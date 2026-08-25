@@ -65,8 +65,6 @@ class PointFileParser:
     def _parse_row(line: str, delimiter: str) -> Optional[Tuple[int, Point]]:
         parts = [part for part in line.replace(",", ".").split(delimiter) if part != ""]
         if len(parts) < 3:
-            # Fallback: the declared delimiter didn't yield enough fields, so
-            # retry by splitting on any run of whitespace.
             parts = [part for part in line.replace(",", ".").split() if part != ""]
             if len(parts) < 3:
                 return None
@@ -78,5 +76,4 @@ class PointFileParser:
         file_x = float(parts[1]) if len(parts) > 1 else 0.0
         file_y = float(parts[2]) if len(parts) > 2 else 0.0
         file_h = float(parts[3]) if len(parts) > 3 else 0.0
-        # Swap X <-> Y: the file stores columns as (number, Y, X, H); AutoCAD wants (X, Y, H).
         return number, Point(x=file_y, y=file_x, h=file_h)

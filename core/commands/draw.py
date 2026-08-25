@@ -1,15 +1,3 @@
-"""Drawing commands — section 1 of the DXF edit command spec (point, line,
-circle, text, 2D/3D polyline; move/rectangle are later phases).
-
-Every command follows the same shape: the *first* `execute` asks the
-`DXFDocument` to create the entity and remembers its handle; `undo` unlinks
-that handle (see `DXFDocument.unlink_entity` — the entity survives in the
-entity database). A *later* `execute` (a redo) relinks that same handle
-(see `DXFDocument.relink_entity`) instead of creating a fresh one, so the
-entity's identity is stable across an undo/redo cycle — required for any
-other Command that captured this one's handle (e.g. a DeleteEntityCommand)
-to still find the right entity if it's replayed afterwards.
-"""
 from __future__ import annotations
 
 from typing import Iterable, List, Optional, Sequence
@@ -100,8 +88,6 @@ class AddTextCommand:
 
     @property
     def handle(self) -> Optional[str]:
-        """The created entity's handle, once executed — lets the Text tool
-        select what it just placed (see DxfViewer._finish_tool)."""
         return self._handle
 
 

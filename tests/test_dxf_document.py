@@ -1,4 +1,3 @@
-"""Tests for core.dxf_document.DXFDocument."""
 from __future__ import annotations
 
 import io
@@ -16,7 +15,7 @@ def doc() -> DXFDocument:
 
 def test_new_document_is_empty(doc: DXFDocument) -> None:
     assert doc.entity_count() == 0
-    assert doc.layer_count() >= 1  # ezdxf always ships a default "0" layer
+    assert doc.layer_count() >= 1
 
 
 def test_add_point_returns_handle_and_increments_count(doc: DXFDocument) -> None:
@@ -90,7 +89,7 @@ def test_ensure_layer_creates_missing_layer_once(doc: DXFDocument) -> None:
     assert "SURVEY" not in doc.layers
     doc.ensure_layer("SURVEY")
     assert "SURVEY" in doc.layers
-    doc.ensure_layer("SURVEY")  # must not raise on a second call
+    doc.ensure_layer("SURVEY")
     assert "SURVEY" in doc.layers
 
 
@@ -104,7 +103,7 @@ def test_unlink_entity_removes_it_from_modelspace_but_keeps_it_in_the_database(d
     handle = doc.add_point((0.0, 0.0))
     entity = doc.unlink_entity(handle)
     assert doc.entity_count() == 0
-    assert doc.get_entity(handle) is not None  # still alive in the entitydb
+    assert doc.get_entity(handle) is not None
     assert entity.dxf.handle == handle
 
 
@@ -115,7 +114,7 @@ def test_unlink_entity_returns_none_for_unknown_handle(doc: DXFDocument) -> None
 def test_unlink_entity_returns_none_if_already_unlinked(doc: DXFDocument) -> None:
     handle = doc.add_point((0.0, 0.0))
     doc.unlink_entity(handle)
-    assert doc.unlink_entity(handle) is None  # already not in the model space - not an error
+    assert doc.unlink_entity(handle) is None
 
 
 def test_relink_entity_puts_a_previously_unlinked_entity_back(doc: DXFDocument) -> None:
@@ -124,17 +123,17 @@ def test_relink_entity_puts_a_previously_unlinked_entity_back(doc: DXFDocument) 
     assert doc.entity_count() == 0
     doc.relink_entity(handle)
     assert doc.entity_count() == 1
-    assert doc.get_entity(handle).dxf.handle == handle  # same object/handle, not a new one
+    assert doc.get_entity(handle).dxf.handle == handle
 
 
 def test_relink_entity_is_a_noop_for_an_already_linked_entity(doc: DXFDocument) -> None:
     handle = doc.add_point((1.0, 2.0))
-    doc.relink_entity(handle)  # already linked - must not add a second copy
+    doc.relink_entity(handle)
     assert doc.entity_count() == 1
 
 
 def test_relink_entity_is_a_noop_for_an_unknown_handle(doc: DXFDocument) -> None:
-    doc.relink_entity("does-not-exist")  # must not raise
+    doc.relink_entity("does-not-exist")
     assert doc.entity_count() == 0
 
 
@@ -167,7 +166,7 @@ def test_add_layer_creates_it_with_the_given_color(doc: DXFDocument) -> None:
 
 def test_add_layer_is_idempotent(doc: DXFDocument) -> None:
     doc.add_layer("SURVEY")
-    doc.add_layer("SURVEY")  # must not raise on a second call
+    doc.add_layer("SURVEY")
     assert "SURVEY" in doc.layers
 
 
@@ -196,13 +195,8 @@ def test_set_layer_color_round_trips(doc: DXFDocument) -> None:
 
 
 def test_set_layer_color_also_sets_a_classic_aci_fallback(doc: DXFDocument) -> None:
-    # True-color (DXF group 420) isn't supported by every DXF version - see
-    # test_layer_color_survives_a_pre_true_color_dxf_version below for the
-    # actual bug this guards against. The color must also be approximated
-    # as a classic ACI index (group 62) so it isn't lost outright when
-    # writing to a DXF version that predates true-color support entirely.
     doc.add_layer("SURVEY")
-    doc.set_layer_color("SURVEY", (255, 0, 0))  # pure red - exact ACI 1 match
+    doc.set_layer_color("SURVEY", (255, 0, 0))
     layer = doc.layers.get("SURVEY")
     assert layer.dxf.color == 1
 
@@ -215,12 +209,6 @@ def test_set_layer_color_preserves_visibility_when_recoloring_a_hidden_layer(doc
 
 
 def test_layer_color_survives_a_pre_true_color_dxf_version(tmp_path) -> None:
-    # AC1015 (AutoCAD 2000/R2000) predates DXF true-color support (added in
-    # AC1018/2004) - common for real-world cadastral/surveying exports.
-    # ezdxf silently drops group 420 when writing one of these, so without
-    # the classic-ACI fallback in set_layer_color, the color would be
-    # entirely lost the moment the document is saved and reloaded - the
-    # exact bug reported against a real R2000 file.
     raw = ezdxf.new(dxfversion="AC1015")
     path = tmp_path / "r2000.dxf"
     raw.saveas(path)
@@ -228,7 +216,7 @@ def test_layer_color_survives_a_pre_true_color_dxf_version(tmp_path) -> None:
     doc = DXFDocument.load(str(path))
     doc.add_layer("SURVEY")
     doc.set_layer_color("SURVEY", (255, 0, 0))
-    assert doc.get_layer_color("SURVEY") == (255, 0, 0)  # correct while still in memory
+    assert doc.get_layer_color("SURVEY") == (255, 0, 0)
 
     reloaded = DXFDocument.from_text(doc.to_text())
     assert reloaded.get_layer_color("SURVEY") == (255, 0, 0)
@@ -277,12 +265,6 @@ def test_iter_layers_lists_layer_zero_first(doc: DXFDocument) -> None:
 
 
 def test_load_materializes_layers_referenced_but_not_defined(tmp_path) -> None:
-    # Real-world DXFs (e.g. cadastral/surveying exports) can have entities
-    # on a layer name with no LAYER table entry at all — valid DXF, and
-    # AutoCAD auto-creates a default entry for it on open. Reproduces the
-    # exact shape of the bug reported against a real file: only "0" (and
-    # ezdxf's own "Defpoints") showed up in the layers panel even though
-    # the file's entities used many more layer names than that.
     raw = ezdxf.new()
     raw.modelspace().add_line((0, 0), (1, 1), dxfattribs={"layer": "UNDEFINED-LAYER"})
     assert "UNDEFINED-LAYER" not in raw.layers
@@ -331,25 +313,23 @@ def _write_to_text(drawing) -> str:
 
 
 def test_get_layer_color_resolves_classic_aci_color(doc: DXFDocument) -> None:
-    # Most real-world DXFs (cadastral/surveying exports included) color
-    # layers the classic way - an AutoCAD Color Index, not true-color RGB.
-    doc.layers.add("RED-LAYER", color=1)  # ACI 1 = pure red
+    doc.layers.add("RED-LAYER", color=1)
     assert doc.get_layer_color("RED-LAYER") == (255, 0, 0)
 
 
 def test_get_layer_color_prefers_true_color_rgb_over_aci(doc: DXFDocument) -> None:
-    layer = doc.layers.add("BOTH", color=1)  # ACI red...
-    layer.rgb = (10, 20, 30)  # ...but an explicit true-color wins
+    layer = doc.layers.add("BOTH", color=1)
+    layer.rgb = (10, 20, 30)
     assert doc.get_layer_color("BOTH") == (10, 20, 30)
 
 
 def test_get_layer_color_falls_back_to_white_for_invalid_aci(doc: DXFDocument) -> None:
     layer = doc.layers.add("WEIRD")
-    layer.dxf.color = 0  # not a valid color index (BYBLOCK, meaningless on a layer)
+    layer.dxf.color = 0
     assert doc.get_layer_color("WEIRD") == (255, 255, 255)
 
 
 def test_get_layer_color_ignores_the_off_sign_on_aci(doc: DXFDocument) -> None:
-    layer = doc.layers.add("OFF-LAYER", color=1)  # ACI 1 = red
-    layer.off()  # stores color as -1 internally - still red, just hidden
+    layer = doc.layers.add("OFF-LAYER", color=1)
+    layer.off()
     assert doc.get_layer_color("OFF-LAYER") == (255, 0, 0)

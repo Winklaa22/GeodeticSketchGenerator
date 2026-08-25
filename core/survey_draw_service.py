@@ -1,6 +1,3 @@
-"""Turns parsed survey points + selection + a `GenerationConfig` into a
-ready-to-run `Command` — the direct-to-DXF replacement for the old
-`core/script_generator.py` (which built .scr script text instead)."""
 from __future__ import annotations
 
 from typing import Dict, List
@@ -25,8 +22,6 @@ class SurveyDrawService:
         draw_command = builder(points, selected_numbers, config, layer_name)
         if config.layer_rgb is None:
             return draw_command
-        # Create the layer if needed, then color it either way (new or
-        # already existed), as one undo step with the rest of the drawing.
         return CompositeCommand(
             [AddLayerCommand(layer_name), SetLayerColorCommand(layer_name, config.layer_rgb), draw_command]
         )

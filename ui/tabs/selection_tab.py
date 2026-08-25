@@ -1,4 +1,3 @@
-"""Selection accordion section — which point numbers end up in the script."""
 from __future__ import annotations
 
 from typing import Dict, List, Optional
@@ -30,8 +29,6 @@ class SelectionTab(QWidget):
         layout.addWidget(make_field("Select points", self.mode_control))
         layout.addStretch(1)
 
-        # Last-confirmed text for each prompt, kept only to pre-fill the
-        # dialog next time and for project save/load - not applied silently.
         self._separate_text = ""
         self._range_text = ""
 
@@ -57,13 +54,9 @@ class SelectionTab(QWidget):
 
     @property
     def mode_key(self) -> str:
-        """The plain "all"/"separately"/"range" key — for project save/load."""
         return self.mode_control.current() or "all"
 
     def get_expression_state(self) -> tuple[str, str]:
-        """(separate_text, range_text) - the last-confirmed text for each
-        prompt, for project save/load. Neither is applied to a live
-        selection on its own; see get_selected_numbers."""
         return self._separate_text, self._range_text
 
     def set_state(self, mode_key: str, separate_text: str, range_text: str) -> None:

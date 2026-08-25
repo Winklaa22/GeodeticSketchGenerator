@@ -1,4 +1,3 @@
-"""Tests for core.commands (Command implementations, CommandHistory, CompositeCommand)."""
 from __future__ import annotations
 
 import pytest
@@ -33,9 +32,6 @@ def history() -> CommandHistory:
     return CommandHistory()
 
 
-# ----------------------------------------------------------------------
-# Draw commands
-# ----------------------------------------------------------------------
 def test_add_point_command_execute_and_undo(doc: DXFDocument) -> None:
     command = AddPointCommand((1.0, 1.0))
     command.execute(doc)
@@ -86,25 +82,20 @@ def test_add_polyline3d_command_execute_and_undo(doc: DXFDocument) -> None:
 
 def test_undo_before_execute_is_a_safe_no_op(doc: DXFDocument) -> None:
     command = AddPointCommand((0.0, 0.0))
-    command.undo(doc)  # never executed — must not raise
+    command.undo(doc)
     assert doc.entity_count() == 0
 
 
 def test_add_point_command_redo_relinks_the_same_handle(doc: DXFDocument) -> None:
-    """A second execute() (a redo) must reuse the entity/handle the first
-    one created, not fabricate a new one — see DXFDocument.relink_entity."""
     command = AddPointCommand((1.0, 1.0))
     command.execute(doc)
     first_handle = command._handle
     command.undo(doc)
-    command.execute(doc)  # redo
+    command.execute(doc)
     assert command._handle == first_handle
     assert doc.entity_count() == 1
 
 
-# ----------------------------------------------------------------------
-# Edit commands
-# ----------------------------------------------------------------------
 def test_delete_entity_command_execute_and_undo(doc: DXFDocument) -> None:
     handle = doc.add_point((0.0, 0.0))
     command = DeleteEntityCommand([handle])
@@ -151,12 +142,12 @@ def test_duplicate_entities_command_offsets_the_copy(doc: DXFDocument) -> None:
     command.execute(doc)
     assert doc.entity_count() == 2
     [new_handle] = command.new_handles
-    assert new_handle != handle  # a real second entity, not the same one moved
+    assert new_handle != handle
     copy = doc.get_entity(new_handle)
     assert tuple(copy.dxf.start)[:2] == (2.0, 3.0)
     assert tuple(copy.dxf.end)[:2] == (12.0, 3.0)
     original = doc.get_entity(handle)
-    assert tuple(original.dxf.start)[:2] == (0.0, 0.0)  # original is untouched
+    assert tuple(original.dxf.start)[:2] == (0.0, 0.0)
 
 
 def test_duplicate_entities_command_execute_and_undo(doc: DXFDocument) -> None:
@@ -174,7 +165,7 @@ def test_duplicate_entities_command_redo_relinks_the_same_new_handles(doc: DXFDo
     command.execute(doc)
     first_new_handles = list(command.new_handles)
     command.undo(doc)
-    command.execute(doc)  # redo
+    command.execute(doc)
     assert command.new_handles == first_new_handles
     assert doc.entity_count() == 2
 
@@ -228,9 +219,6 @@ def test_scale_command_leaves_z_untouched(doc: DXFDocument) -> None:
     assert doc.get_entity(handle).dxf.location.z == pytest.approx(5.0, abs=1e-9)
 
 
-# ----------------------------------------------------------------------
-# CommandHistory
-# ----------------------------------------------------------------------
 def test_history_execute_runs_command_and_tracks_undo(doc: DXFDocument, history: CommandHistory) -> None:
     history.execute(AddPointCommand((0.0, 0.0)), doc)
     assert doc.entity_count() == 1
@@ -250,48 +238,37 @@ def test_history_undo_then_redo_round_trips(doc: DXFDocument, history: CommandHi
 def test_history_redoing_a_create_then_a_delete_of_it_does_not_crash(
     doc: DXFDocument, history: CommandHistory
 ) -> None:
-    """Regression test: undoing a create and the delete that followed it (in
-    that order — the delete first, then the create), then redoing both back
-    (the create first, then the delete) used to crash — DeleteEntityCommand
-    still names the handle from *before* the create's redo, which (without
-    DXFDocument.relink_entity/Add*Command reusing that same handle) would
-    otherwise have been a fresh one, leaving DeleteEntityCommand pointed at
-    an entity ezdxf had already dropped from the model space."""
     add = AddPointCommand((0.0, 0.0))
     history.execute(add, doc)
     handle = add._handle
     history.execute(DeleteEntityCommand([handle]), doc)
     assert doc.entity_count() == 0
 
-    assert history.undo(doc) is True  # undoes the delete
-    assert history.undo(doc) is True  # undoes the create
+    assert history.undo(doc) is True
+    assert history.undo(doc) is True
     assert doc.entity_count() == 0
 
-    assert history.redo(doc) is True  # redoes the create
-    assert history.redo(doc) is True  # redoes the delete - must not raise
+    assert history.redo(doc) is True
+    assert history.redo(doc) is True
     assert doc.entity_count() == 0
 
 
 def test_history_redoing_a_duplicate_then_a_delete_of_it_does_not_crash(
     doc: DXFDocument, history: CommandHistory
 ) -> None:
-    """Same regression as above, for DuplicateEntitiesCommand (Ctrl+D/Ctrl+V)
-    instead of an Add*Command — this is the exact sequence a user hits by
-    duplicating something, deleting the duplicate, then undoing/redoing
-    past that point."""
     source = doc.add_point((0.0, 0.0))
     duplicate = DuplicateEntitiesCommand([source], dx=1.0, dy=1.0)
     history.execute(duplicate, doc)
     [new_handle] = duplicate.new_handles
     history.execute(DeleteEntityCommand([new_handle]), doc)
-    assert doc.entity_count() == 1  # just the original
-
-    assert history.undo(doc) is True  # undoes the delete
-    assert history.undo(doc) is True  # undoes the duplicate
     assert doc.entity_count() == 1
 
-    assert history.redo(doc) is True  # redoes the duplicate
-    assert history.redo(doc) is True  # redoes the delete - must not raise
+    assert history.undo(doc) is True
+    assert history.undo(doc) is True
+    assert doc.entity_count() == 1
+
+    assert history.redo(doc) is True
+    assert history.redo(doc) is True
     assert doc.entity_count() == 1
 
 
@@ -320,7 +297,7 @@ def test_history_respects_max_depth(doc: DXFDocument) -> None:
     undone = 0
     while history.undo(doc):
         undone += 1
-    assert undone == 2  # only the last 2 commands are still undoable
+    assert undone == 2
     assert doc.entity_count() == 3
 
 
@@ -332,9 +309,6 @@ def test_history_clear_drops_both_stacks(doc: DXFDocument, history: CommandHisto
     assert not history.can_redo()
 
 
-# ----------------------------------------------------------------------
-# CompositeCommand
-# ----------------------------------------------------------------------
 def test_composite_command_executes_all_sub_commands(doc: DXFDocument) -> None:
     composite = CompositeCommand(
         [AddPointCommand((0.0, 0.0)), AddLineCommand((0.0, 0.0), (1.0, 1.0)), AddCircleCommand((0.0, 0.0), 1.0)]

@@ -28,10 +28,10 @@ def compute_direction_angle(current: Point, next_point: Optional[Point]) -> floa
 
 class AngleQuadrant(IntEnum):
 
-    NORTH_EAST = 0  # [45, 135)
-    NORTH_WEST = 1  # [135, 225)
-    SOUTH_WEST = 2  # [225, 315)
-    SOUTH_EAST = 3  # everything else, i.e. [315, 360) and [0, 45)
+    NORTH_EAST = 0
+    NORTH_WEST = 1
+    SOUTH_WEST = 2
+    SOUTH_EAST = 3
 
 
 def classify_quadrant(angle_deg: float) -> AngleQuadrant:
@@ -57,14 +57,10 @@ def get_next_point(points: Dict[int, Point], number: int, last_selected: int) ->
 
 
 def offset_segment_perpendicular(start: Point, end: Point, offset: float) -> Tuple[Point, Point]:
-    """`start`/`end` shifted sideways by `offset`, perpendicular to the
-    segment's own direction in the XY plane. Height is unchanged. A
-    zero-length segment has no direction, so it's returned as-is."""
     dx, dy = end.x - start.x, end.y - start.y
     length = math.hypot(dx, dy)
     if length <= 0:
         return start, end
-    # Rotate the direction 90° to get the perpendicular unit vector.
     ux, uy = -dy / length, dx / length
     shift_x, shift_y = ux * offset, uy * offset
     return (

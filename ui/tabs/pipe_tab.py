@@ -1,4 +1,3 @@
-"""Pipe (RURA OSŁONOWA) drawing-mode options accordion section."""
 from __future__ import annotations
 
 from typing import Optional, Sequence
@@ -14,8 +13,6 @@ DEFAULT_LAYER_NAME = "0"
 
 
 class PipeTab(QWidget):
-    """Options for the 'Pipe' drawing mode: the casing's width — the two
-    parallel lines are drawn this far apart, straddling the cable route."""
 
     option_changed = pyqtSignal()
 
@@ -43,7 +40,6 @@ class PipeTab(QWidget):
         self.layer_dropdown.set_layer_name(name)
 
     def get_options(self) -> PipeOptions:
-        """Reads the current widget state into a PipeOptions value object."""
         width = float(self.width_input.text() or DEFAULT_WIDTH)
         return PipeOptions(width=width)
 

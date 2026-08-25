@@ -90,16 +90,10 @@ _STATUS_TEXT = {
     "applied": "Applied",
     "error": "Errors: 1",
 }
-# Characters Windows forbids in a filename — a renamed project's file must
-# still be a legal name on disk (see MainWindow.rename_project).
 _INVALID_FILENAME_CHARS = '<>:"/\\|?*'
 
 
 class _PointFileSection(QWidget):
-    """The point-file accordion section's content: the upload widget on
-    top, the delimiter options below (hidden until a file is loaded).
-    is_modified() delegates to the delimiter tab, since the file widget
-    itself is never "modified" in the option-tab sense."""
 
     def __init__(self, file_stack: QStackedWidget, delimiter_tab: DelimiterTab) -> None:
         super().__init__()
@@ -115,7 +109,6 @@ class _PointFileSection(QWidget):
 
 
 class AppState(Enum):
-    """The four states the shell can be in, driving the status bar."""
 
     EMPTY = "empty"
     READY = "ready"
@@ -133,11 +126,6 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(ICON_PATH))
         self.resize(1360, 860)
         self.setMinimumSize(1080, 680)
-        # Starts maximized regardless of which of the several call sites
-        # ends up calling .show() on it (New Project, Open Project, the
-        # launcher's Open…) - setting this before the first show is honored
-        # without needing to touch each of those separately. The launcher
-        # (StartScreen) is unaffected - it opens at its own normal size.
         self.setWindowState(Qt.WindowState.WindowMaximized)
         self.settings = QtCore.QSettings("acsg", "acsg_pro")
 
@@ -151,12 +139,8 @@ class MainWindow(QMainWindow):
         self._has_applied = False
         self._last_error: Optional[str] = None
         self._sections: List[Tuple[AccordionSection, QWidget]] = []
-        # None until the project has been saved at least once (or was
-        # opened from an existing .gsgproj) - see save_project/save_project_as.
         self.project_path: Optional[str] = project_path
         self.project_name: str = initial_state.name if initial_state is not None else "Untitled"
-        # Kept alive here once opened so Qt doesn't garbage-collect it — see
-        # new_project/_open_path_in_new_window/open_start_screen.
         self._sibling_window: Optional[QMainWindow] = None
 
         self._build_ui()
@@ -168,9 +152,6 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"Geodetic Sketch Generator — {self.project_name}")
         self._refresh()
 
-    # ==================================================================
-    # UI BUILD
-    # ==================================================================
     def _build_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
@@ -185,14 +166,10 @@ class MainWindow(QMainWindow):
         content_layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
         content_layout.setSpacing(0)
 
-        # A draggable splitter, not a fixed-width column — lets the user
-        # resize the left panel like a dockable panel in GIMP/VS Code/AutoCAD.
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.main_splitter.setObjectName("mainSplitter")
         self.main_splitter.setChildrenCollapsible(False)
         self.main_splitter.setHandleWidth(SPACE_LG)
-        # Built right-first: the left column's "Layers" nav item docks
-        # dxf_viewer.layer_panel, so dxf_viewer has to exist already.
         right_column = self._build_right_column()
         self.main_splitter.addWidget(self._build_left_column())
         self.main_splitter.addWidget(right_column)
@@ -233,9 +210,6 @@ class MainWindow(QMainWindow):
         return logo
 
     def _build_file_button(self) -> QPushButton:
-        """A single "File ▾" button replacing separate Projects/Save Project
-        buttons — an AutoCAD-style application menu covering the whole
-        project lifecycle (new/open/recent/save/export/close) in one place."""
         btn = self._make_button("File", "secondary", None)
         btn.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         btn.setIcon(icon_manager.get("menu_chevron", size=ICON_SM, color=Color.TEXT))
@@ -257,13 +231,6 @@ class MainWindow(QMainWindow):
         return btn
 
     def _build_edit_button(self) -> QPushButton:
-        """A single "Edit ▾" button holding Undo/Redo — the DXF panel's own
-        toolbar buttons for these were removed in favor of consolidating
-        them here, next to File. Ctrl+Z/Ctrl+Y keep working exactly as
-        before (they're handled by DxfViewer's own window-scoped
-        shortcuts) — these menu actions deliberately have no shortcut of
-        their own attached, to avoid registering the same key combination
-        twice on the same window."""
         btn = self._make_button("Edit", "secondary", None)
         btn.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         btn.setIcon(icon_manager.get("menu_chevron", size=ICON_SM, color=Color.TEXT))
@@ -307,8 +274,6 @@ class MainWindow(QMainWindow):
         self.dxf_source_row.clearRequested.connect(self.clear_dxf_file)
         outer.addWidget(self.dxf_source_row)
 
-        # GIMP-style dock switcher: the user picks which of these two shows
-        # below, independent of whether a point file or DXF is loaded.
         self.left_nav = SegmentedControl([("point_file", "Point File"), ("layers", "Layers")])
         outer.addWidget(self.left_nav)
 
@@ -343,12 +308,9 @@ class MainWindow(QMainWindow):
             self.cable_tab,
             self.pipe_tab,
         )
-        self._sync_layer_dropdowns()  # seeds each dropdown above with the initial layer list
+        self._sync_layer_dropdowns()
 
         self.accordion = Accordion()
-        # A 4th element names the Drawing Mode key (see ui.tabs.draw_tab)
-        # that gates this section's visibility - None for sections that
-        # aren't tied to one (see _refresh).
         specs = (
             ("point_file_section", "Point File", _PointFileSection(self.file_stack, self.delimiter_tab), None),
             ("drawing_mode_section", "Drawing Mode", self.draw_tab, None),
@@ -370,12 +332,7 @@ class MainWindow(QMainWindow):
             if mode_key is not None:
                 self._mode_sections[mode_key] = section
         self._section_mode_key = {section: key for key, section in self._mode_sections.items()}
-        # The point-file section holds its own upload controls, so it must
-        # stay visible even with nothing loaded yet - the rest are hidden
-        # until there's data to mean anything (see _refresh).
         self._point_file_section = self._sections[0][0]
-        # Layer only means something once a drawing mode is actually
-        # checked - hidden the rest of the time (see _refresh).
         self._layer_section = self._sections[2][0]
 
         scroll = QScrollArea()
@@ -466,9 +423,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.status_state_label)
         return bar
 
-    # ==================================================================
-    # SIGNAL WIRING
-    # ==================================================================
     def _wire_signals(self) -> None:
         self.delimiter_tab.swap_xy_toggled.connect(self._on_config_changed)
         self.delimiter_tab.cabinet_mode_toggled.connect(self._on_config_changed)
@@ -488,9 +442,6 @@ class MainWindow(QMainWindow):
 
         self.dxf_viewer.documentChanged.connect(self._refresh)
 
-    # ==================================================================
-    # STATE
-    # ==================================================================
     def _current_state(self) -> AppState:
         if self._last_error:
             return AppState.ERROR
@@ -501,16 +452,10 @@ class MainWindow(QMainWindow):
         return AppState.READY
 
     def _on_config_changed(self, *_args) -> None:
-        # Whatever was last applied to the DXF no longer matches these
-        # settings, so the "Applied" status would be misleading until the
-        # user presses Apply again.
         self._has_applied = False
         self._refresh()
 
     def _sync_layer_dropdowns(self) -> None:
-        """Pushes the Layer section's current list into every dependent
-        tab's own layer picker — called whenever that list changes, and
-        once up front to seed them (see _build_left_column)."""
         names = self.layer_tab.layer_names()
         default = self.layer_tab.default_layer_name()
         for tab in self._layer_dependent_tabs:
@@ -525,9 +470,6 @@ class MainWindow(QMainWindow):
             self._reparse_current_file()
         self._on_config_changed()
 
-    # ==================================================================
-    # RENDERING
-    # ==================================================================
     def _refresh(self) -> None:
         state = self._current_state()
 
@@ -539,8 +481,6 @@ class MainWindow(QMainWindow):
                 continue
             mode_key = self._section_mode_key.get(section)
             if mode_key is not None:
-                # Points/Lines/PLines/3DPOLY/Heights/Cable Marks/Pipe: only
-                # worth showing once that exact mode is actually checked.
                 section.setVisible(has_file and mode_key in checked_modes)
             elif section is self._layer_section:
                 section.setVisible(has_file and bool(checked_modes))
@@ -563,7 +503,7 @@ class MainWindow(QMainWindow):
 
             if state in (AppState.READY, AppState.APPLIED):
                 self.error_banner.clear()
-            else:  # ERROR
+            else:
                 self.error_banner.show_message(self._last_error)
 
         self.status_file_label.setText(file_label)
@@ -600,12 +540,6 @@ class MainWindow(QMainWindow):
         self.status_state_label.setText(message)
         QtCore.QTimer.singleShot(ms, self._refresh)
 
-    # ==================================================================
-    # HELPERS
-    # ==================================================================
-    # Modes with their own options tab target whichever layer that tab's
-    # dropdown currently shows; the rest (Lines/PLines/3DPOLY have no
-    # options tab of their own) fall back to the Layer section's default.
     _LAYER_PICKER_TABS = {
         DrawMode.POINTS: "points_tab",
         DrawMode.LINES: "lines_tab",
@@ -647,9 +581,6 @@ class MainWindow(QMainWindow):
             return f"{kb:.0f} KB"
         return f"{kb / 1024:.1f} MB"
 
-    # ==================================================================
-    # IO
-    # ==================================================================
     def select_file(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(self, "Open TXT File", "", "Text Files (*.txt)")
         if not file_path:
@@ -662,9 +593,6 @@ class MainWindow(QMainWindow):
             self._load_file(txt_paths[0])
 
     def _load_file(self, file_path: str) -> None:
-        # Record the real file/size up front, even if parsing below fails —
-        # the UI should always reflect the real file that was picked, never
-        # fall back to sample data once the user has actually chosen one.
         self.file_path = file_path
         self.file_size_text = self._format_size(file_path)
         try:
@@ -688,9 +616,6 @@ class MainWindow(QMainWindow):
             self._last_error = str(exc)
         self._has_applied = False
 
-    # ==================================================================
-    # DXF PREVIEW
-    # ==================================================================
     def select_dxf_file(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(self, "Open DXF File", "", "DXF Files (*.dxf)")
         if not file_path:
@@ -708,15 +633,11 @@ class MainWindow(QMainWindow):
             self.dxf_source_row.show_error(message)
             return
         self.dxf_path = file_path
-        self._has_applied = False  # the newly loaded document hasn't had the current settings applied yet
+        self._has_applied = False
         self.dxf_source_row.set_file(os.path.basename(file_path), self.dxf_viewer.entity_count)
         self._refresh()
 
     def _load_dxf_from_text(self, content: str, file_path: str) -> None:
-        """Restores the DXF from an embedded project snapshot (see
-        core.project.ProjectState.dxf_content) instead of reading a file
-        from disk — `file_path` is kept only as the "Save DXF" default
-        location/display name, exactly like _load_dxf_file's bookkeeping."""
         ok, message = self.dxf_viewer.load_from_text(content)
         if not ok:
             self.dxf_source_row.show_error(message)
@@ -734,9 +655,6 @@ class MainWindow(QMainWindow):
         self.dxf_source_row.set_empty()
         self._refresh()
 
-    # ==================================================================
-    # APPLY TO DXF
-    # ==================================================================
     def apply_to_dxf(self) -> None:
         self.layer_tab.persist(self.settings)
         try:
@@ -745,10 +663,6 @@ class MainWindow(QMainWindow):
             ensure_selection(selected_numbers)
             draw_modes = self.draw_tab.draw_modes
             ensure_draw_modes(draw_modes)
-            # Each checked mode becomes its own command, targeting whichever
-            # layer that mode's own picker is set to, all bundled into one
-            # undo step - so e.g. PLines + Heights marks + Cable marks apply
-            # (and later undo) together as a single Apply.
             commands = [
                 self.survey_draw_service.build_command(
                     self.data,
@@ -766,7 +680,7 @@ class MainWindow(QMainWindow):
         self._last_error = None
         try:
             self.dxf_viewer.execute_command(command)
-        except Exception as exc:  # noqa: BLE001 - drawing into the DXF must never crash the app
+        except Exception as exc:
             self._last_error = f"Could not draw into the DXF file: {exc}"
             self._has_applied = False
             self._refresh()
@@ -778,9 +692,6 @@ class MainWindow(QMainWindow):
             self.dxf_source_row.set_file(os.path.basename(self.dxf_path), self.dxf_viewer.entity_count)
         self._refresh()
 
-    # ==================================================================
-    # UTIL
-    # ==================================================================
     def save_dxf(self) -> None:
         if not self.dxf_viewer.has_document:
             return
@@ -793,13 +704,7 @@ class MainWindow(QMainWindow):
         self.dxf_source_row.set_file(os.path.basename(path), self.dxf_viewer.entity_count)
         self._flash_status(f"Saved to {os.path.basename(path)}")
 
-    # ==================================================================
-    # PROJECT SAVE / LOAD — see core/project.py for the .gsgproj format and
-    # ui/start_screen.py for the AutoCAD-style launcher that opens one.
-    # ==================================================================
     def collect_project_state(self) -> ProjectState:
-        """Every tab's current settings plus the point/DXF file paths, as
-        one serializable ProjectState — see core.project."""
         separate_text, range_text = self.selection_tab.get_expression_state()
         layers, default_name = self.layer_tab.get_state()
         return ProjectState(
@@ -831,18 +736,11 @@ class MainWindow(QMainWindow):
         )
 
     def load_project_state(self, state: ProjectState) -> None:
-        """Restores every tab from a saved project, then restores the DXF
-        (from its embedded snapshot if the project has one — see
-        core.project.ProjectState.dxf_content — falling back to re-reading
-        dxf_file_path from disk for older/imported projects that don't) and
-        the point file, if still present on disk. A missing file is skipped
-        rather than treated as a failure, since the rest of the project is
-        still worth restoring."""
         self.project_name = state.name
         self.delimiter_tab.set_state(state.delimiter.mode, state.delimiter.swap_xy, state.delimiter.cabinet_mode)
         self.draw_tab.set_mode_keys(state.draw_modes)
         self.layer_tab.set_state([(l.name, tuple(l.rgb)) for l in state.layer.layers], state.layer.default_name)
-        self._sync_layer_dropdowns()  # populate each tab's picker before selecting a specific layer_name below
+        self._sync_layer_dropdowns()
         self.points_tab.set_options(
             PointsOptions(
                 numbers_enabled=state.points.numbers_enabled,
@@ -915,9 +813,6 @@ class MainWindow(QMainWindow):
         self._flash_status(f"Saved project {os.path.basename(path)}")
 
     def rename_project(self) -> None:
-        """Renames the project — and, if it's already been saved, the
-        .gsgproj file itself on disk, keeping the two in sync (an unsaved
-        project just gets the new name to save under next time)."""
         new_name, ok = QInputDialog.getText(self, "Rename Project", "Project name:", text=self.project_name)
         new_name = new_name.strip()
         if not ok or not new_name or new_name == self.project_name:
@@ -954,7 +849,7 @@ class MainWindow(QMainWindow):
         self._flash_status(f"Renamed to {new_name}")
 
     def open_start_screen(self) -> None:
-        from ui.start_screen import StartScreen  # local import: start_screen imports MainWindow itself
+        from ui.start_screen import StartScreen
 
         self._sibling_window = StartScreen()
         self._sibling_window.show()

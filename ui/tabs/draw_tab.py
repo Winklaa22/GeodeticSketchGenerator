@@ -1,4 +1,3 @@
-"""Drawing Mode accordion section."""
 from __future__ import annotations
 
 from typing import List, Optional
@@ -31,8 +30,6 @@ _DEFAULT_KEYS = ["plines"]
 
 
 class DrawTab(QWidget):
-    """Multiple modes can be checked at once — Apply to DXF then runs each
-    checked mode's generation in turn, as one undoable step."""
 
     modes_changed = pyqtSignal()
 
@@ -52,8 +49,6 @@ class DrawTab(QWidget):
 
     @property
     def mode_keys(self) -> List[str]:
-        """The plain mode keys — for project save/load, where DrawMode
-        enum values aren't JSON-friendly."""
         return self.mode_group.current_keys()
 
     def set_mode_keys(self, keys: List[str]) -> None:

@@ -1,7 +1,3 @@
-"""Layer accordion section — defines several named/colored layers up
-front, picked per drawing mode via that mode's own options tab (see e.g.
-ui.tabs.points_tab). Lines/PLines/3DPOLY have no options tab of their own,
-so they always draw onto whichever layer is marked default here."""
 from __future__ import annotations
 
 import json
@@ -18,8 +14,6 @@ DEFAULT_LAYER_NAME = "0"
 DEFAULT_LAYER_RGB: Tuple[int, int, int] = (145, 132, 217)
 SETTINGS_KEY = "layers_v2"
 
-# Cycled through for a newly-added layer's default color, same idea as
-# ui.layer_panel's own auto-palette for a freshly added DXF layer.
 _AUTO_PALETTE: List[Tuple[int, int, int]] = [
     (145, 132, 217),  # accent purple
     (127, 207, 158),  # green
@@ -31,7 +25,6 @@ _AUTO_PALETTE: List[Tuple[int, int, int]] = [
 
 
 class _LayerDefRow(QFrame):
-    """One defined layer: default-marker, name, color swatch, delete."""
 
     defaultRequested = pyqtSignal(str)
     colorRequested = pyqtSignal(str, tuple)
@@ -39,9 +32,6 @@ class _LayerDefRow(QFrame):
 
     def __init__(self, name: str, rgb: Tuple[int, int, int], is_default: bool, deletable: bool) -> None:
         super().__init__()
-        # Reuses ui.layer_panel's row styling (#layerRow, [active="true"])
-        # so a "default" layer here looks exactly like an "active" one
-        # there — same visual language, different underlying concept.
         self.setObjectName("layerRow")
         self.setProperty("active", "true" if is_default else "false")
 
@@ -61,7 +51,7 @@ class _LayerDefRow(QFrame):
 
         label = QToolButton()
         label.setObjectName("layerNameBtn")
-        label.setText(name)  # inert - not connected to anything, just styled as a label
+        label.setText(name)
         layout.addWidget(label, 1)
 
         swatch = ColorSwatchButton(rgb, "Change color")
@@ -80,10 +70,6 @@ class _LayerDefRow(QFrame):
 
 
 class LayerTab(QWidget):
-    """A small list of layers (name + color), one marked default. Points,
-    Heights, Cable Marks and Pipe each get a dropdown fed by `layer_names()`
-    to target a different one; Lines/PLines/3DPOLY use `default_layer_name()`.
-    """
 
     layers_changed = pyqtSignal()
 

@@ -1,8 +1,3 @@
-"""Reusable "Nocturne" widgets shared across the app shell and the option tabs.
-
-These are presentation-only building blocks (no core/ imports, no business
-logic) so they can be composed freely by ui/main_window.py and ui/tabs/*.py.
-"""
 from __future__ import annotations
 
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -30,15 +25,11 @@ from ui.theme import ICON_MD, ICON_SM, Color, SPACE_LG, SPACE_MD, SPACE_SM, SPAC
 
 
 def restyle(widget: QWidget) -> None:
-    """Forces Qt to re-evaluate dynamic-property QSS selectors on `widget`."""
     widget.style().unpolish(widget)
     widget.style().polish(widget)
     widget.update()
 
 
-# --------------------------------------------------------------------------
-# Field helpers (label-above-input groups used inside accordion sections)
-# --------------------------------------------------------------------------
 def field_label(text: str) -> QLabel:
     label = QLabel(text)
     label.setObjectName("fieldLabel")
@@ -52,22 +43,12 @@ def styled_line_edit(text: str = "") -> QLineEdit:
 
 
 def decimal_validator(bottom: float, top: float, decimals: int) -> QDoubleValidator:
-    """A QDoubleValidator pinned to '.' as the decimal point.
-
-    QDoubleValidator defaults to the OS locale's separators. On machines
-    where that locale uses ',' as the decimal point, a plain
-    QDoubleValidator rejects '.' entirely, making it impossible to type a
-    value like "0.6" into fields whose default text and parsing (float())
-    both assume a dot — the field looks like it "doesn't work". Forcing the
-    C locale keeps typing and parsing consistent regardless of OS locale.
-    """
     validator = QDoubleValidator(bottom, top, decimals)
     validator.setLocale(QLocale(QLocale.Language.C))
     return validator
 
 
 def make_field(label_text: str, field_widget: QWidget) -> QWidget:
-    """A label stacked above its input/control, spaced per the Nocturne scale."""
     wrapper = QWidget()
     layout = QVBoxLayout(wrapper)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -78,7 +59,6 @@ def make_field(label_text: str, field_widget: QWidget) -> QWidget:
 
 
 class SectionColumn(QVBoxLayout):
-    """A vertical stack of fields/controls with the accordion body's spacing."""
 
     def __init__(self, parent_widget: QWidget) -> None:
         super().__init__(parent_widget)
@@ -86,11 +66,7 @@ class SectionColumn(QVBoxLayout):
         self.setSpacing(SPACE_LG)
 
 
-# --------------------------------------------------------------------------
-# Tag
-# --------------------------------------------------------------------------
 class Tag(QLabel):
-    """Small pill label. variant in {"neutral", "accent", "success", "error"}."""
 
     def __init__(self, text: str = "", variant: str = "neutral", parent: Optional[QWidget] = None) -> None:
         super().__init__(text, parent)
@@ -103,12 +79,7 @@ class Tag(QLabel):
         restyle(self)
 
 
-# --------------------------------------------------------------------------
-# Checkbox (a checkable flat button — renders reliably across platforms,
-# unlike QCheckBox::indicator, which needs image assets to show a checkmark)
-# --------------------------------------------------------------------------
 class CheckField(QPushButton):
-    """Drop-in for QCheckBox: same isChecked()/setChecked()/toggled API."""
 
     def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -128,11 +99,6 @@ class CheckField(QPushButton):
         self.setText(self._label)
 
 
-# --------------------------------------------------------------------------
-# Color swatch (a solid-colored button; click opens a color picker) — used
-# for both an existing DXF layer's color (ui/layer_panel.py) and a
-# not-yet-created layer's planned color (ui/tabs/layer_tab.py).
-# --------------------------------------------------------------------------
 class ColorSwatchButton(QToolButton):
 
     colorChanged = pyqtSignal(tuple)
@@ -162,10 +128,6 @@ class ColorSwatchButton(QToolButton):
     def _pick_color(self) -> None:
         dialog = QColorDialog(QColor(*self._rgb), self)
         dialog.setWindowTitle("Choose Color")
-        # Without this, the dialog inherits this button's own inline
-        # "background-color: rgb(...)" (it's the dialog's Qt parent),
-        # painting the whole picker in whatever color was last chosen
-        # instead of its normal native chrome.
         dialog.setStyleSheet("")
         if dialog.exec() == QColorDialog.DialogCode.Accepted:
             color = dialog.selectedColor()
@@ -174,10 +136,6 @@ class ColorSwatchButton(QToolButton):
                 self.colorChanged.emit(self._rgb)
 
 
-# --------------------------------------------------------------------------
-# Layer dropdown — targets one of the layers defined in ui/tabs/layer_tab.py,
-# used by Points/Heights/Cable Marks/Pipe to each pick their own.
-# --------------------------------------------------------------------------
 class LayerDropdown(QComboBox):
     layerChanged = pyqtSignal()
 
@@ -187,8 +145,6 @@ class LayerDropdown(QComboBox):
         self.currentTextChanged.connect(lambda _text: self.layerChanged.emit())
 
     def set_available_layers(self, names: Sequence[str], default_name: str) -> None:
-        """Repopulates the list, keeping the current pick if it still
-        exists, otherwise falling back to `default_name`."""
         wanted = self.currentText() or default_name
         self.blockSignals(True)
         self.clear()
@@ -205,11 +161,7 @@ class LayerDropdown(QComboBox):
             self.setCurrentIndex(index)
 
 
-# --------------------------------------------------------------------------
-# Segmented control
-# --------------------------------------------------------------------------
 class SegmentedControl(QWidget):
-    """A row of mutually-exclusive pill buttons sharing one outlined track."""
 
     currentChanged = pyqtSignal(str)
 
@@ -241,7 +193,6 @@ class SegmentedControl(QWidget):
             btn.setChecked(True)
 
     def clearSelection(self) -> None:
-        """Unchecks every pill, leaving no option selected."""
         checked = self._group.checkedButton()
         if checked is not None:
             self._group.setExclusive(False)
@@ -260,17 +211,10 @@ class SegmentedControl(QWidget):
             btn.setEnabled(enabled)
 
 
-# --------------------------------------------------------------------------
-# Radio-card group (bordered cards, used for Drawing Mode)
-# --------------------------------------------------------------------------
 class RadioCardGroup(QWidget):
-    """A grid of bordered, checkable cards: either one exclusive choice
-    (radio bullets, the default) or an independent multi-choice (checkbox
-    bullets, `multi_select=True`) — used for Drawing Mode, where several
-    modes can now be applied together in one Apply."""
 
-    currentChanged = pyqtSignal(str)  # single-select only: the new current key
-    selectionChanged = pyqtSignal(list)  # multi-select only: all checked keys
+    currentChanged = pyqtSignal(str)
+    selectionChanged = pyqtSignal(list)
 
     def __init__(
         self,
@@ -317,7 +261,6 @@ class RadioCardGroup(QWidget):
         button.setIconSize(QSize(ICON_SM, ICON_SM))
         button.setText(label)
 
-    # -- single-select API --------------------------------------------------
     def setCurrent(self, key: str) -> None:
         btn = self._buttons.get(key)
         if btn is not None and not btn.isChecked():
@@ -329,7 +272,6 @@ class RadioCardGroup(QWidget):
                 return key
         return None
 
-    # -- multi-select API -----------------------------------------------
     def current_keys(self) -> List[str]:
         return [key for key, btn in self._buttons.items() if btn.isChecked()]
 
@@ -339,29 +281,22 @@ class RadioCardGroup(QWidget):
             btn.setChecked(key in checked)
 
 
-# --------------------------------------------------------------------------
-# Card
-# --------------------------------------------------------------------------
 class Card(QFrame):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("card")
 
 
-# --------------------------------------------------------------------------
-# Accordion
-# --------------------------------------------------------------------------
 class _ClickableRow(QFrame):
     clicked = pyqtSignal()
 
-    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802 (Qt override)
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mousePressEvent(event)
 
 
 class AccordionSection(QWidget):
-    """One collapsible group row: icon, title, modified-dot, chevron, body."""
 
     toggled = pyqtSignal()
 
@@ -427,7 +362,6 @@ class AccordionSection(QWidget):
 
 
 class Accordion(QWidget):
-    """Vertical list of AccordionSections; exactly one stays expanded."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -455,11 +389,7 @@ class Accordion(QWidget):
             self._on_toggle(self._sections[index])
 
 
-# --------------------------------------------------------------------------
-# File loading
-# --------------------------------------------------------------------------
 class DropZone(QWidget):
-    """Empty-state: dashed drop target with a fallback "browse" button."""
 
     fileRequested = pyqtSignal()
     filesDropped = pyqtSignal(list)
@@ -492,19 +422,17 @@ class DropZone(QWidget):
         layout.addWidget(hint)
         layout.addWidget(self._button, 0, Qt.AlignmentFlag.AlignCenter)
 
-    def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:  # noqa: N802
+    def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
-    def dropEvent(self, event: QtGui.QDropEvent) -> None:  # noqa: N802
+    def dropEvent(self, event: QtGui.QDropEvent) -> None:
         paths = [url.toLocalFile() for url in event.mimeData().urls() if url.toLocalFile()]
         if paths:
             self.filesDropped.emit(paths)
 
 
 class DxfSourceRow(QWidget):
-    """Compact secondary loader for an optional reference .DXF drawing —
-    sits right below the main .TXT source, and drives the DXF preview tab."""
 
     fileRequested = pyqtSignal()
     filesDropped = pyqtSignal(list)
@@ -573,18 +501,17 @@ class DxfSourceRow(QWidget):
         self._subtitle.setProperty("variant", variant)
         restyle(self._subtitle)
 
-    def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:  # noqa: N802
+    def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
-    def dropEvent(self, event: QtGui.QDropEvent) -> None:  # noqa: N802
+    def dropEvent(self, event: QtGui.QDropEvent) -> None:
         paths = [url.toLocalFile() for url in event.mimeData().urls() if url.toLocalFile()]
         if paths:
             self.filesDropped.emit(paths)
 
 
 class FileCard(QWidget):
-    """Loaded-state: file name, point-count tag, size, and a Change link."""
 
     changeRequested = pyqtSignal()
 
@@ -634,9 +561,6 @@ class FileCard(QWidget):
         self._size_label.setText(size_text)
 
 
-# --------------------------------------------------------------------------
-# Error banner
-# --------------------------------------------------------------------------
 class ErrorBanner(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
