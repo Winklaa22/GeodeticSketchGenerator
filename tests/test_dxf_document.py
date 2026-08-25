@@ -108,9 +108,34 @@ def test_unlink_entity_removes_it_from_modelspace_but_keeps_it_in_the_database(d
     assert entity.dxf.handle == handle
 
 
-def test_unlink_entity_raises_for_unknown_handle(doc: DXFDocument) -> None:
-    with pytest.raises(KeyError):
-        doc.unlink_entity("does-not-exist")
+def test_unlink_entity_returns_none_for_unknown_handle(doc: DXFDocument) -> None:
+    assert doc.unlink_entity("does-not-exist") is None
+
+
+def test_unlink_entity_returns_none_if_already_unlinked(doc: DXFDocument) -> None:
+    handle = doc.add_point((0.0, 0.0))
+    doc.unlink_entity(handle)
+    assert doc.unlink_entity(handle) is None  # already not in the model space - not an error
+
+
+def test_relink_entity_puts_a_previously_unlinked_entity_back(doc: DXFDocument) -> None:
+    handle = doc.add_point((1.0, 2.0))
+    doc.unlink_entity(handle)
+    assert doc.entity_count() == 0
+    doc.relink_entity(handle)
+    assert doc.entity_count() == 1
+    assert doc.get_entity(handle).dxf.handle == handle  # same object/handle, not a new one
+
+
+def test_relink_entity_is_a_noop_for_an_already_linked_entity(doc: DXFDocument) -> None:
+    handle = doc.add_point((1.0, 2.0))
+    doc.relink_entity(handle)  # already linked - must not add a second copy
+    assert doc.entity_count() == 1
+
+
+def test_relink_entity_is_a_noop_for_an_unknown_handle(doc: DXFDocument) -> None:
+    doc.relink_entity("does-not-exist")  # must not raise
+    assert doc.entity_count() == 0
 
 
 def test_restore_entity_puts_it_back_in_modelspace(doc: DXFDocument) -> None:

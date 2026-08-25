@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 from PyQt6 import QtCore
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtGui import QIcon, QKeySequence, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -246,7 +246,8 @@ class MainWindow(QMainWindow):
         self._recent_menu = menu.addMenu("Open Recent")
         menu.aboutToShow.connect(self._refresh_recent_menu)
         menu.addSeparator()
-        menu.addAction("Save Project", self.save_project)
+        save_action = menu.addAction("Save Project", self.save_project)
+        save_action.setShortcut(QKeySequence("Ctrl+S"))
         menu.addAction("Save Project As…", self.save_project_as)
         menu.addAction("Rename Project…", self.rename_project)
         menu.addAction("Export DXF…", self.save_dxf)
