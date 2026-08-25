@@ -1,10 +1,14 @@
 """Drawing commands — section 1 of the DXF edit command spec (point, line,
 circle, text, 2D/3D polyline; move/rectangle are later phases).
 
-Every command follows the same shape: `execute` asks the `DXFDocument` to
-create the entity and remembers its handle; `undo` unlinks that handle
-(see `DXFDocument.unlink_entity` — the entity survives in the entity
-database, so a `redo` that calls `execute` again just creates a fresh one).
+Every command follows the same shape: the *first* `execute` asks the
+`DXFDocument` to create the entity and remembers its handle; `undo` unlinks
+that handle (see `DXFDocument.unlink_entity` — the entity survives in the
+entity database). A *later* `execute` (a redo) relinks that same handle
+(see `DXFDocument.relink_entity`) instead of creating a fresh one, so the
+entity's identity is stable across an undo/redo cycle — required for any
+other Command that captured this one's handle (e.g. a DeleteEntityCommand)
+to still find the right entity if it's replayed afterwards.
 """
 from __future__ import annotations
 
@@ -22,7 +26,10 @@ class AddPointCommand:
         self._handle: Optional[str] = None
 
     def execute(self, doc: DXFDocument) -> None:
-        self._handle = doc.add_point(self._location, self._layer)
+        if self._handle is not None:
+            doc.relink_entity(self._handle)
+        else:
+            self._handle = doc.add_point(self._location, self._layer)
 
     def undo(self, doc: DXFDocument) -> None:
         if self._handle is not None:
@@ -37,7 +44,10 @@ class AddLineCommand:
         self._handle: Optional[str] = None
 
     def execute(self, doc: DXFDocument) -> None:
-        self._handle = doc.add_line(self._start, self._end, self._layer)
+        if self._handle is not None:
+            doc.relink_entity(self._handle)
+        else:
+            self._handle = doc.add_line(self._start, self._end, self._layer)
 
     def undo(self, doc: DXFDocument) -> None:
         if self._handle is not None:
@@ -52,7 +62,10 @@ class AddCircleCommand:
         self._handle: Optional[str] = None
 
     def execute(self, doc: DXFDocument) -> None:
-        self._handle = doc.add_circle(self._center, self._radius, self._layer)
+        if self._handle is not None:
+            doc.relink_entity(self._handle)
+        else:
+            self._handle = doc.add_circle(self._center, self._radius, self._layer)
 
     def undo(self, doc: DXFDocument) -> None:
         if self._handle is not None:
@@ -76,7 +89,10 @@ class AddTextCommand:
         self._handle: Optional[str] = None
 
     def execute(self, doc: DXFDocument) -> None:
-        self._handle = doc.add_text(self._text, self._insert, self._height, self._layer, self._rotation)
+        if self._handle is not None:
+            doc.relink_entity(self._handle)
+        else:
+            self._handle = doc.add_text(self._text, self._insert, self._height, self._layer, self._rotation)
 
     def undo(self, doc: DXFDocument) -> None:
         if self._handle is not None:
@@ -97,7 +113,10 @@ class AddPolyline2DCommand:
         self._handle: Optional[str] = None
 
     def execute(self, doc: DXFDocument) -> None:
-        self._handle = doc.add_lwpolyline(self._points, self._layer, self._closed)
+        if self._handle is not None:
+            doc.relink_entity(self._handle)
+        else:
+            self._handle = doc.add_lwpolyline(self._points, self._layer, self._closed)
 
     def undo(self, doc: DXFDocument) -> None:
         if self._handle is not None:
@@ -112,7 +131,10 @@ class AddPolyline3DCommand:
         self._handle: Optional[str] = None
 
     def execute(self, doc: DXFDocument) -> None:
-        self._handle = doc.add_polyline3d(self._points, self._layer, self._closed)
+        if self._handle is not None:
+            doc.relink_entity(self._handle)
+        else:
+            self._handle = doc.add_polyline3d(self._points, self._layer, self._closed)
 
     def undo(self, doc: DXFDocument) -> None:
         if self._handle is not None:

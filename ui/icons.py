@@ -26,6 +26,8 @@ class IconManager:
         "circle_tool": "mdi.vector-circle",
         "pipe_tool": "mdi.pipe",
         "move_tool": "fa5s.arrows-alt",
+        "rotate_tool": "mdi.rotate-right",
+        "scale_tool": "mdi.resize-bottom-right",
         "erase_tool": "fa5s.eraser",
         "zoom_extents_tool": "mdi.arrow-expand-all",
         "zoom_in_tool": "fa5s.search-plus",

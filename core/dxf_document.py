@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import math
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -11,6 +12,7 @@ from ezdxf import colors as ezdxf_colors, recover
 from ezdxf.document import Drawing
 from ezdxf.entities import DXFGraphic
 from ezdxf.layouts import Modelspace
+from ezdxf.math import Matrix44
 from ezdxf.sections.tables import LayerTable
 
 DEFAULT_LAYER_NAME = "0"
@@ -162,16 +164,72 @@ class DXFDocument:
             raise KeyError(f"No entity with handle {handle!r}")
         return entity
 
-    def unlink_entity(self, handle: str) -> DXFGraphic:
-        entity = self._require_entity(handle)
+    def unlink_entity(self, handle: str) -> Optional[DXFGraphic]:
+        """Unlinks the entity at `handle`, keeping it alive in the entity
+        database so a later `relink_entity`/`restore_entity` can bring back
+        the exact same object. Returns None, rather than raising, for a
+        handle that's already not linked into the model space — a
+        `Command` that captures handles once (DeleteEntityCommand) can be
+        replayed against a handle that another Command's own undo/redo has
+        since unlinked out from under it."""
+        entity = self.get_entity(handle)
+        if entity is None or entity.get_layout() is None:
+            return None
         self.modelspace.unlink_entity(entity)
         return entity
 
     def restore_entity(self, entity: DXFGraphic) -> None:
         self.modelspace.add_entity(entity)
 
+    def relink_entity(self, handle: str) -> None:
+        """Re-links a previously unlinked entity back into the model space
+        by its original handle, if it isn't linked already — used by a
+        creating Command's own redo (a second execute()) so it reuses the
+        exact same entity/handle instead of making a new one, which would
+        otherwise leave any other Command that still names the old handle
+        (e.g. a DeleteEntityCommand higher up the undo stack) pointing at
+        nothing once replayed."""
+        entity = self.get_entity(handle)
+        if entity is not None and entity.get_layout() is None:
+            self.modelspace.add_entity(entity)
+
     def translate_entity(self, handle: str, dx: float, dy: float, dz: float = 0.0) -> None:
         self._require_entity(handle).translate(dx, dy, dz)
+
+    def duplicate_entity(self, handle: str, dx: float, dy: float, dz: float = 0.0) -> str:
+        """Copies the entity at `handle`, offsetting the copy by (dx, dy, dz)
+        so it lands next to the original rather than exactly on top of it —
+        used for Ctrl+D (duplicate) and Ctrl+V (paste)."""
+        copy = self._require_entity(handle).copy()
+        copy.translate(dx, dy, dz)
+        self.modelspace.add_entity(copy)
+        return copy.dxf.handle
+
+    def rotate_entity(self, handle: str, angle: float, center: Sequence[float]) -> None:
+        """Rotates the entity at `handle` by `angle` degrees (positive =
+        counter-clockwise, same convention as AutoCAD's ROTATE) around
+        `center`."""
+        cx, cy = center[0], center[1]
+        matrix = Matrix44.chain(
+            Matrix44.translate(-cx, -cy, 0),
+            Matrix44.z_rotate(math.radians(angle)),
+            Matrix44.translate(cx, cy, 0),
+        )
+        self._require_entity(handle).transform(matrix)
+
+    def scale_entity(self, handle: str, factor: float, center: Sequence[float]) -> None:
+        """Scales the entity at `handle` by `factor` (uniformly, in X/Y)
+        around `center` — same convention as AutoCAD's SCALE. Z is left
+        untouched, same "purely in-plane" choice as `rotate_entity` (a real
+        elevation shouldn't shift just because something on the same layer
+        got resized)."""
+        cx, cy = center[0], center[1]
+        matrix = Matrix44.chain(
+            Matrix44.translate(-cx, -cy, 0),
+            Matrix44.scale(factor, factor, 1.0),
+            Matrix44.translate(cx, cy, 0),
+        )
+        self._require_entity(handle).transform(matrix)
 
     # -- TEXT entity properties — content/height/rotation/color -----------
     def get_text_content(self, handle: str) -> str:

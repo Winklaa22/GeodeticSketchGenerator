@@ -40,7 +40,13 @@ from ezdxf.path import Command
 
 from core.commands.base import Command as EditCommand
 from core.commands.draw import AddCircleCommand, AddLineCommand, AddPointCommand, AddTextCommand
-from core.commands.edit import DeleteEntityCommand, MoveCommand
+from core.commands.edit import (
+    DeleteEntityCommand,
+    DuplicateEntitiesCommand,
+    MoveCommand,
+    RotateCommand,
+    ScaleCommand,
+)
 from core.commands.history import CommandHistory
 from core.commands.composite import CompositeCommand
 from core.commands.layers import (
@@ -376,6 +382,18 @@ class CadGraphicsView(qw.QGraphicsView):
         center = self.mapToScene(self.viewport().rect().center())
         self.centerOn(center.x() + dx, center.y() + dy)
         self.viewportChanged.emit()
+
+    def default_duplicate_offset(self) -> Tuple[float, float]:
+        """A small (dx, dy), in scene/drawing units, to place a duplicated
+        or pasted copy next to its source rather than exactly on top of it
+        — sized as a fraction of what's currently visible so it looks right
+        regardless of the drawing's real-world scale or the current zoom
+        level, unlike a fixed drawing-unit offset would."""
+        visible = self.mapToScene(self.viewport().rect()).boundingRect()
+        step = max(visible.width(), visible.height()) * 0.03
+        if step <= 0:
+            step = 1.0
+        return step, step
 
     def save_view(self) -> Tuple[qg.QTransform, int, int]:
         """Captures the current transform + scroll position, so a full scene
@@ -775,6 +793,13 @@ def _parse_coordinate(text: str, last_point: Optional[Tuple[float, float]]) -> O
 
 def _distance(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return math.hypot(b[0] - a[0], b[1] - a[1])
+
+
+def _angle_degrees(base: Tuple[float, float], point: Tuple[float, float]) -> float:
+    """The angle of `point` as seen from `base`, in degrees, 0° along the
+    positive X axis and increasing counter-clockwise — same convention as
+    AutoCAD's ROTATE, and as DXFDocument.rotate_entity."""
+    return math.degrees(math.atan2(point[1] - base[1], point[0] - base[0]))
 
 
 def _offset_segment_perpendicular(
@@ -1196,6 +1221,178 @@ class MoveToolSession(ToolSession):
             self._preview_item = None
 
 
+class RotateToolSession(ToolSession):
+    """Select objects first, then this tool rotates them: click/type a base
+    point, then a reference angle (as a point — the angle from the base
+    point to it — or typed degrees directly) — same as AutoCAD's ROTATE.
+    Ignores `layer` in build_command (rotating doesn't create anything new)."""
+
+    def __init__(self, handles: List[str]) -> None:
+        super().__init__()
+        self._handles = handles
+        self.prompt = "Specify base point: "
+        self._base: Optional[Tuple[float, float]] = None
+        self._angle: Optional[float] = None
+        self._preview_item: Optional[qw.QGraphicsLineItem] = None
+        # The actual selected items, live-rotated in place as the cursor
+        # moves (via each item's own rotation transform, reset to 0 in
+        # cleanup()) so the effect of the rotation is visible before it's
+        # committed — resolved once, lazily, the first update_preview()
+        # after the base point is set (that's the earliest `scene` is
+        # available to look them up in).
+        self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
+
+    def on_click(self, point: Tuple[float, float]) -> None:
+        if self._base is None:
+            self._base = point
+            self.prompt = "Specify rotation angle: "
+        else:
+            self._angle = _angle_degrees(self._base, point)
+
+    def on_text(self, text: str) -> Optional[str]:
+        if self._base is None:
+            coord = _parse_coordinate(text, last_point=None)
+            if coord is None:
+                return f'Point must be given as "x,y": "{text}".'
+            self._base = coord
+            self.prompt = "Specify rotation angle: "
+            return None
+        try:
+            angle = float(text.strip())
+        except ValueError:
+            coord = _parse_coordinate(text, last_point=self._base)
+            if coord is None:
+                return f'Requires a numeric angle (degrees) or a point: "{text}".'
+            angle = _angle_degrees(self._base, coord)
+        self._angle = angle
+        return None
+
+    def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
+        if self._base is None or self._angle is not None:
+            return
+        if self._preview_item is None:
+            self._preview_item = qw.QGraphicsLineItem()
+            self._preview_item.setPen(_preview_pen())
+            scene.addItem(self._preview_item)
+        self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
+
+        if self._preview_targets is None:
+            handle_set = set(self._handles)
+            self._preview_targets = [item for item in scene.items() if item.data(_HANDLE_ROLE) in handle_set]
+            origin = qc.QPointF(*self._base)
+            for item in self._preview_targets:
+                item.setTransformOriginPoint(origin)
+        angle = _angle_degrees(self._base, point)
+        for item in self._preview_targets:
+            item.setRotation(angle)
+
+    def is_done(self) -> bool:
+        return self._base is not None and self._angle is not None
+
+    def build_command(self, layer: str) -> EditCommand:
+        assert self._base is not None and self._angle is not None
+        return RotateCommand(self._handles, self._angle, self._base)
+
+    def cleanup(self, scene: qw.QGraphicsScene) -> None:
+        if self._preview_item is not None:
+            scene.removeItem(self._preview_item)
+            self._preview_item = None
+        if self._preview_targets is not None:
+            # The real rotation only takes effect once RotateCommand runs
+            # (build_command, above) and the scene gets rebuilt from the
+            # document — until then (including if the tool is cancelled
+            # instead), this live preview must not leave the items looking
+            # rotated on their own.
+            for item in self._preview_targets:
+                item.setRotation(0)
+            self._preview_targets = None
+
+
+class ScaleToolSession(ToolSession):
+    """Select objects first, then this tool scales them: click/type a base
+    point, then a scale factor — either typed directly, or as a point,
+    where the distance from the base point to it *is* the factor (so
+    clicking exactly one drawing unit away is 1x, i.e. no change) — same as
+    AutoCAD's SCALE. Ignores `layer` in build_command (scaling doesn't
+    create anything new)."""
+
+    def __init__(self, handles: List[str]) -> None:
+        super().__init__()
+        self._handles = handles
+        self.prompt = "Specify base point: "
+        self._base: Optional[Tuple[float, float]] = None
+        self._factor: Optional[float] = None
+        self._preview_item: Optional[qw.QGraphicsLineItem] = None
+        # Same live-preview idea as RotateToolSession — see its own comment.
+        self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
+
+    def on_click(self, point: Tuple[float, float]) -> None:
+        if self._base is None:
+            self._base = point
+            self.prompt = "Specify scale factor: "
+        else:
+            factor = _distance(self._base, point)
+            if factor > 0:
+                self._factor = factor
+
+    def on_text(self, text: str) -> Optional[str]:
+        if self._base is None:
+            coord = _parse_coordinate(text, last_point=None)
+            if coord is None:
+                return f'Point must be given as "x,y": "{text}".'
+            self._base = coord
+            self.prompt = "Specify scale factor: "
+            return None
+        try:
+            factor = float(text.strip())
+        except ValueError:
+            coord = _parse_coordinate(text, last_point=self._base)
+            if coord is None:
+                return f'Requires a numeric scale factor or a point: "{text}".'
+            factor = _distance(self._base, coord)
+        if factor <= 0:
+            return "Scale factor must be positive."
+        self._factor = factor
+        return None
+
+    def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
+        if self._base is None or self._factor is not None:
+            return
+        if self._preview_item is None:
+            self._preview_item = qw.QGraphicsLineItem()
+            self._preview_item.setPen(_preview_pen())
+            scene.addItem(self._preview_item)
+        self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
+
+        if self._preview_targets is None:
+            handle_set = set(self._handles)
+            self._preview_targets = [item for item in scene.items() if item.data(_HANDLE_ROLE) in handle_set]
+            origin = qc.QPointF(*self._base)
+            for item in self._preview_targets:
+                item.setTransformOriginPoint(origin)
+        factor = _distance(self._base, point)
+        if factor <= 0:
+            return  # a degenerate (zero) scale would collapse the preview to a point - just hold the last one
+        for item in self._preview_targets:
+            item.setScale(factor)
+
+    def is_done(self) -> bool:
+        return self._base is not None and self._factor is not None
+
+    def build_command(self, layer: str) -> EditCommand:
+        assert self._base is not None and self._factor is not None
+        return ScaleCommand(self._handles, self._factor, self._base)
+
+    def cleanup(self, scene: qw.QGraphicsScene) -> None:
+        if self._preview_item is not None:
+            scene.removeItem(self._preview_item)
+            self._preview_item = None
+        if self._preview_targets is not None:
+            for item in self._preview_targets:
+                item.setScale(1.0)
+            self._preview_targets = None
+
+
 class CommandLine(qw.QWidget):
     """AutoCAD-style command line: a short scrollback of echoed commands and
     responses, docked above a single "Command:" input — sits right under the
@@ -1391,7 +1588,7 @@ class _CommandError(Exception):
 class DxfCommandInterpreter:
     """Parses a small set of AutoCAD-style commands: view control
     (ZOOM/PAN/REGEN, applied directly to the CadGraphicsView) and editing
-    (POINT/TEXT/LINE/CIRCLE/PIPE/MOVE/ERASE/UNDO/REDO, applied through the
+    (POINT/TEXT/LINE/CIRCLE/PIPE/MOVE/ROTATE/SCALE/ERASE/UNDO/REDO, applied through the
     owning DxfViewer's DXFDocument + CommandHistory)."""
 
     def __init__(self, dxf_viewer: "DxfViewer") -> None:
@@ -1419,6 +1616,10 @@ class DxfCommandInterpreter:
             "RU": self._cmd_pipe,
             "MOVE": self._cmd_move,
             "M": self._cmd_move,
+            "ROTATE": self._cmd_rotate,
+            "RO": self._cmd_rotate,
+            "SCALE": self._cmd_scale,
+            "SC": self._cmd_scale,
             "ERASE": self._cmd_erase,
             "DELETE": self._cmd_erase,
             "E": self._cmd_erase,
@@ -1555,6 +1756,14 @@ class DxfCommandInterpreter:
         self._viewer.start_move_tool()
         return ""
 
+    def _cmd_rotate(self, args: List[str]) -> str:
+        self._viewer.start_rotate_tool()
+        return ""
+
+    def _cmd_scale(self, args: List[str]) -> str:
+        self._viewer.start_scale_tool()
+        return ""
+
     def _cmd_erase(self, args: List[str]) -> str:
         return self._viewer.delete_selected()
 
@@ -1605,6 +1814,8 @@ class DxfToolbar(qw.QWidget):
     pipeRequested = qc.pyqtSignal()
     selectRequested = qc.pyqtSignal()
     moveRequested = qc.pyqtSignal()
+    rotateRequested = qc.pyqtSignal()
+    scaleRequested = qc.pyqtSignal()
     eraseRequested = qc.pyqtSignal()
     zoomExtentsRequested = qc.pyqtSignal()
     zoomInRequested = qc.pyqtSignal()
@@ -1625,6 +1836,8 @@ class DxfToolbar(qw.QWidget):
             "circle": self.circleRequested,
             "pipe": self.pipeRequested,
             "move": self.moveRequested,
+            "rotate": self.rotateRequested,
+            "scale": self.scaleRequested,
         }
         self._tool_icon_names = {
             "select": "select_tool",
@@ -1634,6 +1847,8 @@ class DxfToolbar(qw.QWidget):
             "circle": "circle_tool",
             "pipe": "pipe_tool",
             "move": "move_tool",
+            "rotate": "rotate_tool",
+            "scale": "scale_tool",
         }
 
         self._add_tool_button(layout, "select", "select_tool", "Select / cancel current tool (Esc)")
@@ -1644,6 +1859,8 @@ class DxfToolbar(qw.QWidget):
         self._add_tool_button(layout, "pipe", "pipe_tool", "Pipe (RURA)")
         layout.addWidget(self._separator())
         self._add_tool_button(layout, "move", "move_tool", "Move selected (M)")
+        self._add_tool_button(layout, "rotate", "rotate_tool", "Rotate selected (RO)")
+        self._add_tool_button(layout, "scale", "scale_tool", "Scale selected (SC)")
         self._erase_btn = self._add_plain_button(layout, "erase_tool", "Erase selected (Del)", self.eraseRequested)
         layout.addWidget(self._separator())
         self._add_plain_button(layout, "zoom_extents_tool", "Zoom Extents (ZOOM E)", self.zoomExtentsRequested)
@@ -1717,6 +1934,8 @@ _TOOL_KEYS = {
     CircleToolSession: "circle",
     PipeToolSession: "pipe",
     MoveToolSession: "move",
+    RotateToolSession: "rotate",
+    ScaleToolSession: "scale",
 }
 
 
@@ -1735,6 +1954,13 @@ class DxfViewer(qw.QWidget):
         self._history: Optional[CommandHistory] = None
         self._active_tool: Optional[ToolSession] = None
         self._selected_handles: List[str] = []
+        # Ctrl+C's remembered selection for a later Ctrl+V — `_clipboard_doc`
+        # is the DXFDocument it was copied from, so a stale clipboard from a
+        # since-replaced document (a new/reloaded drawing) is never pasted
+        # into a different one, where its handles could collide with unrelated
+        # entities — see paste_clipboard.
+        self._clipboard_handles: List[str] = []
+        self._clipboard_doc: Optional[DXFDocument] = None
         # Snapshot of layer names as of the last DXF *import* (load_file) —
         # None for a blank/new drawing, where "prune to core layers" has
         # nothing to work from. Layers created afterward (Add Layer, or by
@@ -1817,6 +2043,8 @@ class DxfViewer(qw.QWidget):
         self._toolbar.pipeRequested.connect(lambda: self._start_draw_tool(PipeToolSession))
         self._toolbar.selectRequested.connect(self.cancel_tool)
         self._toolbar.moveRequested.connect(self.start_move_tool)
+        self._toolbar.rotateRequested.connect(self.start_rotate_tool)
+        self._toolbar.scaleRequested.connect(self.start_scale_tool)
         self._toolbar.eraseRequested.connect(lambda: self._echo(self.delete_selected()))
         self._toolbar.zoomExtentsRequested.connect(self._view.fit_to_scene)
         self._toolbar.zoomInRequested.connect(lambda: self._view.zoom_by(1.25))
@@ -1849,6 +2077,11 @@ class DxfViewer(qw.QWidget):
         )
         self._add_shortcut("Delete", lambda: self._echo(self.delete_selected()))
         self._add_shortcut("Esc", self.cancel_tool)
+        self._add_shortcut("Ctrl+C", lambda: self._echo(self.copy_selected()))
+        self._add_shortcut("Ctrl+V", lambda: self._echo(self.paste_clipboard()))
+        self._add_shortcut("Ctrl+D", lambda: self._echo(self.duplicate_selected()))
+
+        self.ensure_document()
 
     def _add_shortcut(
         self,
@@ -2054,6 +2287,60 @@ class DxfViewer(qw.QWidget):
             self._toolbar.set_active_tool(None)
             return
         self.start_tool(MoveToolSession(list(self._selected_handles)))
+
+    def start_rotate_tool(self) -> None:
+        """Toolbar/command-line entry point for Rotate — same guard as
+        Move: needs an existing selection, never auto-creates a document."""
+        if not self._selected_handles:
+            self._echo("Select objects to rotate first.")
+            self._toolbar.set_active_tool(None)
+            return
+        self.start_tool(RotateToolSession(list(self._selected_handles)))
+
+    def start_scale_tool(self) -> None:
+        """Toolbar/command-line entry point for Scale — same guard as
+        Move/Rotate: needs an existing selection, never auto-creates a
+        document."""
+        if not self._selected_handles:
+            self._echo("Select objects to scale first.")
+            self._toolbar.set_active_tool(None)
+            return
+        self.start_tool(ScaleToolSession(list(self._selected_handles)))
+
+    def copy_selected(self) -> str:
+        """Ctrl+C: remembers the current selection for a later Ctrl+V — a
+        pure UI-level snapshot, no document change and nothing to undo."""
+        if not self._selected_handles:
+            return "Select an object first."
+        self._clipboard_doc = self._doc
+        self._clipboard_handles = list(self._selected_handles)
+        return f"{len(self._clipboard_handles)} object(s) copied."
+
+    def paste_clipboard(self) -> str:
+        """Ctrl+V: pastes whatever Ctrl+C last remembered, offset next to
+        the source (see CadGraphicsView.default_duplicate_offset) — always
+        from the originally-copied entities, so repeated Ctrl+V lands every
+        copy at the same spot rather than cascading further out each time."""
+        if self._clipboard_doc is not self._doc or not self._clipboard_handles:
+            return "Nothing to paste."
+        dx, dy = self._view.default_duplicate_offset()
+        command = DuplicateEntitiesCommand(self._clipboard_handles, dx, dy)
+        self.execute_command(command)
+        self._select_handles(command.new_handles)
+        return f"{len(command.new_handles)} object(s) pasted."
+
+    def duplicate_selected(self) -> str:
+        """Ctrl+D: duplicates the current selection right next to itself
+        (see CadGraphicsView.default_duplicate_offset). The new copies
+        become the selection, so repeated Ctrl+D cascades outward instead
+        of stacking every copy on the same spot."""
+        if not self._selected_handles:
+            return "Select an object first."
+        dx, dy = self._view.default_duplicate_offset()
+        command = DuplicateEntitiesCommand(self._selected_handles, dx, dy)
+        self.execute_command(command)
+        self._select_handles(command.new_handles)
+        return f"{len(command.new_handles)} object(s) duplicated."
 
     def _on_add_layer(self, name: str, rgb: Tuple[int, int, int]) -> None:
         self.ensure_document()
