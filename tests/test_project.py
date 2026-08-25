@@ -1,4 +1,3 @@
-"""Tests for core.project: .gsgproj save/load round-trip and error handling."""
 from __future__ import annotations
 
 import json
@@ -75,7 +74,6 @@ def test_load_non_object_json_raises_project_file_error(tmp_path) -> None:
 
 
 def test_load_fills_in_missing_sections_with_defaults(tmp_path) -> None:
-    # A minimal, hand-written project file - only the file paths given.
     path = tmp_path / "minimal.gsgproj"
     path.write_text(json.dumps({"txt_file_path": "a.txt"}), encoding="utf-8")
     loaded = load_project(str(path))
@@ -86,11 +84,6 @@ def test_load_fills_in_missing_sections_with_defaults(tmp_path) -> None:
 def test_load_rejects_unknown_field_types(tmp_path) -> None:
     path = tmp_path / "bad_field.gsgproj"
     path.write_text(json.dumps({"points": {"font_size": "not-a-number-but-also-not-castable[]"}}), encoding="utf-8")
-    # font_size is stored as a plain string field in the dataclass at
-    # construction time (dataclasses don't validate types), so this only
-    # raises where a genuinely incompatible shape breaks construction -
-    # covered by the malformed/non-object cases above. This case instead
-    # documents that unknown extra keys in a section are rejected.
     path.write_text(json.dumps({"points": {"font_size": 0.6, "bogus_extra_field": 1}}), encoding="utf-8")
     with pytest.raises(ProjectFileError):
         load_project(str(path))
@@ -104,17 +97,12 @@ def test_open_any_loads_a_gsgproj_as_is(tmp_path) -> None:
 
 
 def test_load_reads_pre_multi_select_single_draw_mode(tmp_path) -> None:
-    # Project files saved before multi-select drawing modes stored one mode
-    # as a plain string under "draw_mode" - still readable as a 1-item list.
     path = tmp_path / "legacy.gsgproj"
     path.write_text(json.dumps({"draw_mode": "pipe"}), encoding="utf-8")
     assert load_project(str(path)).draw_modes == ["pipe"]
 
 
 def test_load_reads_pre_multi_layer_single_layer(tmp_path) -> None:
-    # Project files saved before multi-layer support stored one layer as
-    # plain "name"/"rgb" fields under "layer" - still readable as a 1-item
-    # layer list, used as both the only layer and the default.
     path = tmp_path / "legacy_layer.gsgproj"
     path.write_text(json.dumps({"layer": {"name": "RURA", "rgb": [200, 30, 40]}}), encoding="utf-8")
     layer = load_project(str(path)).layer

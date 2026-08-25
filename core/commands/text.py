@@ -1,5 +1,3 @@
-"""TEXT entity property commands — content/height/rotation/color, edited via
-the floating text-options toolbar (see ui/dxf_viewer.py's TextOptionsBar)."""
 from __future__ import annotations
 
 from typing import Optional, Tuple
@@ -53,8 +51,6 @@ class SetTextRotationCommand:
 
 
 class SetEntityColorCommand:
-    """Same idea as `core.commands.layers.SetLayerColorCommand`, but for one
-    entity's own color override rather than a whole layer's."""
 
     def __init__(self, handle: str, rgb: Tuple[int, int, int]) -> None:
         self._handle = handle

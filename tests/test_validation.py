@@ -1,4 +1,3 @@
-"""Tests for core.validation helpers."""
 from __future__ import annotations
 
 import pytest
@@ -14,11 +13,11 @@ def test_ensure_has_data_raises_when_no_points_and_no_file() -> None:
 
 
 def test_ensure_has_data_passes_when_file_selected_even_without_points_yet() -> None:
-    ensure_has_data({}, "some/file.txt")  # should not raise
+    ensure_has_data({}, "some/file.txt")
 
 
 def test_ensure_has_data_passes_when_points_present() -> None:
-    ensure_has_data({1: Point(0, 0, 0)}, "")  # should not raise
+    ensure_has_data({1: Point(0, 0, 0)}, "")
 
 
 def test_resolve_layer_name_defaults_blank_input_to_zero() -> None:

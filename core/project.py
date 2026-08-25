@@ -1,10 +1,3 @@
-"""Project save/load — a .gsgproj file bundles the point file, the DXF file,
-and every option tab's settings into one JSON document, so reopening a
-project puts the app back exactly where it was left off.
-
-Pure serialization, no Qt: ui/main_window.py converts this to/from the
-actual tab widgets, and ui/start_screen.py owns the "recent projects" list.
-"""
 from __future__ import annotations
 
 import json
@@ -23,7 +16,7 @@ DEFAULT_LAYER_RGB: Tuple[int, int, int] = (145, 132, 217)
 
 @dataclass
 class DelimiterState:
-    mode: str = "auto"  # "auto" | "space" | "tab" - see ui.tabs.delimiter_tab
+    mode: str = "auto"
     swap_xy: bool = True
     cabinet_mode: bool = False
 
@@ -33,7 +26,7 @@ class PointsState:
     numbers_enabled: bool = False
     font_size: float = 0.6
     diameter: float = 0.05
-    layer_name: str = ""  # "" means "use Layer's default" - see ui.tabs.layer_tab
+    layer_name: str = ""
 
 
 @dataclass
@@ -59,18 +52,13 @@ class PipeState:
 
 @dataclass
 class LayerOnlyState:
-    """Lines, PLines and 3DPOLY have nothing to configure besides which
-    layer they target — one of these per mode, unlike Points/Heights/Cable
-    Marks/Pipe, which carry real options alongside the same field."""
 
     layer_name: str = ""
 
 
 @dataclass
 class SelectionState:
-    mode: str = "all"  # "all" | "separately" | "range" - see ui.tabs.selection_tab
-    # Last text typed into the "Separately.../In range..." prompt - restored
-    # as that dialog's pre-filled default, not applied silently.
+    mode: str = "all"
     separate_text: str = ""
     range_text: str = ""
 
@@ -83,9 +71,6 @@ class LayerDefState:
 
 @dataclass
 class LayerState:
-    """Several layers can now be defined up front and picked per drawing
-    mode (see ui.tabs.layer_tab) — `default_name` is the fallback for any
-    mode whose own layer_name field is left blank."""
 
     layers: List[LayerDefState] = field(default_factory=lambda: [LayerDefState()])
     default_name: str = "0"
@@ -93,18 +78,11 @@ class LayerState:
 
 @dataclass
 class ProjectState:
-    """Everything needed to restore a working session: the point file and
-    DXF file it used, plus every option tab's settings at the time."""
 
     name: str = "Untitled"
     txt_file_path: str = ""
     dxf_file_path: str = ""
-    # Full snapshot of the DXF's content (see DXFDocument.to_text), not just
-    # a reference to dxf_file_path - otherwise edits never separately saved
-    # to their own .dxf would be lost on reopening the project.
     dxf_content: Optional[str] = None
-    # See ui.tabs.draw_tab's mode keys — multiple modes can be applied
-    # together (e.g. "plines" + "heights" + "cable" in one Apply).
     draw_modes: List[str] = field(default_factory=lambda: ["plines"])
     delimiter: DelimiterState = field(default_factory=DelimiterState)
     points: PointsState = field(default_factory=PointsState)
@@ -143,7 +121,6 @@ def load_project(path: str) -> ProjectState:
         dxf_content = payload.get("dxf_content")
         draw_modes = payload.get("draw_modes")
         if draw_modes is None:
-            # Pre-multi-select project files stored one mode as "draw_mode".
             draw_modes = [payload["draw_mode"]] if "draw_mode" in payload else ["plines"]
         return ProjectState(
             name=str(payload.get("name", "Untitled")),
@@ -169,7 +146,6 @@ def load_project(path: str) -> ProjectState:
 def _load_layer_state(layer_payload: Dict[str, Any]) -> LayerState:
     layers_payload = layer_payload.get("layers")
     if layers_payload is None:
-        # Pre-multi-layer project files stored one layer as "name"/"rgb".
         name = str(layer_payload.get("name", "0"))
         rgb = tuple(layer_payload.get("rgb", DEFAULT_LAYER_RGB))
         return LayerState(layers=[LayerDefState(name=name, rgb=rgb)], default_name=name)
@@ -183,13 +159,6 @@ def _load_layer_state(layer_payload: Dict[str, Any]) -> LayerState:
 
 
 def open_any(path: str) -> ProjectState:
-    """Resolves a .gsgproj, .dxf, or .txt path into a ProjectState ready to
-    load — shared by start_screen's Import… and main_window's File > Open.
-    A bare .dxf/.txt starts a fresh, unsaved project pointed at it.
-
-    Raises `ProjectFileError` for an unsupported extension or a malformed
-    .gsgproj.
-    """
     lower = path.lower()
     if lower.endswith(PROJECT_FILE_EXTENSION):
         return load_project(path)
@@ -204,15 +173,10 @@ def open_any(path: str) -> ProjectState:
 
 
 def project_path_if_saved(path: str) -> Optional[str]:
-    """The `project_path` a caller of `open_any(path)` should track once it
-    succeeds: `path` itself for an actual .gsgproj, None for a bare
-    .dxf/.txt (which isn't a saved project yet)."""
     return path if path.lower().endswith(PROJECT_FILE_EXTENSION) else None
 
 
 def default_project_name(txt_file_path: str, dxf_file_path: str) -> str:
-    """A reasonable project name derived from whichever file is set — used
-    to pre-fill "Save Project As" and as the fallback display name."""
     for path in (dxf_file_path, txt_file_path):
         if path:
             return os.path.splitext(os.path.basename(path))[0]

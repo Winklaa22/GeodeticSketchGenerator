@@ -1,7 +1,3 @@
-"""A minimal options tab for a drawing mode with nothing to configure
-beyond which layer it targets — Lines, PLines, and 3DPOLY all use one of
-these (each its own instance), unlike Points/Heights/Cable Marks/Pipe,
-which have real options alongside their own layer picker."""
 from __future__ import annotations
 
 from typing import Optional, Sequence

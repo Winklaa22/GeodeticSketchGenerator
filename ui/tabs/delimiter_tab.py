@@ -1,4 +1,3 @@
-"""Source & Delimiter accordion section."""
 from __future__ import annotations
 
 from typing import Optional
@@ -52,8 +51,6 @@ class DelimiterTab(QWidget):
 
     @property
     def gap_key(self) -> str:
-        """The plain "auto"/"space"/"tab" key — for project save/load,
-        where `delimiter_mode`'s DelimiterMode enum isn't JSON-friendly."""
         return self.gap_control.current() or "auto"
 
     @property

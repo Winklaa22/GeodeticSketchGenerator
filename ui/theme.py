@@ -1,11 +1,3 @@
-"""Design tokens for the "Nocturne" visual system.
-
-Single source of truth for colors, radius and spacing so every widget and
-the global stylesheet agree. The accent color is used as an outline / dot /
-text color — it is deliberately almost never used as a fill (the one
-sanctioned exception is the soft accent wash behind a selected
-segmented-control / radio-card option).
-"""
 from __future__ import annotations
 
 
@@ -40,7 +32,6 @@ RADIUS_LG = 11
 FONT_FAMILY = "Inter"
 MONO_FONT_FAMILY = "JetBrains Mono"
 
-# Compact spacing scale (0.7x of a conventional 8px-based scale).
 SPACE_XS = 4
 SPACE_SM = 6
 SPACE_MD = 8
@@ -48,7 +39,6 @@ SPACE_LG = 11
 SPACE_XL = 14
 SPACE_XXL = 22
 
-# Compact type scale, matched to the 0.7x spacing scale above.
 TEXT_XS = 10
 TEXT_SM = 11
 TEXT_MD = 12

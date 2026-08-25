@@ -16,7 +16,6 @@ DEFAULT_LAYER_NAME = "0"
 
 
 class HeightsTab(QWidget):
-    """Options for the 'Heights marks' drawing mode."""
 
     option_changed = pyqtSignal()
 
@@ -49,7 +48,6 @@ class HeightsTab(QWidget):
         self.layer_dropdown.set_layer_name(name)
 
     def get_options(self) -> HeightsOptions:
-        """Reads the current widget state into a HeightsOptions value object."""
         font_size = float(self.font_size_input.text() or DEFAULT_FONT_SIZE)
         frequency = int(self.frequency_input.text() or DEFAULT_FREQUENCY)
         return HeightsOptions(font_size=font_size, frequency=frequency)

@@ -1,5 +1,3 @@
-"""Paths to bundled static assets (icons, etc.) — one place so main.py,
-MainWindow, and StartScreen all point at the same file."""
 from __future__ import annotations
 
 import os

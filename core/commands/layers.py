@@ -1,4 +1,3 @@
-"""Layer management commands — section 4 of the DXF edit command spec."""
 from __future__ import annotations
 
 from typing import Iterable, List, Optional, Tuple
@@ -6,15 +5,10 @@ from typing import Iterable, List, Optional, Tuple
 from core.commands.edit import DeleteEntityCommand
 from core.dxf_document import DXFDocument
 
-# Layer-name prefixes a "prune to core layers" action always keeps — this
-# project's real-world DXF exports use these to mark the layers that matter.
 PROTECTED_LAYER_PREFIXES: Tuple[str, ...] = ("994", "211", "219")
 
 
 def layers_to_prune(imported_names: Iterable[str], existing_names: Iterable[str]) -> List[str]:
-    """Layers to delete for "prune to core layers": from `imported_names`
-    (the DXF's layers as loaded, never anything created since), excluding
-    "0", already-gone layers, and anything starting with a protected prefix."""
     existing = set(existing_names)
     return sorted(
         name
@@ -24,8 +18,6 @@ def layers_to_prune(imported_names: Iterable[str], existing_names: Iterable[str]
 
 
 class AddLayerCommand:
-    """Idempotent: a name that already exists is left untouched. Undo only
-    removes the layer if this command actually created it."""
 
     def __init__(self, name: str, rgb: Optional[Tuple[int, int, int]] = None) -> None:
         self._name = name
@@ -83,9 +75,6 @@ class SetActiveLayerCommand:
 
 
 class DeleteLayerCommand:
-    """Deletes a layer *and* everything drawn on it, as one undoable step —
-    per the confirmed policy (layer "0" stays protected, see
-    `DXFDocument.remove_layer`)."""
 
     def __init__(self, name: str) -> None:
         self._name = name

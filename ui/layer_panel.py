@@ -1,12 +1,3 @@
-"""Layers panel — docked to the right of the DXF canvas (see DxfViewer): one
-row per layer with active/select/color/visibility/delete controls, plus an
-"Add layer" affordance at the bottom.
-
-Pure UI: every row action is a signal carrying plain values (str, bool,
-tuple), never a Command or an ezdxf object — DxfViewer turns each one into
-the matching `core.commands.layers` Command and executes it, same pattern
-already used for DxfToolbar.
-"""
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
@@ -17,22 +8,17 @@ from core.dxf_document import LayerInfo
 from ui.icons import icon_manager
 from ui.theme import Color, ICON_SM, SPACE_XS
 
-# Budget left for the name label once the active/swatch/visibility/delete
-# icon-buttons and margins/spacing take their share of the row — long names
-# (common in real-world layer naming, e.g. Polish cadastral exports) get
-# elided rather than forcing the whole panel to scroll horizontally.
 _NAME_MAX_WIDTH = 220
 
-# Cycled through for a new layer's default color, in the order layers are added.
 _AUTO_PALETTE: List[Tuple[int, int, int]] = [
-    (145, 132, 217),  # accent purple
-    (127, 207, 158),  # green
-    (229, 130, 138),  # red
-    (232, 181, 104),  # amber
-    (110, 180, 219),  # blue
-    (216, 143, 209),  # pink
-    (163, 201, 105),  # lime
-    (219, 158, 94),  # orange
+    (145, 132, 217),
+    (127, 207, 158),
+    (229, 130, 138),
+    (232, 181, 104),
+    (110, 180, 219),
+    (216, 143, 209),
+    (163, 201, 105),
+    (219, 158, 94),
 ]
 
 
@@ -41,8 +27,6 @@ def _next_color(existing_count: int) -> Tuple[int, int, int]:
 
 
 class _LayerRow(qw.QFrame):
-    """One layer's controls: active indicator, name (+ entity count), color
-    swatch, visibility checkbox, delete button."""
 
     activateRequested = qc.pyqtSignal(str)
     selectRequested = qc.pyqtSignal(str)
@@ -111,7 +95,7 @@ class _LayerRow(qw.QFrame):
         initial = qg.QColor(*current_rgb)
         dialog = qw.QColorDialog(initial, self)
         dialog.setWindowTitle("Layer Color")
-        dialog.setStyleSheet("")  # don't inherit any row/swatch background color - see ColorSwatchButton
+        dialog.setStyleSheet("")
         if dialog.exec() == qw.QColorDialog.DialogCode.Accepted:
             color = dialog.selectedColor()
             if color.isValid():
@@ -119,10 +103,6 @@ class _LayerRow(qw.QFrame):
 
 
 class LayerPanel(qw.QWidget):
-    """Slim vertical list of layer rows. `refresh()` rebuilds it from a
-    fresh `DXFDocument.iter_layers()` snapshot every time the document
-    changes — cheap enough (a handful of rows) not to need incremental
-    diffing, same "full rebuild" approach the canvas render already uses."""
 
     addLayerRequested = qc.pyqtSignal(str, tuple)
     deleteLayerRequested = qc.pyqtSignal(str)
@@ -185,11 +165,6 @@ class LayerPanel(qw.QWidget):
         self._layer_count = 0
 
     def refresh(self, layers: List[LayerInfo]) -> None:
-        # Orphan old rows immediately (setParent(None)) rather than
-        # deleteLater(): refresh() can run several times back-to-back within
-        # one Python call (e.g. a composite command), with no event-loop
-        # turn in between to process a deferred deletion — deleteLater()
-        # left stale rows around long enough in that case to crash.
         while self._rows_layout.count():
             item = self._rows_layout.takeAt(0)
             widget = item.widget()
@@ -218,8 +193,6 @@ class LayerPanel(qw.QWidget):
         self.pruneLayersRequested.emit()
 
     def set_prune_available(self, available: bool) -> None:
-        """Enabled only once a DXF has actually been imported — there's no
-        "imported layers" snapshot to prune against in a blank drawing."""
         self._prune_btn.setEnabled(available)
         self._set_prune_tooltip(available)
 

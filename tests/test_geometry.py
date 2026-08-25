@@ -1,4 +1,3 @@
-"""Tests for core.geometry direction/angle helpers."""
 from __future__ import annotations
 
 import math
@@ -23,7 +22,6 @@ def test_compute_direction_angle_returns_zero_for_coincident_points() -> None:
 
 
 def test_compute_direction_angle_flips_leftward_angles() -> None:
-    # Straight left (180 degrees) should flip to 0.
     angle = compute_direction_angle(Point(0, 0, 0), Point(-1, 0, 0))
     assert angle == 0.0
 
@@ -59,9 +57,6 @@ def test_offset_segment_perpendicular_flips_side_for_negative_offset() -> None:
 
 def test_offset_segment_perpendicular_stays_perpendicular_for_a_diagonal_segment() -> None:
     start, end = offset_segment_perpendicular(Point(0, 0, 0), Point(3, 4, 0), offset=5.0)
-    # The shift itself (end - original end, same as start's) must be
-    # perpendicular to the segment's own direction (dot product == 0) and
-    # have exactly the requested length.
     shift = (end.x - 3, end.y - 4)
     assert math.isclose(shift[0] * 3 + shift[1] * 4, 0.0, abs_tol=1e-9)
     assert math.isclose(math.hypot(*shift), 5.0)

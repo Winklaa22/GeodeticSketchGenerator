@@ -1,10 +1,3 @@
-"""Application-wide Qt stylesheet for the "Nocturne" visual system.
-
-Built from the tokens in ui/theme.py so every widget agrees on color, radius
-and spacing. The accent color is used as an outline / dot / text color and,
-deliberately, almost never as a fill — the sanctioned exception is the soft
-accent wash behind a selected segmented-control / radio-card option.
-"""
 from __future__ import annotations
 
 from ui.theme import (

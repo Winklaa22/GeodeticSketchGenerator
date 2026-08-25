@@ -1,14 +1,3 @@
-"""Composite "draw mode" commands — the direct-to-DXF replacement for the
-app's original six .scr script-generation strategies. Each builder takes the
-parsed survey points, the selected point numbers, and the same
-`GenerationConfig` the option tabs already build, and returns one
-`CompositeCommand` ready to run through `CommandHistory` — so one button
-press is one undo step, no matter how many entities it creates.
-
-The per-point offset/direction/quadrant math is unchanged from the original
-strategies and still lives in `core/geometry.py`; only the *output* changed —
-from formatted .scr text lines to real DXF entities via `core/commands/draw.py`.
-"""
 from __future__ import annotations
 
 import math
@@ -42,10 +31,6 @@ CABINET_LABEL_COUNT = 6
 def build_points_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """One CIRCLE at each selected point, with an optional number-label TEXT
-    offset away from the point's direction of travel so the label doesn't
-    overlap the line. In "cabinet mode", the last 6 selected labels are
-    drawn smaller and without an offset."""
     options = config.points
     radius = max(options.diameter / 2.0, 0.0)
     cabinet_targets = _cabinet_targets(selected_numbers, config.cabinet_mode)
@@ -95,9 +80,6 @@ def _points_label_offset(angle_deg: float, font_size: float) -> Tuple[float, flo
 def build_lines_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """A chain of LINE entities through consecutive selected points, plus
-    any skrzynka/wcinka shape along the way as its own LINE entities (see
-    core.patterns)."""
     routed = route_selected_points(points, selected_numbers)
     commands = [
         AddLineCommand((a.x, a.y, a.h), (b.x, b.y, b.h), layer) for a, b in zip(routed.main, routed.main[1:])
@@ -132,9 +114,6 @@ def _wedge_line_commands(wedges: List[Tuple[Point, Point, Point]], layer: str) -
 def build_pipe_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """Two parallel LINE entities per segment, straddling the routed cable
-    path by config.pipe.width/2 on each side — a protective casing pipe
-    (RURA OSŁONOWA) drawn alongside the cable run."""
     half_width = max(config.pipe.width, 0.0) / 2.0
     main = route_selected_points(points, selected_numbers).main
     commands = []
@@ -148,9 +127,6 @@ def build_pipe_command(
 def build_plines_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """A single 2D LWPOLYLINE through the selected points (XY only). Any
-    skrzynka is its own separate closed LWPOLYLINE; any wcinka is two open
-    stub LINEs off its entry point (see core.patterns)."""
     routed = route_selected_points(points, selected_numbers)
     commands = [AddPolyline2DCommand([(p.x, p.y) for p in routed.main], layer)]
     commands.extend(
@@ -163,9 +139,6 @@ def build_plines_command(
 def build_poly3d_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """A single 3D POLYLINE through the selected points (X, Y, height). Any
-    skrzynka is its own separate closed 3D POLYLINE; any wcinka is two open
-    stub LINEs off its entry point (see core.patterns)."""
     routed = route_selected_points(points, selected_numbers)
     commands = [AddPolyline3DCommand([(p.x, p.y, p.h) for p in routed.main], layer)]
     commands.extend(
@@ -178,9 +151,6 @@ def build_poly3d_command(
 def build_heights_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """A TEXT label with the rounded-up height value at every Nth selected
-    point (N = config.heights.frequency), offset away from the point's
-    direction of travel."""
     options = config.heights
     commands = []
     for direction in iter_point_directions(points, selected_numbers):
@@ -196,10 +166,6 @@ def build_heights_command(
 
 
 def _direction_label_offset(angle_deg: float, font_size: float) -> Tuple[float, float]:
-    """A small offset away from a point's own direction of travel, so a
-    TEXT label placed there doesn't sit right on top of the point/line —
-    shared by Heights marks and Cable marks (both are plain per-point text,
-    nothing else)."""
     half = font_size / 2.0
     offsets = {
         AngleQuadrant.NORTH_EAST: (half, 0.5),
@@ -213,11 +179,6 @@ def _direction_label_offset(angle_deg: float, font_size: float) -> Tuple[float, 
 def build_cable_marks_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """A TEXT label (config.cable.marks_text) at the midpoint of the routed
-    cable's centre segment (see core.patterns for skrzynka-skipping), then
-    fanning outward every Nth segment (config.cable.frequency) — same
-    placement as before, just text, with no connecting/gapped lines drawn
-    for it (draw a Lines/PLines/3DPOLY mode alongside this one for those)."""
     options = config.cable
     routed = route_selected_points(points, selected_numbers)
     segments = list(zip(routed.main, routed.main[1:]))
@@ -226,9 +187,6 @@ def build_cable_marks_command(
 
 
 def _cable_mark_indices(segment_count: int, frequency: int) -> List[int]:
-    """Segment indices to mark: the centre segment first, then alternating
-    outward by `frequency` segments at a time until both directions run out
-    of bounds."""
     step = max(1, frequency)
     center = (segment_count - 1) // 2
     indices = {center}
@@ -283,7 +241,6 @@ _BUILDERS: Dict[DrawMode, SurveyBuilder] = {
 
 
 def get_survey_builder(draw_mode: DrawMode) -> SurveyBuilder:
-    """Resolves the draw-mode builder registered for `draw_mode`."""
     try:
         return _BUILDERS[draw_mode]
     except KeyError as exc:

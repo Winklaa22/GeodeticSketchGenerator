@@ -1,8 +1,3 @@
-"""Startup screen — an AutoCAD-style project launcher shown before the main
-editor: pick a recent project to reopen (restoring every tab's settings,
-not just the files — see core/project.py), start a blank one, or import an
-existing project/DXF/TXT file that isn't in the recent list yet.
-"""
 from __future__ import annotations
 
 import os
@@ -55,8 +50,6 @@ def _format_last_opened(mtime: float) -> str:
 
 
 class StartScreen(QMainWindow):
-    """New Project / Import… in a sidebar, a "Recent" table of previously
-    saved .gsgproj files in the main area — mirrors AutoCAD's own launcher."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -65,8 +58,6 @@ class StartScreen(QMainWindow):
         self.resize(1000, 620)
         self.setMinimumSize(760, 480)
         self.settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
-        # Kept alive here once launched so Qt doesn't garbage-collect it —
-        # see _launch_editor.
         self._main_window: Optional[QMainWindow] = None
 
         central = QWidget()
@@ -81,9 +72,6 @@ class StartScreen(QMainWindow):
         self.setStyleSheet(APP_STYLESHEET)
         self._refresh_table()
 
-    # ------------------------------------------------------------------
-    # BUILD
-    # ------------------------------------------------------------------
     def _build_sidebar(self) -> QWidget:
         sidebar = QWidget()
         sidebar.setObjectName("startSidebar")
@@ -169,9 +157,6 @@ class StartScreen(QMainWindow):
         btn.clicked.connect(slot)
         return btn
 
-    # ------------------------------------------------------------------
-    # TABLE
-    # ------------------------------------------------------------------
     def _refresh_table(self) -> None:
         paths = list_recent_projects(self.settings)
         self.table.setRowCount(len(paths))
@@ -208,9 +193,6 @@ class StartScreen(QMainWindow):
         item = self.table.item(row, 0)
         return item.data(_PATH_ROLE) if item is not None else None
 
-    # ------------------------------------------------------------------
-    # ACTIONS
-    # ------------------------------------------------------------------
     def _on_new_project(self) -> None:
         self._launch_editor(initial_state=None, project_path=None)
 
@@ -246,7 +228,7 @@ class StartScreen(QMainWindow):
         self._refresh_table()
 
     def _launch_editor(self, initial_state: Optional[ProjectState], project_path: Optional[str]) -> None:
-        from ui.main_window import MainWindow  # local import: main_window imports StartScreen itself
+        from ui.main_window import MainWindow
 
         self._main_window = MainWindow(initial_state=initial_state, project_path=project_path)
         self._main_window.show()

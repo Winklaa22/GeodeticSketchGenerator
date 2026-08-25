@@ -1,4 +1,3 @@
-"""Cable-marks drawing-mode options accordion section."""
 from __future__ import annotations
 
 from typing import Optional, Sequence
@@ -17,7 +16,6 @@ DEFAULT_LAYER_NAME = "0"
 
 
 class CableTab(QWidget):
-    """Options for the 'Cable marks' drawing mode."""
 
     option_changed = pyqtSignal()
 
@@ -54,7 +52,6 @@ class CableTab(QWidget):
         self.layer_dropdown.set_layer_name(name)
 
     def get_options(self) -> CableOptions:
-        """Reads the current widget state into a CableOptions value object."""
         font_size = float(self.font_size_input.text() or DEFAULT_FONT_SIZE)
         frequency = int(self.frequency_input.text() or DEFAULT_FREQUENCY)
         marks_text = self.marks_text_input.text() or DEFAULT_MARKS_TEXT

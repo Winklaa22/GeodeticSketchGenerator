@@ -1,27 +1,3 @@
-"""Graphical, editable DXF preview panel — renders a DXF drawing the way
-AutoCAD's model space does: true layer colors, dashed/dotted linetypes,
-filled text, on a dark canvas, with mouse-wheel zoom and click-drag pan —
-plus an AutoCAD-style command line for drawing/editing (POINT/LINE/CIRCLE,
-ERASE, UNDO/REDO) and view control (ZOOM/PAN/REGEN).
-
-Rendering is delegated to ezdxf's drawing add-on (``Frontend`` +
-``RenderContext``), which already resolves layers, blocks, linetypes and
-color-by-layer/color-by-block correctly. The only piece implemented here is
-the *backend* that turns ezdxf's resolved drawing primitives into
-``QGraphicsScene`` items.
-
-ezdxf ships a ready-made PyQt backend (``ezdxf.addons.drawing.pyqt``), but it
-is hard-wired through ``ezdxf.addons.xqt`` to PySide6 (falling back to
-PyQt5) — this project uses PyQt6 exclusively, and mixing Qt bindings in one
-process is not viable. ``QtSceneBackend`` below is a PyQt6 port of that same
-backend (same drawing calls, same cosmetic-pen approach), so behaviour and
-fidelity match the upstream implementation.
-
-Editing goes exclusively through ``core.dxf_document.DXFDocument`` and
-``core.commands.*`` — this module never mutates an ezdxf entity directly, it
-only calls document/command methods and re-renders. That keeps undo/redo
-correct and keeps ezdxf's entity-lifecycle rules in one place (core/).
-"""
 from __future__ import annotations
 
 import math
@@ -71,23 +47,14 @@ from ui.widgets import ColorSwatchButton, decimal_validator
 
 _HANDLE_ROLE = qc.Qt.ItemDataRole.UserRole
 _CLICK_THRESHOLD_PX = 4
-_SNAP_TOLERANCE_PX = 14  # "aim assist" radius for snapping to an existing POINT or LINE endpoint
+_SNAP_TOLERANCE_PX = 14
 
 
 def _x_scale(transform: qg.QTransform) -> float:
-    """The transform's scale factor along x — used to keep 'cosmetic' items
-    (points) a constant size on screen regardless of the current zoom."""
     return math.sqrt(transform.m11() * transform.m11() + transform.m21() * transform.m21())
 
 
 def _to_qpainter_path(paths: Iterable[BkPath2d]) -> qg.QPainterPath:
-    """Builds a single QPainterPath from one or more ezdxf BkPath2d paths.
-
-    ezdxf ships this exact conversion as ``ezdxf.npshapes.to_qpainter_path``,
-    but that helper imports its Qt types from ``ezdxf.addons.xqt``, which only
-    recognizes PySide6/PyQt5 — not the PyQt6 this project uses. This is the
-    same algorithm, built on PyQt6's own QPainterPath instead.
-    """
     qpath = qg.QPainterPath()
     for path in paths:
         points = [qc.QPointF(v.x, v.y) for v in path.vertices()]
@@ -110,7 +77,6 @@ def _to_qpainter_path(paths: Iterable[BkPath2d]) -> qg.QPainterPath:
 
 
 class _PointItem(qw.QAbstractGraphicsShapeItem):
-    """A dimensionless DXF POINT, drawn as a small dot of constant pixel size."""
 
     def __init__(self, x: float, y: float, brush: qg.QBrush) -> None:
         super().__init__()
@@ -148,12 +114,6 @@ def _distance_to_segment(point: qc.QPointF, line: qc.QLineF) -> float:
 
 
 def _distance_to_item(point: qc.QPointF, item: qw.QGraphicsItem) -> float:
-    """Distance from `point` (scene coords) to an item's true reference
-    geometry — used to pick the closest match among several overlapping
-    candidates instead of trusting each item's own shape()/boundingRect(),
-    which can be inflated well beyond what it actually looks like on screen
-    (see _PointItem.boundingRect above; QGraphicsLineItem has the same
-    issue via its cosmetic pen's width)."""
     if isinstance(item, _PointItem):
         return math.hypot(point.x() - item._pos.x(), point.y() - item._pos.y())
     if isinstance(item, qw.QGraphicsLineItem):
@@ -163,9 +123,6 @@ def _distance_to_item(point: qc.QPointF, item: qw.QGraphicsItem) -> float:
 
 
 def _snap_candidates(item: qw.QGraphicsItem) -> Tuple[qc.QPointF, ...]:
-    """The exact scene points a draw tool's "aim assist" may snap to for
-    `item`: a POINT's own position, or a LINE's two endpoints — the same
-    entities/coordinates AutoCAD's ENDPOINT/NODE object snaps target."""
     if isinstance(item, _PointItem):
         return (item._pos,)
     if isinstance(item, qw.QGraphicsLineItem):
@@ -175,7 +132,6 @@ def _snap_candidates(item: qw.QGraphicsItem) -> Tuple[qc.QPointF, ...]:
 
 
 class QtSceneBackend(Backend):
-    """Turns ezdxf's resolved drawing primitives into QGraphicsScene items."""
 
     def __init__(self, scene: qw.QGraphicsScene) -> None:
         super().__init__()
@@ -190,8 +146,6 @@ class QtSceneBackend(Backend):
         super().configure(config)
 
     def _add(self, item: qw.QGraphicsItem, handle: str) -> None:
-        # Tag every item with its DXF entity handle so a canvas click can be
-        # mapped back to a real entity — see CadGraphicsView's hit-testing.
         item.setData(_HANDLE_ROLE, handle)
         self._scene.addItem(item)
 
@@ -200,16 +154,15 @@ class QtSceneBackend(Backend):
         if cached is not None:
             return cached
         if len(color) == 7:
-            qcolor = qg.QColor(color)  # '#RRGGBB'
+            qcolor = qg.QColor(color)
         elif len(color) == 9:
-            qcolor = qg.QColor(f"#{color[7:9]}{color[1:7]}")  # '#AARRGGBB'
+            qcolor = qg.QColor(f"#{color[7:9]}{color[1:7]}")
         else:
             raise ValueError(f"unsupported color format: {color!r}")
         self._color_cache[color] = qcolor
         return qcolor
 
     def _pen(self, properties: BackendProperties) -> qg.QPen:
-        """A cosmetic pen (constant width in pixels, independent of zoom)."""
         px = properties.lineweight / 0.3527 * self.config.lineweight_scaling
         pen = qg.QPen(self._qcolor(properties.color), px)
         pen.setCosmetic(True)
@@ -274,8 +227,6 @@ class QtSceneBackend(Backend):
         self._add(item, properties.handle)
 
     def draw_image(self, image_data: ImageData, properties: BackendProperties) -> None:
-        # Raster IMAGE/WIPEOUT entities are rare in survey/point DXFs and are
-        # skipped rather than decoded — everything else still renders.
         return
 
     def clear(self) -> None:
@@ -287,22 +238,15 @@ class QtSceneBackend(Backend):
 
 
 class CadGraphicsView(qw.QGraphicsView):
-    """Pannable, zoomable, editable canvas mirroring AutoCAD's viewport:
-    scroll wheel zooms under the cursor, middle-button-drag pans, left-click
-    selects an entity (Shift+click adds/removes), left-drag on empty space
-    opens a window-select box, and the same operations are exposed as plain
-    methods so the command line (ZOOM, PAN, POINT, LINE, ...) can drive the
-    view too.
-    """
 
-    entitySelected = qc.pyqtSignal(list)  # list[str] of handles, [] for "nothing selected"
+    entitySelected = qc.pyqtSignal(list)
     toolPointPlaced = qc.pyqtSignal()
-    itemsDragMoved = qc.pyqtSignal(list, float, float)  # handles, dx, dy — see _finish_drag_items
-    viewportChanged = qc.pyqtSignal()  # transform or scroll position changed — see TextOptionsBar
+    itemsDragMoved = qc.pyqtSignal(list, float, float)
+    viewportChanged = qc.pyqtSignal()
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
-        self._base_scale = 1.0  # x_scale() right after the last fit_to_scene — the "1.0x" reference
+        self._base_scale = 1.0
         self._min_zoom = 0.02
         self._max_zoom = 200.0
         self._zoom_step = 0.2
@@ -313,22 +257,15 @@ class CadGraphicsView(qw.QGraphicsView):
         self._rubber_band: Optional[qw.QRubberBand] = None
         self._snap_indicator: Optional[qc.QPointF] = None
         self._doc: Optional[DXFDocument] = None
-        # Click-and-drag move (no tool active, press starts on an entity) —
-        # see mousePressEvent/_ensure_dragging_items/_finish_drag_items.
         self._drag_candidate: Optional[qw.QGraphicsItem] = None
         self._dragging_items = False
         self._drag_items: List[qw.QGraphicsItem] = []
         self._drag_start_scene: Optional[qc.QPointF] = None
 
         self.setObjectName("dxfCanvas")
-        # So DxfViewer._finish_tool can return focus here (away from the
-        # command line) once a tool session ends — see setFocus() there.
         self.setFocusPolicy(qc.Qt.FocusPolicy.StrongFocus)
         self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(qw.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        # Panning is handled manually via the middle mouse button (see
-        # mouse*Event below) so the left button is free for click/window
-        # select — NoDrag stays in effect the whole time, tool or not.
         self.setDragMode(qw.QGraphicsView.DragMode.NoDrag)
         self.setVerticalScrollBarPolicy(qc.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(qc.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -339,13 +276,12 @@ class CadGraphicsView(qw.QGraphicsView):
             | qg.QPainter.RenderHint.SmoothPixmapTransform
         )
         self.setScene(qw.QGraphicsScene(self))
-        self.scale(1, -1)  # DXF space is Y-up; Qt's scene is Y-down.
+        self.scale(1, -1)
 
     def _current_zoom(self) -> float:
         return _x_scale(self.transform()) / (self._base_scale or 1.0)
 
     def fit_to_scene(self) -> None:
-        """AutoCAD's ZOOM EXTENTS: frames every entity, becomes the new 1.0x."""
         rect = self.scene().itemsBoundingRect()
         if rect.isEmpty():
             return
@@ -357,8 +293,6 @@ class CadGraphicsView(qw.QGraphicsView):
         self.viewportChanged.emit()
 
     def zoom_by(self, factor: float) -> bool:
-        """Scales the view by `factor` around its center. Returns False (and
-        does nothing) if that would exceed the zoom limits."""
         if factor <= 0:
             return False
         resulting_zoom = self._current_zoom() * factor
@@ -369,7 +303,6 @@ class CadGraphicsView(qw.QGraphicsView):
         return True
 
     def zoom_window(self, p1: Tuple[float, float], p2: Tuple[float, float]) -> bool:
-        """AutoCAD's ZOOM WINDOW: frames the box between two scene points."""
         rect = qc.QRectF(qc.QPointF(*p1), qc.QPointF(*p2)).normalized()
         if rect.width() <= 0 or rect.height() <= 0:
             return False
@@ -377,18 +310,11 @@ class CadGraphicsView(qw.QGraphicsView):
         return True
 
     def pan_by(self, dx: float, dy: float) -> None:
-        """Recenters the view `dx, dy` scene units away — same units as the
-        drawing itself, so PAN 10,0 always moves by 10 drawing units."""
         center = self.mapToScene(self.viewport().rect().center())
         self.centerOn(center.x() + dx, center.y() + dy)
         self.viewportChanged.emit()
 
     def default_duplicate_offset(self) -> Tuple[float, float]:
-        """A small (dx, dy), in scene/drawing units, to place a duplicated
-        or pasted copy next to its source rather than exactly on top of it
-        — sized as a fraction of what's currently visible so it looks right
-        regardless of the drawing's real-world scale or the current zoom
-        level, unlike a fixed drawing-unit offset would."""
         visible = self.mapToScene(self.viewport().rect()).boundingRect()
         step = max(visible.width(), visible.height()) * 0.03
         if step <= 0:
@@ -396,8 +322,6 @@ class CadGraphicsView(qw.QGraphicsView):
         return step, step
 
     def save_view(self) -> Tuple[qg.QTransform, int, int]:
-        """Captures the current transform + scroll position, so a full scene
-        rebuild (after an edit) can put the user back where they were."""
         return self.transform(), self.horizontalScrollBar().value(), self.verticalScrollBar().value()
 
     def restore_view(self, saved: Tuple[qg.QTransform, int, int]) -> None:
@@ -407,48 +331,29 @@ class CadGraphicsView(qw.QGraphicsView):
         self.verticalScrollBar().setValue(v_value)
         self.viewportChanged.emit()
 
-    def resizeEvent(self, event: qg.QResizeEvent) -> None:  # noqa: N802
+    def resizeEvent(self, event: qg.QResizeEvent) -> None:
         super().resizeEvent(event)
         self.viewportChanged.emit()
 
-    def wheelEvent(self, event: qg.QWheelEvent) -> None:  # noqa: N802 (Qt override)
+    def wheelEvent(self, event: qg.QWheelEvent) -> None:
         notches = event.angleDelta().y() / 120
         if notches == 0:
             return
         factor = (1.0 + self._zoom_step) ** notches
         self.zoom_by(factor)
 
-    # ------------------------------------------------------------------
-    # Editing: tool mode + click/window-select + middle-button pan
-    # ------------------------------------------------------------------
     def set_tool(self, tool: Optional["ToolSession"]) -> None:
-        """Activates (or, with None, deactivates) an interactive draw tool.
-        While a tool is active, clicks place points instead of selecting."""
         self._tool = tool
         self.setCursor(qc.Qt.CursorShape.CrossCursor if tool is not None else qc.Qt.CursorShape.ArrowCursor)
         if tool is None:
             self._set_snap_indicator(None)
 
     def set_document(self, doc: Optional[DXFDocument]) -> None:
-        """Keeps the aim-assist snap in sync with the live document — needed
-        to resolve a CIRCLE item's true center (see `_snap_candidates_for`),
-        which isn't recoverable from its rendered Qt geometry alone."""
         self._doc = doc
 
     def _snap_candidates_for(
         self, item: qw.QGraphicsItem, raw_scene_point: qc.QPointF
     ) -> Tuple[Tuple[qc.QPointF, qc.QPointF], ...]:
-        """The (hover_point, snap_point) pairs a draw tool's "aim assist" may
-        offer for `item`: `hover_point` is compared against the cursor to
-        decide whether this candidate is close enough to trigger at all;
-        `snap_point` is the exact coordinate the cursor then locks onto.
-
-        For a POINT or a LINE endpoint these are the same spot — you hover
-        the exact feature. For a CIRCLE (survey points are drawn as small
-        circles — see core.commands.survey.build_points_command) they
-        differ: what you actually see and naturally hover is the visible
-        ring, not its centre, but the snap should still lock onto the
-        centre — same as AutoCAD's CENTER object snap."""
         plain = _snap_candidates(item)
         if plain:
             return tuple((point, point) for point in plain)
@@ -472,12 +377,6 @@ class CadGraphicsView(qw.QGraphicsView):
         return ((hover_point, center_point),)
 
     def _snap_point(self, view_pos: qc.QPoint, raw_scene_point: qc.QPointF) -> Tuple[qc.QPointF, bool]:
-        """"Aim assist": if an existing POINT, LINE endpoint, or CIRCLE is
-        within `_SNAP_TOLERANCE_PX` screen pixels of `view_pos`, snaps to
-        its exact coordinate (a CIRCLE's true centre, even though what's in
-        reach of the cursor is its rendered ring) — same idea as AutoCAD's
-        ENDPOINT/NODE/CENTER object snap. Returns (point_to_use, whether it
-        was actually snapped)."""
         rect = qc.QRect(
             view_pos.x() - _SNAP_TOLERANCE_PX,
             view_pos.y() - _SNAP_TOLERANCE_PX,
@@ -488,7 +387,7 @@ class CadGraphicsView(qw.QGraphicsView):
         best_distance = float(_SNAP_TOLERANCE_PX)
         for item in self.items(rect):
             if item.data(_HANDLE_ROLE) is None:
-                continue  # preview/marker items aren't real entities - never snap to them
+                continue
             for hover_point, snap_point in self._snap_candidates_for(item, raw_scene_point):
                 device_point = self.mapFromScene(hover_point)
                 distance = math.hypot(device_point.x() - view_pos.x(), device_point.y() - view_pos.y())
@@ -500,19 +399,12 @@ class CadGraphicsView(qw.QGraphicsView):
         return raw_scene_point, False
 
     def _set_snap_indicator(self, point: Optional[qc.QPointF]) -> None:
-        # Painted in drawForeground (see below) rather than kept as a real
-        # QGraphicsItem in the scene: a document edit swaps in a whole new
-        # QGraphicsScene on every change (see DxfViewer._render), and an
-        # item recreated/re-added to a scene right after such a swap has
-        # caused a hard crash here — the same risk-free approach the
-        # selection highlight below already uses.
         if self._snap_indicator == point:
             return
         self._snap_indicator = point
         self.viewport().update()
 
     def set_selected_item(self, item: Optional[qw.QGraphicsItem]) -> None:
-        """Convenience for a single-item (or empty) selection."""
         self.set_selected_items([item] if item is not None else [])
 
     def set_selected_items(self, items: List[qw.QGraphicsItem]) -> None:
@@ -532,7 +424,7 @@ class CadGraphicsView(qw.QGraphicsView):
         handles = [item.data(_HANDLE_ROLE) for item in self._selected_items]
         self.entitySelected.emit(handles)
 
-    def mousePressEvent(self, event: qg.QMouseEvent) -> None:  # noqa: N802
+    def mousePressEvent(self, event: qg.QMouseEvent) -> None:
         if event.button() == qc.Qt.MouseButton.MiddleButton:
             self._pan_last_pos = event.position().toPoint()
             self.setCursor(qc.Qt.CursorShape.ClosedHandCursor)
@@ -540,19 +432,11 @@ class CadGraphicsView(qw.QGraphicsView):
         self._press_pos = event.position().toPoint()
         self._drag_candidate = None
         if self._tool is None and event.button() == qc.Qt.MouseButton.LeftButton:
-            # Remembered so a later drag (see mouseMoveEvent) can move
-            # whatever was actually pressed on, without re-hit-testing at a
-            # possibly-different position once the drag is under way.
             self._drag_candidate = self._topmost_handled_item(self._press_pos)
         super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event: qg.QMouseEvent) -> None:  # noqa: N802
+    def mouseMoveEvent(self, event: qg.QMouseEvent) -> None:
         if self._pan_last_pos is not None:
-            # Reuses pan_by()/centerOn() (scene-space, same as the PAN
-            # command) rather than nudging scrollbar values directly —
-            # scrollbars have no range to move within right after
-            # fit_to_scene() sets a tightly-fit sceneRect, which would make
-            # a raw scrollbar-based drag silently do nothing at that zoom.
             pos = event.position().toPoint()
             old_scene = self.mapToScene(self._pan_last_pos)
             new_scene = self.mapToScene(pos)
@@ -577,11 +461,6 @@ class CadGraphicsView(qw.QGraphicsView):
                 self._update_rubber_band(view_pos)
 
     def _ensure_dragging_items(self, view_pos: qc.QPoint) -> None:
-        """Live-previews a click-and-drag move: the first call (once the
-        drag clears the click threshold) picks which items follow the
-        cursor — the whole current selection if the press landed on a
-        member of it, otherwise just the pressed item, which also becomes
-        the new selection (matching AutoCAD's press-and-drag-to-move)."""
         if not self._dragging_items:
             self._dragging_items = True
             if self._drag_candidate in self._selected_items:
@@ -598,7 +477,7 @@ class CadGraphicsView(qw.QGraphicsView):
         for item in self._drag_items:
             item.setPos(dx, dy)
 
-    def mouseReleaseEvent(self, event: qg.QMouseEvent) -> None:  # noqa: N802
+    def mouseReleaseEvent(self, event: qg.QMouseEvent) -> None:
         if event.button() == qc.Qt.MouseButton.MiddleButton:
             self._pan_last_pos = None
             self.setCursor(qc.Qt.CursorShape.CrossCursor if self._tool is not None else qc.Qt.CursorShape.ArrowCursor)
@@ -610,10 +489,6 @@ class CadGraphicsView(qw.QGraphicsView):
         release_pos = event.position().toPoint()
         self._press_pos = None
         if self._tool is not None:
-            # A tool is active: no drag/pan is possible here (DragMode is
-            # always NoDrag), so every release places a point — no distance
-            # check, which is exactly what previously discarded a slightly
-            # unsteady click while drawing as "a pan drag, not a click".
             raw_point = self.mapToScene(release_pos)
             scene_point, _ = self._snap_point(release_pos, raw_point)
             self._tool.on_click((scene_point.x(), scene_point.y()))
@@ -641,9 +516,6 @@ class CadGraphicsView(qw.QGraphicsView):
         dy = current_scene.y() - self._drag_start_scene.y()
         handles = [item.data(_HANDLE_ROLE) for item in self._drag_items]
         for item in self._drag_items:
-            # The real move is committed as a Command below and applied via
-            # a full re-render — this per-item offset was only ever a live
-            # preview, so it's undone rather than left to fight the redraw.
             item.setPos(0, 0)
         self._dragging_items = False
         self._drag_items = []
@@ -679,14 +551,6 @@ class CadGraphicsView(qw.QGraphicsView):
         return [item for item in self.items(rect) if item.data(_HANDLE_ROLE) is not None]
 
     def _topmost_handled_item(self, view_pos: qc.QPoint) -> Optional[qw.QGraphicsItem]:
-        # A few-pixel tolerance box, in device space, so it stays easy to hit
-        # a POINT or a thin line regardless of the current zoom level. Among
-        # everything the box overlaps, picks whichever is *actually closest*
-        # to the click — not just whichever Qt's z-order-based items()
-        # happens to return first. A line's own shape() is inflated by its
-        # (cosmetic, i.e. meant to be device-pixel) pen width applied as
-        # scene units, so without this an inflated-but-farther item could
-        # permanently shadow a genuinely closer one every time they overlap.
         tolerance = 4
         rect = qc.QRect(view_pos.x() - tolerance, view_pos.y() - tolerance, tolerance * 2, tolerance * 2)
         click_scene = self.mapToScene(view_pos)
@@ -701,17 +565,13 @@ class CadGraphicsView(qw.QGraphicsView):
                 best_item = item
         return best_item
 
-    def drawForeground(self, painter: qg.QPainter, rect: qc.QRectF) -> None:  # noqa: N802
+    def drawForeground(self, painter: qg.QPainter, rect: qc.QRectF) -> None:
         scale = _x_scale(painter.transform()) or 1.0
         color = qg.QColor(UiColor.ACCENT)
 
         if self._snap_indicator is not None:
             self._paint_snap_indicator(painter, self._snap_indicator, scale, color)
 
-        # Retraces every *actual* selected entity in a bright, constant-width
-        # accent stroke — same idea as AutoCAD's selection highlight — rather
-        # than washing a translucent tint over its whole bounding box (which,
-        # e.g. for a diagonal line, mostly highlights empty space around it).
         if not self._selected_items:
             return
         pen = qg.QPen(color, 3)
@@ -737,10 +597,6 @@ class CadGraphicsView(qw.QGraphicsView):
 
     @staticmethod
     def _paint_snap_indicator(painter: qg.QPainter, point: qc.QPointF, scale: float, color: qg.QColor) -> None:
-        """A small constant-size square around a snapped-to point/endpoint —
-        the "aim assist" feedback for LINE/POINT/CIRCLE/MOVE, drawn the same
-        risk-free way as the selection highlight above (see
-        `_set_snap_indicator`)."""
         pen = qg.QPen(color, 1.6)
         pen.setCosmetic(True)
         painter.setPen(pen)
@@ -749,12 +605,6 @@ class CadGraphicsView(qw.QGraphicsView):
         painter.drawRect(qc.QRectF(point.x() - half, point.y() - half, half * 2, half * 2))
 
 
-# --------------------------------------------------------------------------
-# Coordinate entry — the command line accepts absolute "x,y", relative
-# "@dx,dy" and relative-polar "@distance<angle_deg", same grammar AutoCAD
-# uses (the polar form is the one survey data naturally comes in: a bearing
-# and a distance).
-# --------------------------------------------------------------------------
 def _parse_coordinate(text: str, last_point: Optional[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
     text = text.strip()
     if not text:
@@ -796,22 +646,12 @@ def _distance(a: Tuple[float, float], b: Tuple[float, float]) -> float:
 
 
 def _angle_degrees(base: Tuple[float, float], point: Tuple[float, float]) -> float:
-    """The angle of `point` as seen from `base`, in degrees, 0° along the
-    positive X axis and increasing counter-clockwise — same convention as
-    AutoCAD's ROTATE, and as DXFDocument.rotate_entity."""
     return math.degrees(math.atan2(point[1] - base[1], point[0] - base[0]))
 
 
 def _offset_segment_perpendicular(
     start: Tuple[float, float], end: Tuple[float, float], offset: float
 ) -> Tuple[Tuple[float, float], Tuple[float, float]]:
-    """`start`/`end` shifted sideways by `offset`, perpendicular to the
-    segment's own direction — the same "two parallel lines" convention as
-    core.geometry.offset_segment_perpendicular (used for the batch-generated
-    pipe), reimplemented here on plain (x, y) tuples since interactive
-    drawing in this module is 2D-only and doesn't otherwise touch
-    core.geometry/models.Point. A zero-length segment has no defined
-    direction, so it's returned unshifted."""
     dx, dy = end[0] - start[0], end[1] - start[1]
     length = math.hypot(dx, dy)
     if length <= 0:
@@ -821,12 +661,7 @@ def _offset_segment_perpendicular(
     return (start[0] + shift[0], start[1] + shift[1]), (end[0] + shift[0], end[1] + shift[1])
 
 
-# --------------------------------------------------------------------------
-# Interactive draw tools — collect points via canvas clicks or typed command
-# -line text, then hand back a Command for DxfViewer to run through history.
-# --------------------------------------------------------------------------
 class ToolSession:
-    """Base class for one interactive draw command's placement state."""
 
     def __init__(self) -> None:
         self.prompt: str = ""
@@ -835,24 +670,19 @@ class ToolSession:
         raise NotImplementedError
 
     def on_text(self, text: str) -> Optional[str]:
-        """Handles typed command-line input for the current step. Returns an
-        error message to show (leaving the step unchanged), or None once the
-        input was accepted."""
         raise NotImplementedError
 
     def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
-        """Called on every mouse move; override to draw a rubber-band preview."""
+        pass
 
     def is_done(self) -> bool:
         raise NotImplementedError
 
     def build_command(self, layer: str) -> EditCommand:
-        """`layer` is the document's current active layer — new-entity tools
-        draw onto it; tools that don't create anything (Move) ignore it."""
         raise NotImplementedError
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
-        """Removes any preview item this session added to the scene."""
+        pass
 
 
 def _preview_pen() -> qg.QPen:
@@ -890,9 +720,6 @@ _DEFAULT_TEXT_HEIGHT = 0.6
 
 
 class TextToolSession(ToolSession):
-    """AutoCAD's TEXT command, simplified to one shot: click (or type) an
-    insertion point, then type the string itself — committed as soon as
-    that text is entered, rather than staying in a live on-canvas edit."""
 
     def __init__(self, height: float = _DEFAULT_TEXT_HEIGHT) -> None:
         super().__init__()
@@ -905,8 +732,6 @@ class TextToolSession(ToolSession):
         if self._insert is None:
             self._insert = point
             self.prompt = "Enter text: "
-        # A stray click once only the text content is left to fill in has
-        # nothing to do — that step only accepts typed input (see on_text).
 
     def on_text(self, text: str) -> Optional[str]:
         if self._insert is None:
@@ -930,10 +755,6 @@ class TextToolSession(ToolSession):
 
 
 class LineToolSession(ToolSession):
-    """AutoCAD's LINE command chains: finishing one segment doesn't exit the
-    command, it immediately prompts for the next point starting from where
-    the last one ended — see `continuation()`, used by DxfViewer to keep
-    this tool active instead of dropping back to Select after every click."""
 
     def __init__(self, start: Optional[Tuple[float, float]] = None) -> None:
         super().__init__()
@@ -982,9 +803,6 @@ class LineToolSession(ToolSession):
             self._preview_item = None
 
     def continuation(self) -> "LineToolSession":
-        """A fresh LineToolSession picking up where this one left off, so
-        drawing a connected polyline-like run is just click, click, click —
-        no need to reselect the Line tool for every segment."""
         assert self._end is not None
         return LineToolSession(start=self._end)
 
@@ -1049,12 +867,6 @@ class CircleToolSession(ToolSession):
 
 
 class PipeToolSession(ToolSession):
-    """A protective casing pipe (RURA OSŁONOWA), drawn as two parallel LINE
-    entities straddling the segment — the same "two lines" convention as
-    core.commands.survey.build_pipe_command. Chains like LINE: finishing a
-    segment immediately starts the next one from its endpoint, reusing the
-    same width, so a multi-segment pipe run is click, click, click, ...
-    (each new segment needs only its endpoint, not a fresh width)."""
 
     def __init__(
         self, start: Optional[Tuple[float, float]] = None, width: Optional[float] = None
@@ -1114,7 +926,7 @@ class PipeToolSession(ToolSession):
             self._set_preview_segments(scene, [(self._start, point)])
             return
         if self._width is not None:
-            return  # nothing left to preview - width already known (or continuation started with one)
+            return
         width = _distance(self._end, point)
         if width <= 0:
             self._set_preview_segments(scene, [])
@@ -1159,17 +971,11 @@ class PipeToolSession(ToolSession):
         self._preview_items = []
 
     def continuation(self) -> "PipeToolSession":
-        """A fresh PipeToolSession picking up where this one left off, same
-        width — so a multi-segment pipe run needs only one click per
-        endpoint after the first segment, not a width prompt every time."""
         assert self._end is not None and self._width is not None
         return PipeToolSession(start=self._end, width=self._width)
 
 
 class MoveToolSession(ToolSession):
-    """Select objects first, then this tool moves them: click/type a base
-    point, then a destination — same as AutoCAD's MOVE. Ignores `layer` in
-    build_command (moving doesn't create anything new)."""
 
     def __init__(self, handles: List[str]) -> None:
         super().__init__()
@@ -1222,10 +1028,6 @@ class MoveToolSession(ToolSession):
 
 
 class RotateToolSession(ToolSession):
-    """Select objects first, then this tool rotates them: click/type a base
-    point, then a reference angle (as a point — the angle from the base
-    point to it — or typed degrees directly) — same as AutoCAD's ROTATE.
-    Ignores `layer` in build_command (rotating doesn't create anything new)."""
 
     def __init__(self, handles: List[str]) -> None:
         super().__init__()
@@ -1234,12 +1036,6 @@ class RotateToolSession(ToolSession):
         self._base: Optional[Tuple[float, float]] = None
         self._angle: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
-        # The actual selected items, live-rotated in place as the cursor
-        # moves (via each item's own rotation transform, reset to 0 in
-        # cleanup()) so the effect of the rotation is visible before it's
-        # committed — resolved once, lazily, the first update_preview()
-        # after the base point is set (that's the earliest `scene` is
-        # available to look them up in).
         self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
 
     def on_click(self, point: Tuple[float, float]) -> None:
@@ -1298,23 +1094,12 @@ class RotateToolSession(ToolSession):
             scene.removeItem(self._preview_item)
             self._preview_item = None
         if self._preview_targets is not None:
-            # The real rotation only takes effect once RotateCommand runs
-            # (build_command, above) and the scene gets rebuilt from the
-            # document — until then (including if the tool is cancelled
-            # instead), this live preview must not leave the items looking
-            # rotated on their own.
             for item in self._preview_targets:
                 item.setRotation(0)
             self._preview_targets = None
 
 
 class ScaleToolSession(ToolSession):
-    """Select objects first, then this tool scales them: click/type a base
-    point, then a scale factor — either typed directly, or as a point,
-    where the distance from the base point to it *is* the factor (so
-    clicking exactly one drawing unit away is 1x, i.e. no change) — same as
-    AutoCAD's SCALE. Ignores `layer` in build_command (scaling doesn't
-    create anything new)."""
 
     def __init__(self, handles: List[str]) -> None:
         super().__init__()
@@ -1323,7 +1108,6 @@ class ScaleToolSession(ToolSession):
         self._base: Optional[Tuple[float, float]] = None
         self._factor: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
-        # Same live-preview idea as RotateToolSession — see its own comment.
         self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
 
     def on_click(self, point: Tuple[float, float]) -> None:
@@ -1372,7 +1156,7 @@ class ScaleToolSession(ToolSession):
                 item.setTransformOriginPoint(origin)
         factor = _distance(self._base, point)
         if factor <= 0:
-            return  # a degenerate (zero) scale would collapse the preview to a point - just hold the last one
+            return
         for item in self._preview_targets:
             item.setScale(factor)
 
@@ -1394,9 +1178,6 @@ class ScaleToolSession(ToolSession):
 
 
 class CommandLine(qw.QWidget):
-    """AutoCAD-style command line: a short scrollback of echoed commands and
-    responses, docked above a single "Command:" input — sits right under the
-    drawing canvas, exactly where AutoCAD puts it."""
 
     commandEntered = qc.pyqtSignal(str)
     undoRequested = qc.pyqtSignal()
@@ -1429,10 +1210,6 @@ class CommandLine(qw.QWidget):
         self._input.setObjectName("dxfCommandInput")
         self._input.setPlaceholderText("POINT, TEXT, LINE, CIRCLE, PIPE, ZOOM …")
         self._input.returnPressed.connect(self._submit)
-        # QLineEdit binds Ctrl+Z/Ctrl+Y to its own internal text-edit undo/redo
-        # and consumes the key press before any parent QShortcut sees it — an
-        # event filter runs first, so it's the only reliable way to redirect
-        # those keys to the drawing's undo/redo while focus is in this field.
         self._input.installEventFilter(self)
         input_layout.addWidget(prompt)
         input_layout.addWidget(self._input, 1)
@@ -1440,7 +1217,7 @@ class CommandLine(qw.QWidget):
 
         self.reset()
 
-    def eventFilter(self, obj: qc.QObject, event: qc.QEvent) -> bool:  # noqa: N802
+    def eventFilter(self, obj: qc.QObject, event: qc.QEvent) -> bool:
         if obj is self._input and event.type() == qc.QEvent.Type.KeyPress:
             key_event = event
             if key_event.modifiers() & qc.Qt.KeyboardModifier.ControlModifier:
@@ -1465,10 +1242,6 @@ class CommandLine(qw.QWidget):
         self._input.setPlaceholderText(text)
 
     def focus_input(self) -> None:
-        """Moves keyboard focus to the Command: field — called whenever an
-        active tool's next step needs typed input (e.g. TEXT's content),
-        so the user can start typing right away instead of having to click
-        into this field first."""
         self._input.setFocus()
 
     def _submit(self) -> None:
@@ -1486,20 +1259,11 @@ class CommandLine(qw.QWidget):
 
 
 class TextOptionsBar(qw.QFrame):
-    """Floating panel above a selected TEXT entity, in AutoCAD's in-place
-    text editor spirit — but scoped to what a plain single-line DXF TEXT
-    actually has: content, height, rotation, color. No MTEXT-style
-    per-character bold/italic/underline, since a single-line TEXT has no
-    such formatting to carry.
 
-    Pure UI like LayerPanel: each field commits as a plain-value signal
-    once its value actually changes, and DxfViewer turns that into the
-    matching core.commands.text Command."""
-
-    contentChanged = qc.pyqtSignal(str, str)  # handle, new text
-    heightChanged = qc.pyqtSignal(str, float)  # handle, new height
-    rotationChanged = qc.pyqtSignal(str, float)  # handle, new rotation (degrees)
-    colorChanged = qc.pyqtSignal(str, tuple)  # handle, new rgb
+    contentChanged = qc.pyqtSignal(str, str)
+    heightChanged = qc.pyqtSignal(str, float)
+    rotationChanged = qc.pyqtSignal(str, float)
+    colorChanged = qc.pyqtSignal(str, tuple)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -1542,9 +1306,6 @@ class TextOptionsBar(qw.QFrame):
         layout.addWidget(self._color)
 
     def bind(self, handle: str, text: str, height: float, rotation: float, rgb: Tuple[int, int, int]) -> None:
-        """Points this bar at one TEXT entity and fills it with that
-        entity's current values — called by DxfViewer.sync_text_options_bar
-        every time the selection or the document changes."""
         self.handle = handle
         self._orig_text, self._orig_height, self._orig_rotation = text, height, rotation
         self._content.setText(text)
@@ -1581,15 +1342,10 @@ class TextOptionsBar(qw.QFrame):
 
 
 class _CommandError(Exception):
-    """Raised by a command handler for a malformed argument; the message is
-    shown in the command line, same as an invalid AutoCAD command prompt."""
+    pass
 
 
 class DxfCommandInterpreter:
-    """Parses a small set of AutoCAD-style commands: view control
-    (ZOOM/PAN/REGEN, applied directly to the CadGraphicsView) and editing
-    (POINT/TEXT/LINE/CIRCLE/PIPE/MOVE/ROTATE/SCALE/ERASE/UNDO/REDO, applied through the
-    owning DxfViewer's DXFDocument + CommandHistory)."""
 
     def __init__(self, dxf_viewer: "DxfViewer") -> None:
         self._viewer = dxf_viewer
@@ -1629,13 +1385,11 @@ class DxfCommandInterpreter:
         }
 
     def run(self, text: str) -> str:
-        """Executes one command line and returns the response to echo back
-        (an empty string means "ran silently", like most AutoCAD commands)."""
         text = text.strip()
         if not text:
             if self._last_command is None:
                 return ""
-            text = self._last_command  # bare Enter repeats the last command
+            text = self._last_command
         name, *args = text.split()
         handler = self._commands.get(name.upper())
         if handler is None:
@@ -1646,7 +1400,6 @@ class DxfCommandInterpreter:
         except _CommandError as exc:
             return str(exc)
 
-    # -- view commands (no document, no undo) --------------------------
     def _cmd_zoom(self, args: List[str]) -> str:
         if not args:
             return "Specify a scale factor, or [Extents/Window]:"
@@ -1676,7 +1429,6 @@ class DxfCommandInterpreter:
     def _cmd_regen(self, args: List[str]) -> str:
         return "Regenerating model."
 
-    # -- editing commands (through DXFDocument + CommandHistory) -------
     def _cmd_point(self, args: List[str]) -> str:
         if args:
             coord = _parse_coordinate(args[0], last_point=None)
@@ -1689,9 +1441,6 @@ class DxfCommandInterpreter:
         return ""
 
     def _cmd_text(self, args: List[str]) -> str:
-        # No direct-args form (unlike POINT/LINE/CIRCLE/PIPE): the text
-        # content itself can contain spaces, which this command line's
-        # naive whitespace split can't round-trip — always interactive.
         self._viewer.start_tool(TextToolSession())
         return ""
 
@@ -1773,7 +1522,6 @@ class DxfCommandInterpreter:
     def _cmd_redo(self, args: List[str]) -> str:
         return self._viewer.redo()
 
-    # -- shared parsing --------------------------------------------------
     @staticmethod
     def _parse_factor(token: str) -> float:
         try:
@@ -1800,12 +1548,6 @@ class DxfCommandInterpreter:
 
 
 class DxfToolbar(qw.QWidget):
-    """Icon toolbar docked above the DXF preview — one-click access to the
-    same draw/edit/view actions the command line already exposes (undo/redo
-    live in MainWindow's own Edit menu instead, not here). Kept in sync
-    with the command line either way: typing "LINE" highlights the Line
-    button exactly as clicking it would, since both paths go through
-    DxfViewer.start_tool()/cancel_tool()."""
 
     pointRequested = qc.pyqtSignal()
     textRequested = qc.pyqtSignal()
@@ -1905,9 +1647,6 @@ class DxfToolbar(qw.QWidget):
         return line
 
     def _on_tool_clicked(self, key: str, checked: bool) -> None:
-        # A tool button behaves like a toggle: click it to start that tool,
-        # click the *active* one again (checked -> unchecked) to cancel back
-        # to plain selection — same as clicking Select or pressing Esc.
         if key == "select":
             self.selectRequested.emit()
         elif checked:
@@ -1940,9 +1679,6 @@ _TOOL_KEYS = {
 
 
 class DxfViewer(qw.QWidget):
-    """Stacked empty-state / interactive, editable DXF canvas for the
-    preview panel — draw/select/delete with undo/redo, backed by a real
-    DXFDocument + CommandHistory (see core/dxf_document.py, core/commands/)."""
 
     documentChanged = qc.pyqtSignal()
 
@@ -1954,18 +1690,8 @@ class DxfViewer(qw.QWidget):
         self._history: Optional[CommandHistory] = None
         self._active_tool: Optional[ToolSession] = None
         self._selected_handles: List[str] = []
-        # Ctrl+C's remembered selection for a later Ctrl+V — `_clipboard_doc`
-        # is the DXFDocument it was copied from, so a stale clipboard from a
-        # since-replaced document (a new/reloaded drawing) is never pasted
-        # into a different one, where its handles could collide with unrelated
-        # entities — see paste_clipboard.
         self._clipboard_handles: List[str] = []
         self._clipboard_doc: Optional[DXFDocument] = None
-        # Snapshot of layer names as of the last DXF *import* (load_file) —
-        # None for a blank/new drawing, where "prune to core layers" has
-        # nothing to work from. Layers created afterward (Add Layer, or by
-        # drawing) are never in this set, so the prune action never touches
-        # them regardless of their name — see core.commands.layers.layers_to_prune.
         self._imported_layer_names: Optional[set] = None
 
         outer = qw.QHBoxLayout(self)
@@ -1977,9 +1703,6 @@ class DxfViewer(qw.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACE_XS)
 
-        # Docked above the empty-state / canvas stack, so it's usable even
-        # before any drawing exists — clicking a draw tool auto-creates a
-        # blank DXF the same way typing e.g. "LINE" already does.
         self._toolbar = DxfToolbar()
         layout.addWidget(self._toolbar)
 
@@ -2001,8 +1724,6 @@ class DxfViewer(qw.QWidget):
         empty_layout.addWidget(icon)
         empty_layout.addWidget(text)
 
-        # The canvas and the command line are docked together as one block,
-        # same as AutoCAD's drawing window + command line underneath it.
         self._canvas_page = qw.QWidget()
         canvas_layout = qw.QVBoxLayout(self._canvas_page)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
@@ -2030,10 +1751,6 @@ class DxfViewer(qw.QWidget):
         self._stack.addWidget(self._canvas_page)
 
         outer.addWidget(canvas_column, 1)
-        # Not added to this widget's own layout — main_window.py docks it
-        # into the left column's "Layers" navigation item instead, via the
-        # layer_panel property below. Constructed and wired here regardless,
-        # since all its signals route through this class's own commands.
         self._layer_panel = LayerPanel()
 
         self._toolbar.pointRequested.connect(lambda: self._start_draw_tool(PointToolSession))
@@ -2064,11 +1781,6 @@ class DxfViewer(qw.QWidget):
         self._layer_panel.selectLayerRequested.connect(self.select_by_layer)
         self._layer_panel.pruneLayersRequested.connect(self._on_prune_layers)
 
-        # Undo/redo are window-scoped: they should work no matter which
-        # widget in the main window currently has focus (a config field in
-        # the left panel, a button, ...), not just while the DXF panel
-        # itself is focused. Delete/Esc stay panel-scoped on purpose — they'd
-        # otherwise fire while e.g. editing an unrelated text field.
         self._add_shortcut(
             "Ctrl+Z", lambda: self._echo(self.undo()), context=qc.Qt.ShortcutContext.WindowShortcut
         )
@@ -2103,8 +1815,6 @@ class DxfViewer(qw.QWidget):
 
     @property
     def layer_panel(self) -> LayerPanel:
-        """The layers list widget — owned and wired up here, but docked
-        into main_window.py's left column rather than laid out in `self`."""
         return self._layer_panel
 
     def save_document(self, file_path: str) -> None:
@@ -2112,8 +1822,6 @@ class DxfViewer(qw.QWidget):
         self._doc.save(file_path)
 
     def ensure_document(self) -> DXFDocument:
-        """Returns the current document, creating a blank one first if none
-        is loaded yet — so drawing commands always have somewhere to go."""
         if self._doc is None:
             self._doc = DXFDocument.new()
             self._history = CommandHistory()
@@ -2142,7 +1850,6 @@ class DxfViewer(qw.QWidget):
         self.show_empty()
 
     def load_file(self, file_path: str) -> Tuple[bool, str]:
-        """Loads and renders `file_path`. Returns (success, error_message)."""
         try:
             doc = DXFDocument.load(file_path)
         except IOError as exc:
@@ -2152,11 +1859,6 @@ class DxfViewer(qw.QWidget):
         return self._adopt_document(doc)
 
     def load_from_text(self, content: str) -> Tuple[bool, str]:
-        """Loads and renders a document from embedded DXF text rather than a
-        file path — the counterpart to load_file(), used to restore a saved
-        project's embedded DXF snapshot (see core.project) so a project
-        doesn't lose in-progress DXF edits that were never separately saved
-        to their own .dxf file."""
         try:
             doc = DXFDocument.from_text(content)
         except ezdxf.DXFError as exc:
@@ -2164,27 +1866,18 @@ class DxfViewer(qw.QWidget):
         return self._adopt_document(doc)
 
     def to_dxf_text(self) -> Optional[str]:
-        """The current document's DXF content as plain text, or None if no
-        document is loaded — for embedding in a saved project (see
-        core.project, ui.main_window)."""
         if self._doc is None:
             return None
         return self._doc.to_text()
 
     def _adopt_document(self, doc: DXFDocument) -> Tuple[bool, str]:
-        """Makes `doc` the current document and renders it — shared by
-        load_file() and load_from_text(), which differ only in how they
-        obtain the DXFDocument itself."""
         self._doc = doc
         self._history = CommandHistory()
         self._selected_handles = []
-        # Captured before any further edit, so "prune to core layers" always
-        # has the exact set of layers this file actually arrived with —
-        # never anything added afterward, even in this same session.
         self._imported_layer_names = {info.name for info in doc.iter_layers()}
         try:
             self._render(preserve_view=False)
-        except Exception as exc:  # noqa: BLE001 - a bad/unsupported drawing must never crash the app
+        except Exception as exc:
             self._doc = None
             self._view.set_document(None)
             self._history = None
@@ -2195,9 +1888,6 @@ class DxfViewer(qw.QWidget):
         self._stack.setCurrentWidget(self._canvas_page)
         return True, ""
 
-    # ------------------------------------------------------------------
-    # Editing API — used by DxfCommandInterpreter and the shortcuts above.
-    # ------------------------------------------------------------------
     def execute_command(self, command: EditCommand) -> None:
         self.ensure_document()
         assert self._doc is not None and self._history is not None
@@ -2232,17 +1922,12 @@ class DxfViewer(qw.QWidget):
         self._sync_text_options_bar()
 
     def select_by_layer(self, name: str) -> None:
-        """Selects every entity on layer `name` — the "select by layer" half
-        of the selection options, exposed via a layer row's name button."""
         if self._doc is None:
             return
         handles = {entity.dxf.handle for entity in self._doc.modelspace if entity.dxf.layer == name}
         self._select_handles(handles)
 
     def _select_handles(self, handles: Iterable[str]) -> None:
-        """Selects/highlights exactly the entities named by `handles`,
-        looked up in the *current* scene — used after anything that changes
-        what should be selected without going through a canvas click."""
         handle_set = set(handles)
         items = [item for item in self._view.scene().items() if item.data(_HANDLE_ROLE) in handle_set]
         self._view.set_selected_items(items)
@@ -2269,28 +1954,17 @@ class DxfViewer(qw.QWidget):
         self._toolbar.set_active_tool(None)
 
     def _start_draw_tool(self, factory: Callable[[], ToolSession]) -> None:
-        """Toolbar entry point for Point/Line/Circle: auto-creates a blank
-        document first, exactly like typing the bare command would."""
         self.ensure_document()
         self.start_tool(factory())
 
     def start_move_tool(self) -> None:
-        """Toolbar/command-line entry point for Move — unlike the draw
-        tools, this needs an existing selection and never auto-creates a
-        document (there's nothing to move in a blank one)."""
         if not self._selected_handles:
             self._echo("Select objects to move first.")
-            # The toolbar button already toggled itself checked on click
-            # (Qt does that before this slot even runs) — since the tool
-            # never actually started, put it back or it's left showing
-            # "Move" active while clicks still do plain selection.
             self._toolbar.set_active_tool(None)
             return
         self.start_tool(MoveToolSession(list(self._selected_handles)))
 
     def start_rotate_tool(self) -> None:
-        """Toolbar/command-line entry point for Rotate — same guard as
-        Move: needs an existing selection, never auto-creates a document."""
         if not self._selected_handles:
             self._echo("Select objects to rotate first.")
             self._toolbar.set_active_tool(None)
@@ -2298,9 +1972,6 @@ class DxfViewer(qw.QWidget):
         self.start_tool(RotateToolSession(list(self._selected_handles)))
 
     def start_scale_tool(self) -> None:
-        """Toolbar/command-line entry point for Scale — same guard as
-        Move/Rotate: needs an existing selection, never auto-creates a
-        document."""
         if not self._selected_handles:
             self._echo("Select objects to scale first.")
             self._toolbar.set_active_tool(None)
@@ -2308,8 +1979,6 @@ class DxfViewer(qw.QWidget):
         self.start_tool(ScaleToolSession(list(self._selected_handles)))
 
     def copy_selected(self) -> str:
-        """Ctrl+C: remembers the current selection for a later Ctrl+V — a
-        pure UI-level snapshot, no document change and nothing to undo."""
         if not self._selected_handles:
             return "Select an object first."
         self._clipboard_doc = self._doc
@@ -2317,10 +1986,6 @@ class DxfViewer(qw.QWidget):
         return f"{len(self._clipboard_handles)} object(s) copied."
 
     def paste_clipboard(self) -> str:
-        """Ctrl+V: pastes whatever Ctrl+C last remembered, offset next to
-        the source (see CadGraphicsView.default_duplicate_offset) — always
-        from the originally-copied entities, so repeated Ctrl+V lands every
-        copy at the same spot rather than cascading further out each time."""
         if self._clipboard_doc is not self._doc or not self._clipboard_handles:
             return "Nothing to paste."
         dx, dy = self._view.default_duplicate_offset()
@@ -2330,10 +1995,6 @@ class DxfViewer(qw.QWidget):
         return f"{len(command.new_handles)} object(s) pasted."
 
     def duplicate_selected(self) -> str:
-        """Ctrl+D: duplicates the current selection right next to itself
-        (see CadGraphicsView.default_duplicate_offset). The new copies
-        become the selection, so repeated Ctrl+D cascades outward instead
-        of stacking every copy on the same spot."""
         if not self._selected_handles:
             return "Select an object first."
         dx, dy = self._view.default_duplicate_offset()
@@ -2369,9 +2030,6 @@ class DxfViewer(qw.QWidget):
         self.execute_command(CompositeCommand([DeleteLayerCommand(name) for name in to_delete]))
         self._echo(f"Removed {len(to_delete)} layer(s).")
 
-    # ------------------------------------------------------------------
-    # Internal signal handlers
-    # ------------------------------------------------------------------
     def _on_command_entered(self, text: str) -> None:
         if self._active_tool is not None:
             message = self._active_tool.on_text(text)
@@ -2400,17 +2058,10 @@ class DxfViewer(qw.QWidget):
         self._sync_text_options_bar()
 
     def _on_items_drag_moved(self, handles: List[str], dx: float, dy: float) -> None:
-        """Click-and-drag move finished on the canvas — same underlying
-        MoveCommand as the Move tool, just triggered directly by dragging
-        an entity instead of the base-point/second-point click sequence."""
         self._selected_handles = list(handles)
         self.execute_command(MoveCommand(handles, dx, dy))
 
-    # -- Text options bar: shown above a single selected TEXT entity ------
     def _sync_text_options_bar(self) -> None:
-        """Shows/hides/rebinds the floating text-options bar for whatever
-        is selected right now — called after every selection change and
-        after every render (edits, undo/redo, load/clear)."""
         if self._doc is None or len(self._selected_handles) != 1:
             self._text_options_bar.hide()
             return
@@ -2432,10 +2083,6 @@ class DxfViewer(qw.QWidget):
         if item is None:
             bar.hide()
             return
-        # Mapped via on-screen corners, not scene-space top/bottom: the
-        # canvas is flipped (DXF is Y-up, Qt's scene is Y-down — see
-        # CadGraphicsView.__init__), so "highest on screen" isn't simply
-        # whichever corner has the smaller scene Y.
         rect = item.sceneBoundingRect()
         corners = [
             self._view.mapFromScene(rect.topLeft()),
@@ -2456,9 +2103,6 @@ class DxfViewer(qw.QWidget):
                 return item
         return None
 
-    # Selection carries over automatically: execute_command -> _render()
-    # re-derives it from self._selected_handles, which already names this
-    # entity (the bar is only bound/visible for a single selected TEXT).
     def _on_text_content_changed(self, handle: str, text: str) -> None:
         self.execute_command(SetTextContentCommand(handle, text))
 
@@ -2476,11 +2120,6 @@ class DxfViewer(qw.QWidget):
         assert tool is not None
         doc = self.ensure_document()
         command = tool.build_command(doc.active_layer)
-        # LINE and PIPE chain like AutoCAD's LINE: finishing a segment starts
-        # a fresh session picking up from its endpoint instead of dropping
-        # the tool, so drawing a connected run of segments doesn't require
-        # reselecting the tool after every single click. Any ToolSession
-        # that supports this just needs its own continuation() method.
         next_tool = tool.continuation() if hasattr(tool, "continuation") else None
         tool.cleanup(self._view.scene())
         self._active_tool = None
@@ -2490,25 +2129,15 @@ class DxfViewer(qw.QWidget):
         if next_tool is not None:
             self.start_tool(next_tool)
             return
-        # A command that exposes what it created (currently just
-        # AddTextCommand) gets it auto-selected — e.g. so a just-placed
-        # text is immediately ready for Delete/Move without a re-click.
         handle = getattr(command, "handle", None)
         if handle is not None:
             self._select_handles([handle])
-        # Typing the last step's value (TEXT's content, an "@dx,dy" point,
-        # ...) leaves focus in the command line — return it to the canvas
-        # so Delete/Esc reach this widget's own shortcuts right away.
         self._view.setFocus()
 
     def _echo(self, message: str) -> None:
         self._command_line.show_response(message)
 
     def echo(self, message: str) -> None:
-        """Shows `message` in this panel's own embedded command line — used
-        by MainWindow's Edit menu (Undo/Redo live there now, not in this
-        toolbar) so triggering this viewer's history from outside still
-        reports through the same console every other edit action does."""
         self._echo(message)
 
     def can_undo(self) -> bool:

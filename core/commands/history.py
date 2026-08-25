@@ -1,4 +1,3 @@
-"""Undo/redo stack for `Command` objects, applied to one `DXFDocument`."""
 from __future__ import annotations
 
 from typing import List
@@ -16,9 +15,6 @@ class CommandHistory:
         self._redo_stack: List[Command] = []
 
     def execute(self, command: Command, doc: DXFDocument) -> None:
-        """Runs `command` and records it. Any pending redo history is
-        discarded — same as every other undo/redo stack (AutoCAD included):
-        a fresh action after an undo abandons the undone branch."""
         command.execute(doc)
         self._undo_stack.append(command)
         if len(self._undo_stack) > self._max_depth:

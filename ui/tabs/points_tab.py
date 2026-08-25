@@ -1,4 +1,3 @@
-"""Points drawing-mode options accordion section."""
 from __future__ import annotations
 
 from typing import Optional, Sequence
@@ -16,7 +15,6 @@ DEFAULT_LAYER_NAME = "0"
 
 
 class PointsTab(QWidget):
-    """Options for the 'Points' drawing mode: circle size and optional number labels."""
 
     numbers_toggled = pyqtSignal(bool)
     option_changed = pyqtSignal()
@@ -55,7 +53,6 @@ class PointsTab(QWidget):
         self.layer_dropdown.set_layer_name(name)
 
     def get_options(self) -> PointsOptions:
-        """Reads the current widget state into a PointsOptions value object."""
         font_size = float(self.font_size_input.text() or DEFAULT_FONT_SIZE)
         diameter = float((self.diameter_input.text() or EMPTY_DIAMETER_FALLBACK).replace(",", "."))
         return PointsOptions(

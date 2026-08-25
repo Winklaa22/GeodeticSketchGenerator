@@ -1,6 +1,3 @@
-"""Tests for core.parser.PointFileParser - migrated from main.py's old ad-hoc
-_run_tests()/parse_fake() into real pytest tests against the real parser.
-"""
 from __future__ import annotations
 
 import pytest
@@ -68,7 +65,5 @@ def test_missing_height_defaults_to_zero(parser: PointFileParser) -> None:
 
 
 def test_row_with_too_few_fields_falls_back_to_whitespace_split(parser: PointFileParser) -> None:
-    # Declared delimiter is TAB but the row is actually space-separated;
-    # the parser should retry with a plain whitespace split.
     data = parser.parse_lines(["1 100 200 5"], DelimiterMode.TAB)
     assert data[1].x == 200 and data[1].y == 100 and data[1].h == 5

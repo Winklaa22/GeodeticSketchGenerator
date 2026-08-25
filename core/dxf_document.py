@@ -20,8 +20,6 @@ DEFAULT_LAYER_NAME = "0"
 
 @lru_cache(maxsize=None)
 def _nearest_aci(rgb: Tuple[int, int, int]) -> int:
-    """The AutoCAD Color Index (1-255) whose RGB is closest to `rgb` — used
-    as a fallback alongside true-color (see `DXFDocument._apply_color`)."""
     best_aci, best_distance = 7, None
     for aci in range(1, 256):
         candidate = ezdxf_colors.aci2rgb(aci)
@@ -35,8 +33,6 @@ def _nearest_aci(rgb: Tuple[int, int, int]) -> int:
 
 @dataclass(frozen=True)
 class LayerInfo:
-    """A snapshot of one layer's state, for the UI layer panel — plain data,
-    no ezdxf objects, so it stays cheap to compare/rebuild rows from."""
 
     name: str
     rgb: Tuple[int, int, int]
@@ -46,23 +42,16 @@ class LayerInfo:
 
 
 class DXFDocument:
-    """A live, editable DXF document."""
 
     def __init__(self, drawing: Drawing) -> None:
         self._drawing = drawing
 
     @classmethod
     def new(cls) -> "DXFDocument":
-        """A blank document, same defaults as a new AutoCAD drawing."""
         return cls(ezdxf.new())
 
     @classmethod
     def load(cls, file_path: str) -> "DXFDocument":
-        """Loads `file_path`, recovering from a malformed DXF where possible.
-
-        Raises `IOError`/`ezdxf.DXFError` (the caller is expected to catch
-        these — see `ui/dxf_viewer.py`'s `DxfViewer.load_file`).
-        """
         try:
             drawing = ezdxf.readfile(file_path)
         except ezdxf.DXFStructureError:
@@ -153,7 +142,6 @@ class DXFDocument:
         return entity.dxf.handle
 
     def add_polyline3d(self, points: Iterable[Sequence[float]], layer: str = "0", closed: bool = False) -> str:
-        """A single 3D POLYLINE entity through `points` (each a full x, y, z)."""
         self.ensure_layer(layer)
         entity = self.modelspace.add_polyline3d(points, close=closed, dxfattribs={"layer": layer})
         return entity.dxf.handle
@@ -165,13 +153,6 @@ class DXFDocument:
         return entity
 
     def unlink_entity(self, handle: str) -> Optional[DXFGraphic]:
-        """Unlinks the entity at `handle`, keeping it alive in the entity
-        database so a later `relink_entity`/`restore_entity` can bring back
-        the exact same object. Returns None, rather than raising, for a
-        handle that's already not linked into the model space — a
-        `Command` that captures handles once (DeleteEntityCommand) can be
-        replayed against a handle that another Command's own undo/redo has
-        since unlinked out from under it."""
         entity = self.get_entity(handle)
         if entity is None or entity.get_layout() is None:
             return None
@@ -182,13 +163,6 @@ class DXFDocument:
         self.modelspace.add_entity(entity)
 
     def relink_entity(self, handle: str) -> None:
-        """Re-links a previously unlinked entity back into the model space
-        by its original handle, if it isn't linked already — used by a
-        creating Command's own redo (a second execute()) so it reuses the
-        exact same entity/handle instead of making a new one, which would
-        otherwise leave any other Command that still names the old handle
-        (e.g. a DeleteEntityCommand higher up the undo stack) pointing at
-        nothing once replayed."""
         entity = self.get_entity(handle)
         if entity is not None and entity.get_layout() is None:
             self.modelspace.add_entity(entity)
@@ -197,18 +171,12 @@ class DXFDocument:
         self._require_entity(handle).translate(dx, dy, dz)
 
     def duplicate_entity(self, handle: str, dx: float, dy: float, dz: float = 0.0) -> str:
-        """Copies the entity at `handle`, offsetting the copy by (dx, dy, dz)
-        so it lands next to the original rather than exactly on top of it —
-        used for Ctrl+D (duplicate) and Ctrl+V (paste)."""
         copy = self._require_entity(handle).copy()
         copy.translate(dx, dy, dz)
         self.modelspace.add_entity(copy)
         return copy.dxf.handle
 
     def rotate_entity(self, handle: str, angle: float, center: Sequence[float]) -> None:
-        """Rotates the entity at `handle` by `angle` degrees (positive =
-        counter-clockwise, same convention as AutoCAD's ROTATE) around
-        `center`."""
         cx, cy = center[0], center[1]
         matrix = Matrix44.chain(
             Matrix44.translate(-cx, -cy, 0),
@@ -218,11 +186,6 @@ class DXFDocument:
         self._require_entity(handle).transform(matrix)
 
     def scale_entity(self, handle: str, factor: float, center: Sequence[float]) -> None:
-        """Scales the entity at `handle` by `factor` (uniformly, in X/Y)
-        around `center` — same convention as AutoCAD's SCALE. Z is left
-        untouched, same "purely in-plane" choice as `rotate_entity` (a real
-        elevation shouldn't shift just because something on the same layer
-        got resized)."""
         cx, cy = center[0], center[1]
         matrix = Matrix44.chain(
             Matrix44.translate(-cx, -cy, 0),
@@ -231,7 +194,6 @@ class DXFDocument:
         )
         self._require_entity(handle).transform(matrix)
 
-    # -- TEXT entity properties — content/height/rotation/color -----------
     def get_text_content(self, handle: str) -> str:
         return self._require_entity(handle).dxf.text
 
@@ -251,10 +213,8 @@ class DXFDocument:
         self._require_entity(handle).dxf.rotation = rotation
 
     def get_entity_color(self, handle: str) -> Tuple[int, int, int]:
-        """The entity's *effective* color: its own override if it has one,
-        otherwise its layer's (DXF's "ByLayer" default, color 256)."""
         entity = self._require_entity(handle)
-        if entity.dxf.color in (0, 256):  # ByBlock / ByLayer — no override set
+        if entity.dxf.color in (0, 256):
             return self.get_layer_color(entity.dxf.layer)
         rgb = entity.rgb
         if rgb is not None:
@@ -268,7 +228,6 @@ class DXFDocument:
     def set_entity_color(self, handle: str, rgb: Tuple[int, int, int]) -> None:
         self._apply_color(self._require_entity(handle), rgb)
 
-    # -- Layers — visibility/color/active-layer/delete --------------------
     def add_layer(self, name: str, rgb: Optional[Tuple[int, int, int]] = None) -> None:
         if name in self.layers:
             return
@@ -290,7 +249,7 @@ class DXFDocument:
         rgb = layer.rgb
         if rgb is not None:
             return (rgb.r, rgb.g, rgb.b)
-        aci = abs(layer.dxf.color)  # a negative stored value means "off", not a different color
+        aci = abs(layer.dxf.color)
         try:
             aci_rgb = ezdxf_colors.aci2rgb(aci)
         except IndexError:
@@ -302,9 +261,6 @@ class DXFDocument:
 
     @staticmethod
     def _apply_color(target, rgb: Tuple[int, int, int]) -> None:
-        """Sets both true-color and its nearest-ACI fallback on a layer or
-        an entity — see `_nearest_aci`. Only a *layer's* stored color can
-        ever be negative (meaning "off"), and that sign is preserved."""
         was_off = target.dxf.color < 0
         target.rgb = rgb
         aci = _nearest_aci(rgb)

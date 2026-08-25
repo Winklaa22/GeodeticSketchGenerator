@@ -1,16 +1,3 @@
-"""Detects two shapes among consecutively-numbered survey points, for the
-LINES/PLINES/POLY3D drawing modes.
-
-"Skrzynka" (junction box): 4 consecutive points whose corners are all near
-90°. Drawn as its own closed rectangle; the cable skips over it entirely.
-
-"Wcinka" (splice): 3 consecutive points at either end of the selection,
-much closer together than the rest of the run. Drawn as an open triangle —
-two stubs off an entry point, far side left undrawn — with the entry point
-staying on the cable's path.
-
-Anything else is left as a straight chain in numeric order.
-"""
 from __future__ import annotations
 
 import math
@@ -19,8 +6,8 @@ from typing import Dict, List, Optional, Tuple
 
 from models.point import Point
 
-RIGHT_ANGLE_TOLERANCE_DEG = 15.0  # max deviation from 90° for a rectangle corner
-WCINKA_SIZE_RATIO = 0.35  # a 3-point run only counts as a wcinka if its edges are this small a fraction of the longest segment
+RIGHT_ANGLE_TOLERANCE_DEG = 15.0
+WCINKA_SIZE_RATIO = 0.35
 
 _RECTANGLE_SIZE = 4
 _WCINKA_SIZE = 3
@@ -28,10 +15,6 @@ _WCINKA_SIZE = 3
 
 @dataclass(frozen=True)
 class RoutedPath:
-    """`main`: the cable's own vertex path — skips each box, passes through
-    each wcinka's entry point. `boxes`: each rectangle's 4 corners.
-    `wedges`: each wcinka as (entry, wing_1, wing_2) — draw entry-wing_1 and
-    entry-wing_2 only; there's no wing_1-wing_2 edge."""
 
     main: List[Point]
     boxes: List[List[Point]] = field(default_factory=list)
@@ -63,8 +46,6 @@ def _corner_angle_deg(prev_point: Point, corner: Point, next_point: Point) -> fl
 
 
 def _is_rectangle(window: List[Point]) -> bool:
-    """True if the 4 points, taken in their given order, trace a rectangle —
-    i.e. every corner's interior angle is a right angle."""
     for k in range(_RECTANGLE_SIZE):
         prev_point = window[k - 1]
         corner = window[k]
@@ -83,8 +64,6 @@ def _is_tight_triangle(window: List[Point], threshold: float) -> bool:
 
 
 def _pick_wcinka_entry(window: List[Point], prev_point: Optional[Point], next_point: Optional[Point]) -> Point:
-    # Prefer connecting onward; fall back to the previous point if there's
-    # nothing ahead; no anchor at all if the wcinka is the whole selection.
     anchor = next_point if next_point is not None else prev_point
     if anchor is None:
         return window[0]
@@ -92,10 +71,6 @@ def _pick_wcinka_entry(window: List[Point], prev_point: Optional[Point], next_po
 
 
 def route_selected_points(points: Dict[int, Point], selected_numbers: List[int]) -> RoutedPath:
-    """Splits the selection into the cable run's own vertex path and any
-    skrzynka/wcinka shapes found along the way (see module docstring).
-    `main` alone is identical to the plain numeric-order point list when
-    neither shape is found."""
     ordered = _ordered_points(points, selected_numbers)
     if len(ordered) < 2:
         return RoutedPath(main=ordered)
