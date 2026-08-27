@@ -16,6 +16,7 @@ _MODE_OPTIONS = [
     ("heights", "Heights marks"),
     ("cable", "Cable marks"),
     ("pipe", "Pipe"),
+    ("measurements", "Measurements"),
 ]
 _MODE_BY_KEY = {
     "points": DrawMode.POINTS,
@@ -25,6 +26,7 @@ _MODE_BY_KEY = {
     "heights": DrawMode.HEIGHTS,
     "cable": DrawMode.CABLE_MARKS,
     "pipe": DrawMode.PIPE,
+    "measurements": DrawMode.MEASUREMENTS,
 }
 _DEFAULT_KEYS = ["plines"]
 

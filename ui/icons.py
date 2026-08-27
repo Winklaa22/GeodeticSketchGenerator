@@ -45,6 +45,7 @@ class IconManager:
         "heights_section": "mdi.altimeter",
         "cable_marks_section": "mdi.cable-data",
         "pipe_section": "mdi.pipe",
+        "measurements_section": "mdi.ruler",
         "selection_section": "mdi.selection",
 
         "checkbox_checked": "fa5s.check-square",
@@ -91,4 +92,3 @@ class IconManager:
         return icon
 
 icon_manager = IconManager()
-        

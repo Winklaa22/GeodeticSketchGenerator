@@ -36,6 +36,12 @@ class PipeOptions:
 
 
 @dataclass(frozen=True)
+class MeasurementsOptions:
+    font_size: float = 0.6
+    offset: float = 0.3
+
+
+@dataclass(frozen=True)
 class GenerationConfig:
 
     layer_name: str
@@ -44,4 +50,5 @@ class GenerationConfig:
     heights: HeightsOptions = field(default_factory=HeightsOptions)
     cable: CableOptions = field(default_factory=CableOptions)
     pipe: PipeOptions = field(default_factory=PipeOptions)
+    measurements: MeasurementsOptions = field(default_factory=MeasurementsOptions)
     layer_rgb: Optional[Tuple[int, int, int]] = None

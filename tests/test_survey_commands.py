@@ -553,6 +553,39 @@ def test_cable_marks_never_land_inside_a_skipped_skrzynka(
     assert round(labels[0].dxf.insert[0]) == 10
 
 
+def test_measurements_mode_labels_every_segment_with_dashed_length(
+    service: SurveyDrawService, points, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.MEASUREMENTS)
+    service.build_command(points, [1, 2, 3], config).execute(doc)
+    labels = _entities_of_type(doc, "TEXT")
+    assert len(labels) == 2  # 3 points -> 2 segments, both length 10.0
+    assert all(t.dxf.text == "-10.00-" for t in labels)
+    assert _entities_of_type(doc, "LINE") == []
+    assert _entities_of_type(doc, "LWPOLYLINE") == []
+
+
+def test_measurements_mode_skips_skrzynka_sides(
+    service: SurveyDrawService, points_with_box, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.MEASUREMENTS)
+    service.build_command(points_with_box, [1, 2, 3, 4, 5, 6], config).execute(doc)
+    labels = _entities_of_type(doc, "TEXT")
+    # Only the one real segment (1 -> 6, the box is skipped entirely).
+    assert len(labels) == 1
+    assert labels[0].dxf.text == "-20.00-"
+
+
+def test_measurements_mode_labels_wcinka_wing_stubs_too(
+    service: SurveyDrawService, points_with_wcinka, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.MEASUREMENTS)
+    service.build_command(points_with_wcinka, [1, 2, 3, 4], config).execute(doc)
+    labels = _entities_of_type(doc, "TEXT")
+    # The main segment (3 -> 4) plus both wedge wings (3 -> 1, 3 -> 2).
+    assert sorted(t.dxf.text for t in labels) == ["-20.00-", "-3.61-", "-3.61-"]
+
+
 def test_whole_batch_undoes_as_one_step(service: SurveyDrawService, points, doc: DXFDocument) -> None:
     config = GenerationConfig(
         layer_name="0",

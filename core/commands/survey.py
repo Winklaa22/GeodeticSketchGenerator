@@ -11,7 +11,7 @@ from core.commands.draw import (
     AddPolyline3DCommand,
     AddTextCommand,
 )
-from core.config import CableOptions, GenerationConfig
+from core.config import CableOptions, GenerationConfig, MeasurementsOptions
 from core.draw_modes import DrawMode
 from core.geometry import (
     AngleQuadrant,
@@ -345,6 +345,46 @@ def _cable_label_offset(angle_deg: float, font_size: float) -> Tuple[float, floa
     return offsets[classify_quadrant(angle_deg)]
 
 
+def build_measurements_command(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+) -> CompositeCommand:
+    """A "-D.DD-" length label along the midpoint of every segment on the
+    routed path, including wcinka wing stubs — skrzynka sides are skipped
+    entirely, same as route_selected_points already keeps them as their own
+    separate shape rather than part of the cable run."""
+    options = config.measurements
+    routed = route_selected_points(points, selected_numbers)
+    segments = list(zip(routed.main, routed.main[1:]))
+    for entry, wing_1, wing_2 in routed.wedges:
+        segments.append((entry, wing_1))
+        segments.append((entry, wing_2))
+    commands = []
+    for start, end in segments:
+        command = _measurement_command(start, end, options, layer)
+        if command is not None:
+            commands.append(command)
+    return CompositeCommand(commands)
+
+
+def _measurement_command(
+    start: Point, end: Point, options: MeasurementsOptions, layer: str
+) -> Optional[AddTextCommand]:
+    distance = math.hypot(end.x - start.x, end.y - start.y)
+    if distance <= 0:
+        return None
+    angle_deg = compute_direction_angle(start, end)
+    rotation = snap_small_rotation(angle_deg, round(angle_deg, 1))
+    offset_start, offset_end = offset_segment_perpendicular(start, end, options.offset)
+    insert = (
+        (offset_start.x + offset_end.x) / 2.0,
+        (offset_start.y + offset_end.y) / 2.0,
+        (start.h + end.h) / 2.0,
+    )
+    return AddTextCommand(
+        f"-{distance:.2f}-", insert, options.font_size, layer, rotation, halign="center", valign="middle"
+    )
+
+
 SurveyBuilder = Callable[[Dict[int, Point], List[int], GenerationConfig, str], CompositeCommand]
 
 _BUILDERS: Dict[DrawMode, SurveyBuilder] = {
@@ -355,6 +395,7 @@ _BUILDERS: Dict[DrawMode, SurveyBuilder] = {
     DrawMode.HEIGHTS: build_heights_command,
     DrawMode.CABLE_MARKS: build_cable_marks_command,
     DrawMode.PIPE: build_pipe_command,
+    DrawMode.MEASUREMENTS: build_measurements_command,
 }
 
 

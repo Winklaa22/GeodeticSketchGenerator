@@ -11,3 +11,4 @@ class DrawMode(IntEnum):
     HEIGHTS = 5
     CABLE_MARKS = 6
     PIPE = 7
+    MEASUREMENTS = 8

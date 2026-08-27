@@ -27,7 +27,14 @@ from PyQt6.QtWidgets import (
 
 from core import project as project_io
 from core.commands.composite import CompositeCommand
-from core.config import CableOptions, GenerationConfig, HeightsOptions, PipeOptions, PointsOptions
+from core.config import (
+    CableOptions,
+    GenerationConfig,
+    HeightsOptions,
+    MeasurementsOptions,
+    PipeOptions,
+    PointsOptions,
+)
 from core.draw_modes import DrawMode
 from core.exceptions import AppError, ProjectFileError
 from core.parser import PointFileParser
@@ -38,6 +45,7 @@ from core.project import (
     LayerDefState,
     LayerOnlyState,
     LayerState,
+    MeasurementsState,
     PipeState,
     PointsState,
     ProjectState,
@@ -57,6 +65,7 @@ from ui.tabs.draw_tab import DrawTab
 from ui.tabs.heights_tab import HeightsTab
 from ui.tabs.layer_only_tab import LayerOnlyTab
 from ui.tabs.layer_tab import LayerTab
+from ui.tabs.measurements_tab import MeasurementsTab
 from ui.tabs.pipe_tab import PipeTab
 from ui.tabs.points_tab import PointsTab
 from ui.tabs.selection_tab import SelectionTab
@@ -298,6 +307,7 @@ class MainWindow(QMainWindow):
         self.heights_tab = HeightsTab()
         self.cable_tab = CableTab()
         self.pipe_tab = PipeTab()
+        self.measurements_tab = MeasurementsTab()
         self.selection_tab = SelectionTab()
         self._layer_dependent_tabs = (
             self.points_tab,
@@ -307,6 +317,7 @@ class MainWindow(QMainWindow):
             self.heights_tab,
             self.cable_tab,
             self.pipe_tab,
+            self.measurements_tab,
         )
         self._sync_layer_dropdowns()
 
@@ -322,6 +333,7 @@ class MainWindow(QMainWindow):
             ("heights_section", "Heights", self.heights_tab, "heights"),
             ("cable_marks_section", "Cable Marks", self.cable_tab, "cable"),
             ("pipe_section", "Pipe", self.pipe_tab, "pipe"),
+            ("measurements_section", "Measurements", self.measurements_tab, "measurements"),
             ("selection_section", "Selection", self.selection_tab, None),
         )
         self._mode_sections: Dict[str, AccordionSection] = {}
@@ -436,6 +448,7 @@ class MainWindow(QMainWindow):
         self.heights_tab.option_changed.connect(self._on_config_changed)
         self.cable_tab.option_changed.connect(self._on_config_changed)
         self.pipe_tab.option_changed.connect(self._on_config_changed)
+        self.measurements_tab.option_changed.connect(self._on_config_changed)
         self.selection_tab.selection_changed.connect(self._on_config_changed)
         self.layer_tab.layers_changed.connect(self._on_layers_changed)
 
@@ -547,6 +560,7 @@ class MainWindow(QMainWindow):
         DrawMode.HEIGHTS: "heights_tab",
         DrawMode.CABLE_MARKS: "cable_tab",
         DrawMode.PIPE: "pipe_tab",
+        DrawMode.MEASUREMENTS: "measurements_tab",
     }
 
     def _layer_name_for_mode(self, draw_mode: DrawMode) -> str:
@@ -563,6 +577,7 @@ class MainWindow(QMainWindow):
             heights=self.heights_tab.get_options(),
             cable=self.cable_tab.get_options(),
             pipe=self.pipe_tab.get_options(),
+            measurements=self.measurements_tab.get_options(),
             layer_rgb=self.layer_tab.get_rgb(layer_name),
         )
 
@@ -724,6 +739,9 @@ class MainWindow(QMainWindow):
             ),
             cable=CableState(**asdict(self.cable_tab.get_options()), layer_name=self.cable_tab.get_layer_name()),
             pipe=PipeState(**asdict(self.pipe_tab.get_options()), layer_name=self.pipe_tab.get_layer_name()),
+            measurements=MeasurementsState(
+                **asdict(self.measurements_tab.get_options()), layer_name=self.measurements_tab.get_layer_name()
+            ),
             selection=SelectionState(
                 mode=self.selection_tab.mode_key, separate_text=separate_text, range_text=range_text
             ),
@@ -761,6 +779,10 @@ class MainWindow(QMainWindow):
         self.cable_tab.set_layer_name(state.cable.layer_name)
         self.pipe_tab.set_options(PipeOptions(width=state.pipe.width))
         self.pipe_tab.set_layer_name(state.pipe.layer_name)
+        self.measurements_tab.set_options(
+            MeasurementsOptions(font_size=state.measurements.font_size, offset=state.measurements.offset)
+        )
+        self.measurements_tab.set_layer_name(state.measurements.layer_name)
         self.selection_tab.set_state(state.selection.mode, state.selection.separate_text, state.selection.range_text)
 
         missing = []
