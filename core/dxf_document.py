@@ -8,7 +8,7 @@ from functools import lru_cache
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import ezdxf
-from ezdxf import colors as ezdxf_colors, recover
+from ezdxf import bbox as ezdxf_bbox, colors as ezdxf_colors, recover
 from ezdxf.document import Drawing
 from ezdxf.entities import DXFGraphic
 from ezdxf.layouts import Modelspace
@@ -194,6 +194,12 @@ class DXFDocument:
         )
         self._require_entity(handle).transform(matrix)
 
+    def entity_center(self, handle: str) -> Tuple[float, float]:
+        box = ezdxf_bbox.extents([self._require_entity(handle)])
+        if not box.has_data:
+            return 0.0, 0.0
+        return box.center.x, box.center.y
+
     def get_text_content(self, handle: str) -> str:
         return self._require_entity(handle).dxf.text
 
@@ -227,6 +233,19 @@ class DXFDocument:
 
     def set_entity_color(self, handle: str, rgb: Tuple[int, int, int]) -> None:
         self._apply_color(self._require_entity(handle), rgb)
+
+    def find_similar(self, handle: str) -> List[str]:
+        reference = self._require_entity(handle)
+        ref_type = reference.dxftype()
+        ref_layer = reference.dxf.layer
+        ref_color = self.get_entity_color(handle)
+        return [
+            entity.dxf.handle
+            for entity in self.modelspace
+            if entity.dxftype() == ref_type
+            and entity.dxf.layer == ref_layer
+            and self.get_entity_color(entity.dxf.handle) == ref_color
+        ]
 
     def add_layer(self, name: str, rgb: Optional[Tuple[int, int, int]] = None) -> None:
         if name in self.layers:

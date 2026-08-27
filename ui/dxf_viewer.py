@@ -497,13 +497,14 @@ class CadGraphicsView(qw.QGraphicsView):
         if self._dragging_items:
             self._finish_drag_items(release_pos)
             return
-        shift = bool(event.modifiers() & qc.Qt.KeyboardModifier.ShiftModifier)
+        additive_mask = qc.Qt.KeyboardModifier.ShiftModifier | qc.Qt.KeyboardModifier.ControlModifier
+        additive = bool(event.modifiers() & additive_mask)
         moved = (release_pos - press_pos).manhattanLength()
         if moved > _CLICK_THRESHOLD_PX:
-            self._finish_rubber_band(press_pos, release_pos, additive=shift)
+            self._finish_rubber_band(press_pos, release_pos, additive=additive)
             return
         item = self._topmost_handled_item(release_pos)
-        if shift:
+        if additive:
             self._toggle_selected_item(item)
         else:
             self.set_selected_items([item] if item is not None else [])
@@ -678,7 +679,7 @@ class ToolSession:
     def is_done(self) -> bool:
         raise NotImplementedError
 
-    def build_command(self, layer: str) -> EditCommand:
+    def build_command(self, doc: DXFDocument) -> EditCommand:
         raise NotImplementedError
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
@@ -711,9 +712,9 @@ class PointToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._point is not None
 
-    def build_command(self, layer: str) -> EditCommand:
+    def build_command(self, doc: DXFDocument) -> EditCommand:
         assert self._point is not None
-        return AddPointCommand(self._point, layer)
+        return AddPointCommand(self._point, doc.active_layer)
 
 
 _DEFAULT_TEXT_HEIGHT = 0.6
@@ -749,9 +750,9 @@ class TextToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._insert is not None and self._text is not None
 
-    def build_command(self, layer: str) -> EditCommand:
+    def build_command(self, doc: DXFDocument) -> EditCommand:
         assert self._insert is not None and self._text is not None
-        return AddTextCommand(self._text, self._insert, self._height, layer)
+        return AddTextCommand(self._text, self._insert, self._height, doc.active_layer)
 
 
 class LineToolSession(ToolSession):
@@ -793,9 +794,9 @@ class LineToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._start is not None and self._end is not None
 
-    def build_command(self, layer: str) -> EditCommand:
+    def build_command(self, doc: DXFDocument) -> EditCommand:
         assert self._start is not None and self._end is not None
-        return AddLineCommand(self._start, self._end, layer)
+        return AddLineCommand(self._start, self._end, doc.active_layer)
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
         if self._preview_item is not None:
@@ -856,9 +857,9 @@ class CircleToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._center is not None and self._radius is not None
 
-    def build_command(self, layer: str) -> EditCommand:
+    def build_command(self, doc: DXFDocument) -> EditCommand:
         assert self._center is not None and self._radius is not None
-        return AddCircleCommand(self._center, self._radius, layer)
+        return AddCircleCommand(self._center, self._radius, doc.active_layer)
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
         if self._preview_item is not None:
@@ -956,8 +957,9 @@ class PipeToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._start is not None and self._end is not None and self._width is not None
 
-    def build_command(self, layer: str) -> EditCommand:
+    def build_command(self, doc: DXFDocument) -> EditCommand:
         assert self._start is not None and self._end is not None and self._width is not None
+        layer = doc.active_layer
         half = self._width / 2.0
         line_a = _offset_segment_perpendicular(self._start, self._end, half)
         line_b = _offset_segment_perpendicular(self._start, self._end, -half)
@@ -1015,7 +1017,7 @@ class MoveToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._base is not None and self._dest is not None
 
-    def build_command(self, layer: str) -> EditCommand:
+    def build_command(self, doc: DXFDocument) -> EditCommand:
         assert self._base is not None and self._dest is not None
         dx = self._dest[0] - self._base[0]
         dy = self._dest[1] - self._base[1]
@@ -1085,7 +1087,7 @@ class RotateToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._base is not None and self._angle is not None
 
-    def build_command(self, layer: str) -> EditCommand:
+    def build_command(self, doc: DXFDocument) -> EditCommand:
         assert self._base is not None and self._angle is not None
         return RotateCommand(self._handles, self._angle, self._base)
 
@@ -1163,9 +1165,161 @@ class ScaleToolSession(ToolSession):
     def is_done(self) -> bool:
         return self._base is not None and self._factor is not None
 
-    def build_command(self, layer: str) -> EditCommand:
+    def build_command(self, doc: DXFDocument) -> EditCommand:
         assert self._base is not None and self._factor is not None
         return ScaleCommand(self._handles, self._factor, self._base)
+
+    def cleanup(self, scene: qw.QGraphicsScene) -> None:
+        if self._preview_item is not None:
+            scene.removeItem(self._preview_item)
+            self._preview_item = None
+        if self._preview_targets is not None:
+            for item in self._preview_targets:
+                item.setScale(1.0)
+            self._preview_targets = None
+
+
+class RotateEachToolSession(ToolSession):
+
+    def __init__(self, handles: List[str]) -> None:
+        super().__init__()
+        self._handles = handles
+        self.prompt = "Specify reference point: "
+        self._base: Optional[Tuple[float, float]] = None
+        self._angle: Optional[float] = None
+        self._preview_item: Optional[qw.QGraphicsLineItem] = None
+        self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
+
+    def on_click(self, point: Tuple[float, float]) -> None:
+        if self._base is None:
+            self._base = point
+            self.prompt = "Specify rotation angle: "
+        else:
+            self._angle = _angle_degrees(self._base, point)
+
+    def on_text(self, text: str) -> Optional[str]:
+        if self._base is None:
+            coord = _parse_coordinate(text, last_point=None)
+            if coord is None:
+                return f'Point must be given as "x,y": "{text}".'
+            self._base = coord
+            self.prompt = "Specify rotation angle: "
+            return None
+        try:
+            angle = float(text.strip())
+        except ValueError:
+            coord = _parse_coordinate(text, last_point=self._base)
+            if coord is None:
+                return f'Requires a numeric angle (degrees) or a point: "{text}".'
+            angle = _angle_degrees(self._base, coord)
+        self._angle = angle
+        return None
+
+    def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
+        if self._base is None or self._angle is not None:
+            return
+        if self._preview_item is None:
+            self._preview_item = qw.QGraphicsLineItem()
+            self._preview_item.setPen(_preview_pen())
+            scene.addItem(self._preview_item)
+        self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
+
+        if self._preview_targets is None:
+            handle_set = set(self._handles)
+            self._preview_targets = [item for item in scene.items() if item.data(_HANDLE_ROLE) in handle_set]
+            for item in self._preview_targets:
+                item.setTransformOriginPoint(item.boundingRect().center())
+        angle = _angle_degrees(self._base, point)
+        for item in self._preview_targets:
+            item.setRotation(angle)
+
+    def is_done(self) -> bool:
+        return self._base is not None and self._angle is not None
+
+    def build_command(self, doc: DXFDocument) -> EditCommand:
+        assert self._angle is not None
+        return CompositeCommand(
+            [RotateCommand([handle], self._angle, doc.entity_center(handle)) for handle in self._handles]
+        )
+
+    def cleanup(self, scene: qw.QGraphicsScene) -> None:
+        if self._preview_item is not None:
+            scene.removeItem(self._preview_item)
+            self._preview_item = None
+        if self._preview_targets is not None:
+            for item in self._preview_targets:
+                item.setRotation(0)
+            self._preview_targets = None
+
+
+class ScaleEachToolSession(ToolSession):
+
+    def __init__(self, handles: List[str]) -> None:
+        super().__init__()
+        self._handles = handles
+        self.prompt = "Specify reference point: "
+        self._base: Optional[Tuple[float, float]] = None
+        self._factor: Optional[float] = None
+        self._preview_item: Optional[qw.QGraphicsLineItem] = None
+        self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
+
+    def on_click(self, point: Tuple[float, float]) -> None:
+        if self._base is None:
+            self._base = point
+            self.prompt = "Specify scale factor: "
+        else:
+            factor = _distance(self._base, point)
+            if factor > 0:
+                self._factor = factor
+
+    def on_text(self, text: str) -> Optional[str]:
+        if self._base is None:
+            coord = _parse_coordinate(text, last_point=None)
+            if coord is None:
+                return f'Point must be given as "x,y": "{text}".'
+            self._base = coord
+            self.prompt = "Specify scale factor: "
+            return None
+        try:
+            factor = float(text.strip())
+        except ValueError:
+            coord = _parse_coordinate(text, last_point=self._base)
+            if coord is None:
+                return f'Requires a numeric scale factor or a point: "{text}".'
+            factor = _distance(self._base, coord)
+        if factor <= 0:
+            return "Scale factor must be positive."
+        self._factor = factor
+        return None
+
+    def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
+        if self._base is None or self._factor is not None:
+            return
+        if self._preview_item is None:
+            self._preview_item = qw.QGraphicsLineItem()
+            self._preview_item.setPen(_preview_pen())
+            scene.addItem(self._preview_item)
+        self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
+
+        if self._preview_targets is None:
+            handle_set = set(self._handles)
+            self._preview_targets = [item for item in scene.items() if item.data(_HANDLE_ROLE) in handle_set]
+            for item in self._preview_targets:
+                item.setTransformOriginPoint(item.boundingRect().center())
+        factor = _distance(self._base, point)
+        if factor <= 0:
+            return
+        for item in self._preview_targets:
+            item.setScale(factor)
+
+    def is_done(self) -> bool:
+        return self._base is not None and self._factor is not None
+
+    def build_command(self, doc: DXFDocument) -> EditCommand:
+        assert self._factor is not None
+        return CompositeCommand(
+            [ScaleCommand([handle], self._factor, doc.entity_center(handle)) for handle in self._handles]
+        )
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
         if self._preview_item is not None:
@@ -1376,6 +1530,12 @@ class DxfCommandInterpreter:
             "RO": self._cmd_rotate,
             "SCALE": self._cmd_scale,
             "SC": self._cmd_scale,
+            "ROTATEEACH": self._cmd_rotate_each,
+            "RE": self._cmd_rotate_each,
+            "SCALEEACH": self._cmd_scale_each,
+            "SE": self._cmd_scale_each,
+            "SELECTSIMILAR": self._cmd_select_similar,
+            "SS": self._cmd_select_similar,
             "ERASE": self._cmd_erase,
             "DELETE": self._cmd_erase,
             "E": self._cmd_erase,
@@ -1513,6 +1673,17 @@ class DxfCommandInterpreter:
         self._viewer.start_scale_tool()
         return ""
 
+    def _cmd_rotate_each(self, args: List[str]) -> str:
+        self._viewer.start_rotate_each_tool()
+        return ""
+
+    def _cmd_scale_each(self, args: List[str]) -> str:
+        self._viewer.start_scale_each_tool()
+        return ""
+
+    def _cmd_select_similar(self, args: List[str]) -> str:
+        return self._viewer.select_similar()
+
     def _cmd_erase(self, args: List[str]) -> str:
         return self._viewer.delete_selected()
 
@@ -1558,6 +1729,9 @@ class DxfToolbar(qw.QWidget):
     moveRequested = qc.pyqtSignal()
     rotateRequested = qc.pyqtSignal()
     scaleRequested = qc.pyqtSignal()
+    rotateEachRequested = qc.pyqtSignal()
+    scaleEachRequested = qc.pyqtSignal()
+    selectSimilarRequested = qc.pyqtSignal()
     eraseRequested = qc.pyqtSignal()
     zoomExtentsRequested = qc.pyqtSignal()
     zoomInRequested = qc.pyqtSignal()
@@ -1580,6 +1754,8 @@ class DxfToolbar(qw.QWidget):
             "move": self.moveRequested,
             "rotate": self.rotateRequested,
             "scale": self.scaleRequested,
+            "rotate_each": self.rotateEachRequested,
+            "scale_each": self.scaleEachRequested,
         }
         self._tool_icon_names = {
             "select": "select_tool",
@@ -1591,18 +1767,26 @@ class DxfToolbar(qw.QWidget):
             "move": "move_tool",
             "rotate": "rotate_tool",
             "scale": "scale_tool",
+            "rotate_each": "rotate_each_tool",
+            "scale_each": "scale_each_tool",
         }
 
         self._add_tool_button(layout, "select", "select_tool", "Select / cancel current tool (Esc)")
-        self._add_tool_button(layout, "point", "point_tool", "Point (PO)")
+        self._select_similar_btn = self._add_plain_button(
+            layout, "select_similar_tool", "Select Similar (S, S)", self.selectSimilarRequested
+        )
+        layout.addWidget(self._separator())
+        self._add_tool_button(layout, "point", "point_tool", "Point (P, O)")
         self._add_tool_button(layout, "text", "text_tool", "Text (T)")
         self._add_tool_button(layout, "line", "line_tool", "Line (L)")
         self._add_tool_button(layout, "circle", "circle_tool", "Circle (C)")
-        self._add_tool_button(layout, "pipe", "pipe_tool", "Pipe (RURA)")
+        self._add_tool_button(layout, "pipe", "pipe_tool", "Pipe (R, U)")
         layout.addWidget(self._separator())
         self._add_tool_button(layout, "move", "move_tool", "Move selected (M)")
-        self._add_tool_button(layout, "rotate", "rotate_tool", "Rotate selected (RO)")
-        self._add_tool_button(layout, "scale", "scale_tool", "Scale selected (SC)")
+        self._add_tool_button(layout, "rotate", "rotate_tool", "Rotate selected as one (R, O)")
+        self._add_tool_button(layout, "scale", "scale_tool", "Scale selected as one (S, C)")
+        self._add_tool_button(layout, "rotate_each", "rotate_each_tool", "Rotate each in place (R, E)")
+        self._add_tool_button(layout, "scale_each", "scale_each_tool", "Scale each in place (S, E)")
         self._erase_btn = self._add_plain_button(layout, "erase_tool", "Erase selected (Del)", self.eraseRequested)
         layout.addWidget(self._separator())
         self._add_plain_button(layout, "zoom_extents_tool", "Zoom Extents (ZOOM E)", self.zoomExtentsRequested)
@@ -1675,6 +1859,8 @@ _TOOL_KEYS = {
     MoveToolSession: "move",
     RotateToolSession: "rotate",
     ScaleToolSession: "scale",
+    RotateEachToolSession: "rotate_each",
+    ScaleEachToolSession: "scale_each",
 }
 
 
@@ -1762,6 +1948,9 @@ class DxfViewer(qw.QWidget):
         self._toolbar.moveRequested.connect(self.start_move_tool)
         self._toolbar.rotateRequested.connect(self.start_rotate_tool)
         self._toolbar.scaleRequested.connect(self.start_scale_tool)
+        self._toolbar.rotateEachRequested.connect(self.start_rotate_each_tool)
+        self._toolbar.scaleEachRequested.connect(self.start_scale_each_tool)
+        self._toolbar.selectSimilarRequested.connect(lambda: self._echo(self.select_similar()))
         self._toolbar.eraseRequested.connect(lambda: self._echo(self.delete_selected()))
         self._toolbar.zoomExtentsRequested.connect(self._view.fit_to_scene)
         self._toolbar.zoomInRequested.connect(lambda: self._view.zoom_by(1.25))
@@ -1793,6 +1982,18 @@ class DxfViewer(qw.QWidget):
         self._add_shortcut("Ctrl+V", lambda: self._echo(self.paste_clipboard()))
         self._add_shortcut("Ctrl+D", lambda: self._echo(self.duplicate_selected()))
 
+        self._add_shortcut("P,O", lambda: self._start_draw_tool(PointToolSession), parent=self._view)
+        self._add_shortcut("T", lambda: self._start_draw_tool(TextToolSession), parent=self._view)
+        self._add_shortcut("L", lambda: self._start_draw_tool(LineToolSession), parent=self._view)
+        self._add_shortcut("C", lambda: self._start_draw_tool(CircleToolSession), parent=self._view)
+        self._add_shortcut("R,U", lambda: self._start_draw_tool(PipeToolSession), parent=self._view)
+        self._add_shortcut("M", self.start_move_tool, parent=self._view)
+        self._add_shortcut("R,O", self.start_rotate_tool, parent=self._view)
+        self._add_shortcut("S,C", self.start_scale_tool, parent=self._view)
+        self._add_shortcut("R,E", self.start_rotate_each_tool, parent=self._view)
+        self._add_shortcut("S,E", self.start_scale_each_tool, parent=self._view)
+        self._add_shortcut("S,S", lambda: self._echo(self.select_similar()), parent=self._view)
+
         self.ensure_document()
 
     def _add_shortcut(
@@ -1800,8 +2001,9 @@ class DxfViewer(qw.QWidget):
         sequence: str,
         slot,
         context: qc.Qt.ShortcutContext = qc.Qt.ShortcutContext.WidgetWithChildrenShortcut,
+        parent: Optional[qw.QWidget] = None,
     ) -> None:
-        shortcut = qg.QShortcut(qg.QKeySequence(sequence), self)
+        shortcut = qg.QShortcut(qg.QKeySequence(sequence), parent or self)
         shortcut.setContext(context)
         shortcut.activated.connect(slot)
 
@@ -1952,6 +2154,7 @@ class DxfViewer(qw.QWidget):
             self._command_line.show_response("Cancelled.")
         self.clear_selection()
         self._toolbar.set_active_tool(None)
+        self._view.setFocus()
 
     def _start_draw_tool(self, factory: Callable[[], ToolSession]) -> None:
         self.ensure_document()
@@ -1978,6 +2181,20 @@ class DxfViewer(qw.QWidget):
             return
         self.start_tool(ScaleToolSession(list(self._selected_handles)))
 
+    def start_rotate_each_tool(self) -> None:
+        if not self._selected_handles:
+            self._echo("Select objects to rotate first.")
+            self._toolbar.set_active_tool(None)
+            return
+        self.start_tool(RotateEachToolSession(list(self._selected_handles)))
+
+    def start_scale_each_tool(self) -> None:
+        if not self._selected_handles:
+            self._echo("Select objects to scale first.")
+            self._toolbar.set_active_tool(None)
+            return
+        self.start_tool(ScaleEachToolSession(list(self._selected_handles)))
+
     def copy_selected(self) -> str:
         if not self._selected_handles:
             return "Select an object first."
@@ -2002,6 +2219,15 @@ class DxfViewer(qw.QWidget):
         self.execute_command(command)
         self._select_handles(command.new_handles)
         return f"{len(command.new_handles)} object(s) duplicated."
+
+    def select_similar(self) -> str:
+        if self._doc is None or not self._selected_handles:
+            return "Select an object first."
+        matched = set()
+        for handle in self._selected_handles:
+            matched.update(self._doc.find_similar(handle))
+        self._select_handles(matched)
+        return f"{len(matched)} object(s) selected."
 
     def _on_add_layer(self, name: str, rgb: Tuple[int, int, int]) -> None:
         self.ensure_document()
@@ -2119,7 +2345,7 @@ class DxfViewer(qw.QWidget):
         tool = self._active_tool
         assert tool is not None
         doc = self.ensure_document()
-        command = tool.build_command(doc.active_layer)
+        command = tool.build_command(doc)
         next_tool = tool.continuation() if hasattr(tool, "continuation") else None
         tool.cleanup(self._view.scene())
         self._active_tool = None
