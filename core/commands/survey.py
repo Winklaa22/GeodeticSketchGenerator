@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Callable, Dict, List, Set, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from core.commands.composite import CompositeCommand
 from core.commands.draw import (
@@ -25,45 +25,163 @@ from core.geometry import (
 from core.patterns import route_selected_points
 from models.point import Point
 
-CABINET_LABEL_COUNT = 6
-
-
 def build_points_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
     options = config.points
     radius = max(options.diameter / 2.0, 0.0)
-    cabinet_targets = _cabinet_targets(selected_numbers, config.cabinet_mode)
+    directions = list(iter_point_directions(points, selected_numbers))
+    cabinet_offsets: Dict[int, Tuple[float, float]] = {}
+    if options.numbers_enabled:
+        for cluster in _cabinet_clusters(points, selected_numbers):
+            cabinet_offsets.update(_cabinet_label_offsets(cluster, options.font_size))
 
     commands = []
-    for direction in iter_point_directions(points, selected_numbers):
+    for direction in directions:
         point = direction.point
         commands.append(AddCircleCommand((point.x, point.y, point.h), radius, layer))
         if options.numbers_enabled:
             commands.append(
-                _points_label_command(direction, options.font_size, config.cabinet_mode, cabinet_targets, layer)
+                _points_label_command(direction, options.font_size, cabinet_offsets, layer)
             )
     return CompositeCommand(commands)
 
 
-def _cabinet_targets(selected_numbers: List[int], cabinet_mode: bool) -> Set[int]:
-    if not cabinet_mode:
-        return set()
-    return set(sorted(selected_numbers)[-CABINET_LABEL_COUNT:])
+def _cabinet_clusters(points: Dict[int, Point], selected_numbers: List[int]) -> List[Dict[int, Point]]:
+    routed = route_selected_points(points, selected_numbers)
+    number_by_id = {id(p): n for n, p in points.items()}
+
+    clusters = [{number_by_id[id(p)]: p for p in box} for box in routed.boxes]
+    clusters.extend({number_by_id[id(p)]: p for p in wedge} for wedge in routed.wedges)
+
+    for cluster in clusters:
+        centroid = _centroid(list(cluster.values()))
+        if centroid is None:
+            continue
+        cluster_radius = max(math.hypot(p.x - centroid[0], p.y - centroid[1]) for p in cluster.values())
+        for point in routed.main:
+            number = number_by_id[id(point)]
+            if number in cluster:
+                continue
+            if math.hypot(point.x - centroid[0], point.y - centroid[1]) <= cluster_radius:
+                cluster[number] = point
+
+    return clusters
+
+
+def _centroid(points: List[Point]) -> Optional[Tuple[float, float]]:
+    if not points:
+        return None
+    return sum(p.x for p in points) / len(points), sum(p.y for p in points) / len(points)
+
+
+_CABINET_OFFSET_SCALES = (1.0, 1.5, 2.0, 2.5, 3.0)
+_GLYPH_WIDTH_FACTOR = 0.9
+_GLYPH_HEIGHT_FACTOR = 1.3
+
+
+def _cabinet_label_offsets(cabinet_points: Dict[int, Point], font_size: float) -> Dict[int, Tuple[float, float]]:
+    centroid = _centroid(list(cabinet_points.values()))
+    if centroid is None:
+        return {}
+    half = font_size / 2.0
+    centroid_x, centroid_y = centroid
+    distances = {
+        n: math.hypot(p.x - centroid_x, p.y - centroid_y) for n, p in cabinet_points.items()
+    }
+    ordering = sorted(cabinet_points, key=lambda n: distances[n], reverse=True)
+
+    offsets: Dict[int, Tuple[float, float]] = {}
+    placed_boxes: List[Tuple[float, float, float, float]] = []
+    for number in ordering:
+        point = cabinet_points[number]
+        footprint = _label_footprint(str(number), font_size)
+        x_sign = 1.0 if point.x >= centroid_x else -1.0
+        y_sign = 1.0 if point.y >= centroid_y else -1.0
+
+        best_offset = (half * x_sign, half * y_sign)
+        best_overlaps = None
+        for scale in _CABINET_OFFSET_SCALES:
+            magnitude = half * scale
+            candidates = [
+                (magnitude * x_sign, magnitude * y_sign),
+                (-magnitude * x_sign, magnitude * y_sign),
+                (magnitude * x_sign, -magnitude * y_sign),
+                (-magnitude * x_sign, -magnitude * y_sign),
+                (magnitude, 0.0), (-magnitude, 0.0), (0.0, magnitude), (0.0, -magnitude),
+            ]
+            for candidate in candidates:
+                box = _offset_bbox(point.x, point.y, candidate, footprint)
+                overlaps = sum(1 for placed_box in placed_boxes if _boxes_overlap(box, placed_box))
+                if best_overlaps is None or overlaps < best_overlaps:
+                    best_offset, best_overlaps = candidate, overlaps
+            if best_overlaps == 0:
+                break
+
+        offsets[number] = best_offset
+        placed_boxes.append(_offset_bbox(point.x, point.y, best_offset, footprint))
+
+    return offsets
+
+
+def _label_footprint(text: str, size: float) -> Tuple[float, float]:
+    return _GLYPH_WIDTH_FACTOR * size * len(text), _GLYPH_HEIGHT_FACTOR * size
+
+
+def _offset_bbox(
+    x: float, y: float, offset: Tuple[float, float], footprint: Tuple[float, float]
+) -> Tuple[float, float, float, float]:
+    x_offset, y_offset = offset
+    width, height = footprint
+    if x_offset > 0:
+        x0, x1 = x + x_offset, x + x_offset + width
+    elif x_offset < 0:
+        x0, x1 = x + x_offset - width, x + x_offset
+    else:
+        x0, x1 = x - width, x + width
+    if y_offset > 0:
+        y0, y1 = y + y_offset, y + y_offset + height
+    elif y_offset < 0:
+        y0, y1 = y + y_offset - height, y + y_offset
+    else:
+        y0, y1 = y - height, y + height
+    return x0, y0, x1, y1
+
+
+def _boxes_overlap(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> bool:
+    return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
 
 
 def _points_label_command(
-    direction: PointDirection, font_size: float, cabinet_mode: bool, cabinet_targets: Set[int], layer: str
+    direction: PointDirection, font_size: float, cabinet_offsets: Dict[int, Tuple[float, float]], layer: str
 ) -> AddTextCommand:
     point = direction.point
-    x_offset, y_offset = _points_label_offset(direction.angle_deg, font_size)
     size = font_size
-    if cabinet_mode and direction.number in cabinet_targets:
-        size = font_size / 2.0
-        x_offset = 0.0
-        y_offset = 0.0
+    cabinet_offset = cabinet_offsets.get(direction.number)
+    if cabinet_offset is not None:
+        x_offset, y_offset = cabinet_offset
+        halign, valign = _text_anchor(x_offset, y_offset)
+    else:
+        x_offset, y_offset = _points_label_offset(direction.angle_deg, size)
+        halign, valign = "left", "bottom"
     insert = (point.x + x_offset, point.y + y_offset, point.h)
-    return AddTextCommand(str(direction.number), insert, size, layer)
+    return AddTextCommand(str(direction.number), insert, size, layer, halign=halign, valign=valign)
+
+
+def _text_anchor(x_offset: float, y_offset: float) -> Tuple[str, str]:
+    if x_offset > 0:
+        halign = "left"
+    elif x_offset < 0:
+        halign = "right"
+    else:
+        halign = "center"
+    if y_offset > 0:
+        valign = "bottom"
+    elif y_offset < 0:
+        valign = "top"
+    else:
+        valign = "middle"
+    return halign, valign
 
 
 def _points_label_offset(angle_deg: float, font_size: float) -> Tuple[float, float]:

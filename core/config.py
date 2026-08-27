@@ -40,7 +40,6 @@ class GenerationConfig:
 
     layer_name: str
     draw_mode: DrawMode
-    cabinet_mode: bool = False
     points: PointsOptions = field(default_factory=PointsOptions)
     heights: HeightsOptions = field(default_factory=HeightsOptions)
     cable: CableOptions = field(default_factory=CableOptions)

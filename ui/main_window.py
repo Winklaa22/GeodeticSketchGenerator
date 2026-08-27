@@ -425,7 +425,6 @@ class MainWindow(QMainWindow):
 
     def _wire_signals(self) -> None:
         self.delimiter_tab.swap_xy_toggled.connect(self._on_config_changed)
-        self.delimiter_tab.cabinet_mode_toggled.connect(self._on_config_changed)
         self.delimiter_tab.delimiter_changed.connect(self._on_delimiter_changed)
 
         self.draw_tab.modes_changed.connect(self._on_config_changed)
@@ -560,7 +559,6 @@ class MainWindow(QMainWindow):
         return GenerationConfig(
             layer_name=layer_name,
             draw_mode=draw_mode,
-            cabinet_mode=self.delimiter_tab.cabinet_mode_enabled,
             points=self.points_tab.get_options(),
             heights=self.heights_tab.get_options(),
             cable=self.cable_tab.get_options(),
@@ -716,7 +714,6 @@ class MainWindow(QMainWindow):
             delimiter=DelimiterState(
                 mode=self.delimiter_tab.gap_key,
                 swap_xy=self.delimiter_tab.swap_xy_enabled,
-                cabinet_mode=self.delimiter_tab.cabinet_mode_enabled,
             ),
             points=PointsState(**asdict(self.points_tab.get_options()), layer_name=self.points_tab.get_layer_name()),
             lines=LayerOnlyState(layer_name=self.lines_tab.get_layer_name()),
@@ -737,7 +734,7 @@ class MainWindow(QMainWindow):
 
     def load_project_state(self, state: ProjectState) -> None:
         self.project_name = state.name
-        self.delimiter_tab.set_state(state.delimiter.mode, state.delimiter.swap_xy, state.delimiter.cabinet_mode)
+        self.delimiter_tab.set_state(state.delimiter.mode, state.delimiter.swap_xy)
         self.draw_tab.set_mode_keys(state.draw_modes)
         self.layer_tab.set_state([(l.name, tuple(l.rgb)) for l in state.layer.layers], state.layer.default_name)
         self._sync_layer_dropdowns()

@@ -68,19 +68,31 @@ class AddTextCommand:
         height: float,
         layer: str = DEFAULT_LAYER,
         rotation: float = 0.0,
+        halign: str = "left",
+        valign: str = "bottom",
     ) -> None:
         self._text = text
         self._insert = insert
         self._height = height
         self._layer = layer
         self._rotation = rotation
+        self._halign = halign
+        self._valign = valign
         self._handle: Optional[str] = None
 
     def execute(self, doc: DXFDocument) -> None:
         if self._handle is not None:
             doc.relink_entity(self._handle)
         else:
-            self._handle = doc.add_text(self._text, self._insert, self._height, self._layer, self._rotation)
+            self._handle = doc.add_text(
+                self._text,
+                self._insert,
+                self._height,
+                self._layer,
+                self._rotation,
+                self._halign,
+                self._valign,
+            )
 
     def undo(self, doc: DXFDocument) -> None:
         if self._handle is not None:

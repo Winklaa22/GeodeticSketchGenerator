@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import itertools
+import math
+import random
+
 import pytest
+from ezdxf import bbox as ezdxf_bbox
 
 from core.config import CableOptions, GenerationConfig, HeightsOptions, PipeOptions, PointsOptions
 from core.draw_modes import DrawMode
+from core.commands import survey
 from core.dxf_document import DXFDocument
 from core.exceptions import InvalidLayerNameError, NoDataError, NoSelectionError
 from core.survey_draw_service import SurveyDrawService
@@ -31,6 +37,15 @@ def doc() -> DXFDocument:
 
 def _entities_of_type(doc: DXFDocument, dxftype: str):
     return [e for e in doc.modelspace if e.dxftype() == dxftype]
+
+
+def _bboxes_overlap(a, b) -> bool:
+    return not (
+        a.extmax.x <= b.extmin.x
+        or b.extmax.x <= a.extmin.x
+        or a.extmax.y <= b.extmin.y
+        or b.extmax.y <= a.extmin.y
+    )
 
 
 def test_build_command_raises_when_no_points(service: SurveyDrawService) -> None:
@@ -273,19 +288,210 @@ def test_points_mode_adds_number_labels_when_enabled(
     assert sorted(t.dxf.text for t in labels) == ["1", "2", "3"]
 
 
-def test_points_mode_cabinet_shrinks_last_six_labels(service: SurveyDrawService, doc: DXFDocument) -> None:
-    points = {n: Point(x=float(n), y=0.0, h=1.0) for n in range(1, 8)}
+def test_points_mode_normally_spaced_points_are_never_treated_as_a_cabinet(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = {n: Point(x=float(n) * 5.0, y=0.0, h=1.0) for n in range(1, 8)}
     config = GenerationConfig(
         layer_name="0",
         draw_mode=DrawMode.POINTS,
-        cabinet_mode=True,
         points=PointsOptions(numbers_enabled=True, font_size=0.6, diameter=0.1),
     )
     service.build_command(points, list(range(1, 8)), config).execute(doc)
     labels = {t.dxf.text: t for t in _entities_of_type(doc, "TEXT")}
-    assert labels["1"].dxf.height == 0.6
-    assert labels["2"].dxf.height == 0.3
-    assert tuple(labels["2"].dxf.insert) == (2.0, 0.0, 1.0)
+    assert {label.dxf.height for label in labels.values()} == {0.6}
+
+
+def test_points_mode_auto_detects_a_tight_cluster_as_a_cabinet(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = {
+        1: Point(x=0.0, y=50.0, h=1.0),
+        2: Point(x=0.0, y=0.0, h=1.0),
+        3: Point(x=0.2, y=0.0, h=1.0),
+        4: Point(x=0.2, y=0.2, h=1.0),
+        5: Point(x=0.0, y=0.2, h=1.0),
+    }
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.POINTS,
+        points=PointsOptions(numbers_enabled=True, font_size=0.6, diameter=0.1),
+    )
+    service.build_command(points, [1, 2, 3, 4, 5], config).execute(doc)
+    labels = {t.dxf.text: t for t in _entities_of_type(doc, "TEXT")}
+    for n in ("1", "2", "3", "4", "5"):
+        assert labels[n].dxf.height == 0.6
+    assert tuple(labels["2"].dxf.insert) != (0.0, 0.0, 1.0)
+
+
+def test_points_mode_cabinet_label_offset_points_away_from_the_cluster_center(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = {
+        1: Point(x=0.0, y=100.0, h=1.0),
+        2: Point(x=0.0, y=1.0, h=1.0),
+        3: Point(x=1.0, y=1.0, h=1.0),
+        4: Point(x=1.0, y=0.0, h=1.0),
+        5: Point(x=0.0, y=0.0, h=1.0),
+        6: Point(x=0.5, y=0.5, h=1.0),
+        7: Point(x=0.5, y=0.6, h=1.0),
+    }
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.POINTS,
+        points=PointsOptions(numbers_enabled=True, font_size=1.0, diameter=0.05),
+    )
+    service.build_command(points, [1, 2, 3, 4, 5, 6, 7], config).execute(doc)
+    insert = {t.dxf.text: tuple(t.dxf.insert) for t in _entities_of_type(doc, "TEXT")}
+
+    assert insert["2"][0] < points[2].x and insert["2"][1] > points[2].y
+    assert insert["3"][0] > points[3].x and insert["3"][1] > points[3].y
+    assert insert["4"][0] > points[4].x and insert["4"][1] < points[4].y
+    assert insert["5"][0] < points[5].x and insert["5"][1] < points[5].y
+
+
+def test_points_mode_cabinet_label_offset_magnitude_matches_font_size(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = {
+        1: Point(x=0.0, y=0.0, h=1.0),
+        2: Point(x=1.0, y=0.0, h=1.0),
+        3: Point(x=1.0, y=1.0, h=1.0),
+        4: Point(x=0.0, y=1.0, h=1.0),
+    }
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.POINTS,
+        points=PointsOptions(numbers_enabled=True, font_size=1.0, diameter=0.1),
+    )
+    service.build_command(points, [1, 2, 3, 4], config).execute(doc)
+    insert = {t.dxf.text: tuple(t.dxf.insert) for t in _entities_of_type(doc, "TEXT")}
+    labels = {t.dxf.text: t for t in _entities_of_type(doc, "TEXT")}
+    assert insert["1"][0] == pytest.approx(-0.5)
+    assert insert["3"][0] == pytest.approx(1.5)
+    for n in ("1", "2", "3", "4"):
+        assert labels[n].dxf.height == 1.0
+
+
+def test_points_mode_cabinet_separates_a_center_point_from_the_four_corners(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = {
+        6: Point(x=5686173.46, y=6447787.73, h=217.07),
+        7: Point(x=5686173.81, y=6447787.89, h=217.06),
+        8: Point(x=5686173.11, y=6447787.89, h=217.02),
+        9: Point(x=5686173.11, y=6447787.57, h=0.0),
+        10: Point(x=5686173.81, y=6447787.57, h=0.0),
+    }
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.POINTS,
+        points=PointsOptions(numbers_enabled=True, font_size=0.6, diameter=0.1),
+    )
+    service.build_command(points, [6, 7, 8, 9, 10], config).execute(doc)
+    insert = {t.dxf.text: tuple(t.dxf.insert)[:2] for t in _entities_of_type(doc, "TEXT")}
+
+    min_separation = min(
+        math.hypot(insert[a][0] - insert[b][0], insert[a][1] - insert[b][1])
+        for a, b in itertools.combinations(insert, 2)
+    )
+    assert min_separation > 0.3
+
+    assert insert["8"][0] < points[8].x and insert["8"][1] > points[8].y
+    assert insert["7"][0] > points[7].x and insert["7"][1] > points[7].y
+    assert insert["9"][0] < points[9].x and insert["9"][1] < points[9].y
+    assert insert["10"][0] > points[10].x and insert["10"][1] < points[10].y
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        {
+            6: Point(x=5686173.46, y=6447787.73, h=217.07),
+            7: Point(x=5686173.81, y=6447787.89, h=217.06),
+            8: Point(x=5686173.11, y=6447787.89, h=217.02),
+            9: Point(x=5686173.11, y=6447787.57, h=0.0),
+            10: Point(x=5686173.81, y=6447787.57, h=0.0),
+        },
+        {
+            1: Point(x=0.0, y=0.0, h=0.0),
+            2: Point(x=1.0, y=0.0, h=0.0),
+            3: Point(x=1.0, y=1.0, h=0.0),
+            4: Point(x=0.0, y=1.0, h=0.0),
+            5: Point(x=0.5, y=0.5, h=0.0),
+        },
+    ],
+)
+def test_points_mode_cabinet_label_never_covers_its_own_point(
+    service: SurveyDrawService, doc: DXFDocument, points
+) -> None:
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.POINTS,
+        points=PointsOptions(numbers_enabled=True, font_size=0.6, diameter=0.1),
+    )
+    service.build_command(points, list(points), config).execute(doc)
+    labels = {int(t.dxf.text): t for t in _entities_of_type(doc, "TEXT")}
+    for number, label in labels.items():
+        point = points[number]
+        extents = ezdxf_bbox.extents([label])
+        covered = (
+            extents.extmin.x < point.x < extents.extmax.x
+            and extents.extmin.y < point.y < extents.extmax.y
+        )
+        assert not covered, f"label {number} covers its own point"
+
+    for a, b in itertools.combinations(labels, 2):
+        overlap = _bboxes_overlap(ezdxf_bbox.extents([labels[a]]), ezdxf_bbox.extents([labels[b]]))
+        assert not overlap, f"labels {a} and {b} overlap each other"
+
+
+def test_points_mode_cabinet_label_never_covers_its_own_point_across_random_routes(
+    service: SurveyDrawService,
+) -> None:
+    rng = random.Random(0)
+    for _trial in range(200):
+        numbers = list(range(1, rng.randint(4, 10)))
+        points: dict[int, Point] = {}
+        x, y = 0.0, 0.0
+        for number in numbers:
+            if rng.random() < 0.3 and number > 1:
+                cx, cy = points[number - 1].x, points[number - 1].y
+                x = cx + rng.uniform(-0.2, 0.2)
+                y = cy + rng.uniform(-0.2, 0.2)
+            else:
+                x += rng.uniform(-5.0, 5.0)
+                y += rng.uniform(-5.0, 5.0)
+            points[number] = Point(x=x, y=y, h=0.0)
+        font_size = rng.choice([0.3, 0.6, 1.0, 2.0])
+        config = GenerationConfig(
+            layer_name="0",
+            draw_mode=DrawMode.POINTS,
+            points=PointsOptions(numbers_enabled=True, font_size=font_size, diameter=0.1),
+        )
+        cabinet_numbers = set()
+        for cluster in survey._cabinet_clusters(points, numbers):
+            cabinet_numbers.update(cluster)
+        doc = DXFDocument.new()
+        service.build_command(points, numbers, config).execute(doc)
+        cabinet_labels = {}
+        for label in _entities_of_type(doc, "TEXT"):
+            number = int(label.dxf.text)
+            if number not in cabinet_numbers:
+                continue
+            cabinet_labels[number] = label
+            point = points[number]
+            extents = ezdxf_bbox.extents([label])
+            covered = (
+                extents.extmin.x < point.x < extents.extmax.x
+                and extents.extmin.y < point.y < extents.extmax.y
+            )
+            assert not covered, f"trial {_trial}: label {number} covers its own point"
+        for a, b in itertools.combinations(cabinet_labels, 2):
+            overlap = _bboxes_overlap(
+                ezdxf_bbox.extents([cabinet_labels[a]]), ezdxf_bbox.extents([cabinet_labels[b]])
+            )
+            assert not overlap, f"trial {_trial}: labels {a} and {b} overlap each other"
 
 
 def test_heights_mode_respects_frequency_and_rounds_height_up(
