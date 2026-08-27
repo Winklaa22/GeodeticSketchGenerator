@@ -57,6 +57,13 @@ class LayerOnlyState:
 
 
 @dataclass
+class MeasurementsState:
+    font_size: float = 0.6
+    offset: float = 0.3
+    layer_name: str = ""
+
+
+@dataclass
 class SelectionState:
     mode: str = "all"
     separate_text: str = ""
@@ -92,6 +99,7 @@ class ProjectState:
     heights: HeightsState = field(default_factory=HeightsState)
     cable: CableState = field(default_factory=CableState)
     pipe: PipeState = field(default_factory=PipeState)
+    measurements: MeasurementsState = field(default_factory=MeasurementsState)
     selection: SelectionState = field(default_factory=SelectionState)
     layer: LayerState = field(default_factory=LayerState)
 
@@ -136,6 +144,7 @@ def load_project(path: str) -> ProjectState:
             heights=HeightsState(**(payload.get("heights") or {})),
             cable=CableState(**(payload.get("cable") or {})),
             pipe=PipeState(**(payload.get("pipe") or {})),
+            measurements=MeasurementsState(**(payload.get("measurements") or {})),
             selection=SelectionState(**(payload.get("selection") or {})),
             layer=_load_layer_state(payload.get("layer") or {}),
         )
