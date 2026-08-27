@@ -23,7 +23,6 @@ _MODE_BY_KEY = {
 class DelimiterTab(QWidget):
 
     swap_xy_toggled = pyqtSignal(bool)
-    cabinet_mode_toggled = pyqtSignal(bool)
     delimiter_changed = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -38,11 +37,6 @@ class DelimiterTab(QWidget):
         self.swap_xy_checkbox.setChecked(True)
         self.swap_xy_checkbox.toggled.connect(self.swap_xy_toggled.emit)
         layout.addWidget(self.swap_xy_checkbox)
-
-        self.cabinet_mode_checkbox = CheckField("Cabinet mode (shrink last 6 labels)")
-        self.cabinet_mode_checkbox.setChecked(False)
-        self.cabinet_mode_checkbox.toggled.connect(self.cabinet_mode_toggled.emit)
-        layout.addWidget(self.cabinet_mode_checkbox)
         layout.addStretch(1)
 
     @property
@@ -54,21 +48,12 @@ class DelimiterTab(QWidget):
         return self.gap_control.current() or "auto"
 
     @property
-    def cabinet_mode_enabled(self) -> bool:
-        return self.cabinet_mode_checkbox.isChecked()
-
-    @property
     def swap_xy_enabled(self) -> bool:
         return self.swap_xy_checkbox.isChecked()
 
-    def set_state(self, gap_key: str, swap_xy: bool, cabinet_mode: bool) -> None:
+    def set_state(self, gap_key: str, swap_xy: bool) -> None:
         self.gap_control.setCurrent(gap_key)
         self.swap_xy_checkbox.setChecked(swap_xy)
-        self.cabinet_mode_checkbox.setChecked(cabinet_mode)
 
     def is_modified(self) -> bool:
-        return (
-            self.gap_control.current() != "auto"
-            or not self.swap_xy_checkbox.isChecked()
-            or self.cabinet_mode_checkbox.isChecked()
-        )
+        return self.gap_control.current() != "auto" or not self.swap_xy_checkbox.isChecked()

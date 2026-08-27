@@ -11,9 +11,22 @@ import ezdxf
 from ezdxf import bbox as ezdxf_bbox, colors as ezdxf_colors, recover
 from ezdxf.document import Drawing
 from ezdxf.entities import DXFGraphic
+from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
 from ezdxf.math import Matrix44
 from ezdxf.sections.tables import LayerTable
+
+_TEXT_ALIGNMENTS = {
+    ("left", "bottom"): TextEntityAlignment.BOTTOM_LEFT,
+    ("center", "bottom"): TextEntityAlignment.BOTTOM_CENTER,
+    ("right", "bottom"): TextEntityAlignment.BOTTOM_RIGHT,
+    ("left", "middle"): TextEntityAlignment.MIDDLE_LEFT,
+    ("center", "middle"): TextEntityAlignment.MIDDLE_CENTER,
+    ("right", "middle"): TextEntityAlignment.MIDDLE_RIGHT,
+    ("left", "top"): TextEntityAlignment.TOP_LEFT,
+    ("center", "top"): TextEntityAlignment.TOP_CENTER,
+    ("right", "top"): TextEntityAlignment.TOP_RIGHT,
+}
 
 DEFAULT_LAYER_NAME = "0"
 
@@ -129,11 +142,16 @@ class DXFDocument:
         height: float,
         layer: str = "0",
         rotation: float = 0.0,
+        halign: str = "left",
+        valign: str = "bottom",
     ) -> str:
         self.ensure_layer(layer)
         entity = self.modelspace.add_text(
             text, height=height, rotation=rotation, dxfattribs={"layer": layer, "insert": insert}
         )
+        alignment = _TEXT_ALIGNMENTS.get((halign, valign))
+        if alignment is not None and alignment is not TextEntityAlignment.BOTTOM_LEFT:
+            entity.set_placement(insert, align=alignment)
         return entity.dxf.handle
 
     def add_lwpolyline(self, points: Iterable[Sequence[float]], layer: str = "0", closed: bool = False) -> str:
