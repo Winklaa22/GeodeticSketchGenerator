@@ -158,6 +158,51 @@ def test_translate_entity_raises_for_unknown_handle(doc: DXFDocument) -> None:
         doc.translate_entity("does-not-exist", 1.0, 1.0)
 
 
+def test_entity_center_of_a_point_is_its_own_location(doc: DXFDocument) -> None:
+    handle = doc.add_point((3.0, 4.0))
+    assert doc.entity_center(handle) == pytest.approx((3.0, 4.0))
+
+
+def test_entity_center_of_a_line_is_its_midpoint(doc: DXFDocument) -> None:
+    handle = doc.add_line((0.0, 0.0), (10.0, 0.0))
+    assert doc.entity_center(handle) == pytest.approx((5.0, 0.0))
+
+
+def test_entity_center_of_a_circle_is_its_own_center(doc: DXFDocument) -> None:
+    handle = doc.add_circle((5.0, 5.0), radius=2.0)
+    assert doc.entity_center(handle) == pytest.approx((5.0, 5.0))
+
+
+def test_entity_center_raises_for_unknown_handle(doc: DXFDocument) -> None:
+    with pytest.raises(KeyError):
+        doc.entity_center("does-not-exist")
+
+
+def test_find_similar_matches_same_type_layer_and_color(doc: DXFDocument) -> None:
+    doc.add_layer("A", rgb=(255, 0, 0))
+    doc.add_layer("B", rgb=(0, 255, 0))
+    h1 = doc.add_text("t1", (0.0, 0.0), height=0.5, layer="A")
+    h2 = doc.add_text("t2", (5.0, 0.0), height=0.5, layer="A")
+    h3 = doc.add_text("t3", (10.0, 0.0), height=0.5, layer="B")
+    h4 = doc.add_line((0.0, 5.0), (5.0, 5.0), layer="A")
+    assert set(doc.find_similar(h1)) == {h1, h2}
+    assert h3 not in doc.find_similar(h1)
+    assert h4 not in doc.find_similar(h1)
+
+
+def test_find_similar_excludes_same_type_and_layer_but_different_color(doc: DXFDocument) -> None:
+    doc.add_layer("A", rgb=(255, 0, 0))
+    h1 = doc.add_point((0.0, 0.0), layer="A")
+    h2 = doc.add_point((1.0, 0.0), layer="A")
+    doc.set_entity_color(h2, (0, 0, 255))
+    assert doc.find_similar(h1) == [h1]
+
+
+def test_find_similar_raises_for_unknown_handle(doc: DXFDocument) -> None:
+    with pytest.raises(KeyError):
+        doc.find_similar("does-not-exist")
+
+
 def test_add_layer_creates_it_with_the_given_color(doc: DXFDocument) -> None:
     doc.add_layer("SURVEY", rgb=(200, 50, 50))
     assert "SURVEY" in doc.layers
