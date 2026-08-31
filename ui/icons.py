@@ -1,5 +1,4 @@
 from __future__ import annotations
-from os import name
 
 import qtawesome as qta
 from PyQt6.QtGui import QIcon

@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+from typing import Optional
+
+from PyQt6.QtCore import QSettings
+from PyQt6.QtWidgets import QMainWindow
+
+from core import project as project_io
+from core.project import ProjectState
+from ui.recent_projects import add_recent_project
+
+
+class WindowRouter:
+
+    def __init__(self, owner: QMainWindow) -> None:
+        self._owner = owner
+        self._window: Optional[QMainWindow] = None
+
+    def _swap(self, window: QMainWindow) -> None:
+        self._window = window
+        window.show()
+        self._owner.close()
+
+    def start_screen(self) -> None:
+        from ui.start_screen import StartScreen
+
+        self._swap(StartScreen())
+
+    def editor(
+        self, initial_state: Optional[ProjectState] = None, project_path: Optional[str] = None
+    ) -> None:
+        from ui.main_window import MainWindow
+
+        self._swap(MainWindow(initial_state=initial_state, project_path=project_path))
+
+    def open_path(self, settings: QSettings, path: str) -> None:
+        state = project_io.open_any(path)
+        project_path = project_io.project_path_if_saved(path)
+        if project_path is not None:
+            add_recent_project(settings, project_path)
+        self.editor(initial_state=state, project_path=project_path)

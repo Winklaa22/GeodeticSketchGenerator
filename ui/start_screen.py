@@ -4,7 +4,7 @@ import os
 import time
 from typing import Optional
 
-from PyQt6.QtCore import QSettings, Qt
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -22,27 +22,18 @@ from PyQt6.QtWidgets import (
 )
 
 from core.exceptions import ProjectFileError
-from core.project import PROJECT_FILE_FILTER, ProjectState, open_any, project_path_if_saved
+from core.formatting import format_byte_size
+from core.project import PROJECT_FILE_FILTER, ProjectState
+from ui.app_identity import APP_TITLE, app_settings
 from ui.assets import ICON_PATH
 from ui.icons import icon_manager
-from ui.recent_projects import add_recent_project, list_recent_projects, remove_recent_project
+from ui.recent_projects import list_recent_projects, remove_recent_project
 from ui.style import APP_STYLESHEET
 from ui.theme import Color, ICON_SM, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL
-
-_SETTINGS_ORG = "acsg"
-_SETTINGS_APP = "acsg_pro"
+from ui.window_router import WindowRouter
 
 _COLUMNS = ("File Type", "Name", "Location", "Last Opened", "Size")
 _PATH_ROLE = Qt.ItemDataRole.UserRole
-
-
-def _format_size(num_bytes: int) -> str:
-    if num_bytes < 1024:
-        return f"{num_bytes} B"
-    kb = num_bytes / 1024
-    if kb < 1024:
-        return f"{kb:.0f} KB"
-    return f"{kb / 1024:.1f} MB"
 
 
 def _format_last_opened(mtime: float) -> str:
@@ -53,12 +44,12 @@ class StartScreen(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Geodetic Sketch Generator")
+        self.setWindowTitle(APP_TITLE)
         self.setWindowIcon(QIcon(ICON_PATH))
         self.resize(1000, 620)
         self.setMinimumSize(760, 480)
-        self.settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
-        self._main_window: Optional[QMainWindow] = None
+        self.settings = app_settings()
+        self.router = WindowRouter(self)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -175,7 +166,7 @@ class StartScreen(QMainWindow):
         name = os.path.splitext(os.path.basename(path))[0]
         try:
             stat = os.stat(path)
-            size_text = _format_size(stat.st_size)
+            size_text = format_byte_size(stat.st_size)
             last_opened = _format_last_opened(stat.st_mtime)
         except OSError:
             size_text = ""
@@ -211,14 +202,9 @@ class StartScreen(QMainWindow):
 
     def _open_path(self, path: str) -> None:
         try:
-            state = open_any(path)
+            self.router.open_path(self.settings, path)
         except ProjectFileError as exc:
             QMessageBox.warning(self, "Could not open", str(exc))
-            return
-        project_path = project_path_if_saved(path)
-        if project_path is not None:
-            add_recent_project(self.settings, project_path)
-        self._launch_editor(initial_state=state, project_path=project_path)
 
     def _remove_selected(self) -> None:
         path = self._selected_path()
@@ -228,8 +214,4 @@ class StartScreen(QMainWindow):
         self._refresh_table()
 
     def _launch_editor(self, initial_state: Optional[ProjectState], project_path: Optional[str]) -> None:
-        from ui.main_window import MainWindow
-
-        self._main_window = MainWindow(initial_state=initial_state, project_path=project_path)
-        self._main_window.show()
-        self.close()
+        self.router.editor(initial_state=initial_state, project_path=project_path)

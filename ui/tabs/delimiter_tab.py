@@ -6,6 +6,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
 from core.parser import DelimiterMode
+from ui.tabs.base import SectionWidget
 from ui.widgets import CheckField, SectionColumn, SegmentedControl, make_field
 
 _GAP_OPTIONS = [
@@ -13,6 +14,7 @@ _GAP_OPTIONS = [
     ("space", "Space"),
     ("tab", "Tab"),
 ]
+_STATUS_LABELS = {"auto": "Auto", "space": "Space", "tab": "Tab"}
 _MODE_BY_KEY = {
     "auto": DelimiterMode.AUTO,
     "space": DelimiterMode.SPACE,
@@ -20,7 +22,7 @@ _MODE_BY_KEY = {
 }
 
 
-class DelimiterTab(QWidget):
+class DelimiterTab(SectionWidget):
 
     swap_xy_toggled = pyqtSignal(bool)
     delimiter_changed = pyqtSignal()
@@ -50,6 +52,10 @@ class DelimiterTab(QWidget):
     @property
     def swap_xy_enabled(self) -> bool:
         return self.swap_xy_checkbox.isChecked()
+
+    @property
+    def display_name(self) -> str:
+        return _STATUS_LABELS.get(self.gap_key, "Auto")
 
     def set_state(self, gap_key: str, swap_xy: bool) -> None:
         self.gap_control.setCurrent(gap_key)

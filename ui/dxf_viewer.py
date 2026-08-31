@@ -1531,7 +1531,7 @@ class DxfCommandInterpreter:
             "SCALE": self._cmd_scale,
             "SC": self._cmd_scale,
             "ROTATEEACH": self._cmd_rotate_each,
-            "RE": self._cmd_rotate_each,
+            "ROE": self._cmd_rotate_each,
             "SCALEEACH": self._cmd_scale_each,
             "SE": self._cmd_scale_each,
             "SELECTSIMILAR": self._cmd_select_similar,

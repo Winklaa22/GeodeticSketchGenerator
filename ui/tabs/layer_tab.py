@@ -7,6 +7,7 @@ from PyQt6.QtCore import QSettings, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QInputDialog, QToolButton, QVBoxLayout, QWidget
 
 from ui.icons import icon_manager
+from ui.tabs.base import SectionWidget
 from ui.theme import Color, ICON_SM, SPACE_XS
 from ui.widgets import ColorSwatchButton, SectionColumn
 
@@ -69,7 +70,7 @@ class _LayerDefRow(QFrame):
         layout.addWidget(delete_btn)
 
 
-class LayerTab(QWidget):
+class LayerTab(SectionWidget):
 
     layers_changed = pyqtSignal()
 

@@ -48,6 +48,16 @@ def decimal_validator(bottom: float, top: float, decimals: int) -> QDoubleValida
     return validator
 
 
+def make_button(text: str, variant: str, slot=None) -> QPushButton:
+    button = QPushButton(text)
+    button.setObjectName("btn")
+    button.setProperty("variant", variant)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    if slot is not None:
+        button.clicked.connect(slot)
+    return button
+
+
 def make_field(label_text: str, field_widget: QWidget) -> QWidget:
     wrapper = QWidget()
     layout = QVBoxLayout(wrapper)

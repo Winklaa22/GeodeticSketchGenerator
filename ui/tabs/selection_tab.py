@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QInputDialog, QWidget
 
 from core.selection import SelectionParser
 from models.point import Point
+from ui.tabs.base import SectionWidget
 from ui.widgets import SectionColumn, SegmentedControl, make_field
 
 _SELECTION_OPTIONS = [
@@ -16,7 +17,7 @@ _SELECTION_OPTIONS = [
 ]
 
 
-class SelectionTab(QWidget):
+class SelectionTab(SectionWidget):
 
     selection_changed = pyqtSignal()
 
