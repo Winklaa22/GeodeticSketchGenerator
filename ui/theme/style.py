@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ui.theme import (
+from ui.theme.tokens import (
     Color,
     FONT_FAMILY,
     MONO_FONT_FAMILY,

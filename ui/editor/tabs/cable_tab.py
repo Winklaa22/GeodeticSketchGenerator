@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from core.config import CableOptions
-from ui.tabs.base import LayeredOptionsTab
+from ui.editor.tabs.base import LayeredOptionsTab
 
 DEFAULT_FONT_SIZE = "0.6"
 DEFAULT_FREQUENCY = "5"

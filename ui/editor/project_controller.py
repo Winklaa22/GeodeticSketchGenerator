@@ -9,11 +9,11 @@ from core import project as project_io
 from core.exceptions import ProjectFileError
 from core.project import ProjectState
 from ui.app_identity import APP_TITLE
-from ui.project_binding import apply_project_state, collect_project_state
+from ui.editor.project_binding import apply_project_state, collect_project_state
 from ui.recent_projects import add_recent_project, remove_recent_project
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
+    from ui.editor.window import MainWindow
 
 UNTITLED_PROJECT = "Untitled"
 INVALID_FILENAME_CHARS = '<>:"/\\|?*'

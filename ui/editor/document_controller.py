@@ -9,7 +9,7 @@ from core.project import ProjectState
 from ui.widgets import DxfSourceRow
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
+    from ui.editor.window import MainWindow
 
 UNTITLED_DRAWING = "Untitled drawing"
 DEFAULT_DXF_NAME = "drawing.dxf"

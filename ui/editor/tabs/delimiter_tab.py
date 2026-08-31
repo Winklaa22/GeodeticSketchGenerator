@@ -6,7 +6,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
 from core.parser import DelimiterMode
-from ui.tabs.base import SectionWidget
+from ui.editor.tabs.base import SectionWidget
 from ui.widgets import CheckField, SectionColumn, SegmentedControl, make_field
 
 _GAP_OPTIONS = [

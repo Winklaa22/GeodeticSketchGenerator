@@ -29,7 +29,7 @@ class WindowRouter:
     def editor(
         self, initial_state: Optional[ProjectState] = None, project_path: Optional[str] = None
     ) -> None:
-        from ui.main_window import MainWindow
+        from ui.editor.window import MainWindow
 
         self._swap(MainWindow(initial_state=initial_state, project_path=project_path))
 

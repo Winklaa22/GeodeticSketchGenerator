@@ -5,8 +5,8 @@ from typing import Optional
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from ui.icons import icon_manager
 from ui.theme import Color, ICON_SM, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL
+from ui.theme.icons import icon_manager
 from ui.widgets import Card, ErrorBanner, make_button
 
 

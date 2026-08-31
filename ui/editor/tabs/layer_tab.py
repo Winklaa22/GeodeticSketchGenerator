@@ -6,9 +6,9 @@ from typing import List, Optional, Tuple
 from PyQt6.QtCore import QSettings, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QInputDialog, QToolButton, QVBoxLayout, QWidget
 
-from ui.icons import icon_manager
-from ui.tabs.base import SectionWidget
+from ui.editor.tabs.base import SectionWidget
 from ui.theme import Color, ICON_SM, SPACE_XS
+from ui.theme.icons import icon_manager
 from ui.widgets import ColorSwatchButton, SectionColumn
 
 DEFAULT_LAYER_NAME = "0"
