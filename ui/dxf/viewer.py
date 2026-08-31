@@ -72,6 +72,15 @@ class DxfViewer(qw.QWidget):
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
+        self._init_state()
+        self._build_ui()
+        self._wire_canvas()
+        self._wire_toolbar()
+        self._wire_layer_panel()
+        self._register_shortcuts()
+        self.ensure_document()
+
+    def _init_state(self) -> None:
         self.entity_count = 0
         self.layer_count = 0
         self._doc: Optional[DXFDocument] = None
@@ -82,6 +91,7 @@ class DxfViewer(qw.QWidget):
         self._clipboard_doc: Optional[DXFDocument] = None
         self._imported_layer_names: Optional[set] = None
 
+    def _build_ui(self) -> None:
         outer = qw.QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(SPACE_SM)
@@ -97,39 +107,15 @@ class DxfViewer(qw.QWidget):
         self._stack = qw.QStackedWidget()
         layout.addWidget(self._stack)
 
-        self._empty_page = qw.QWidget()
-        self._empty_page.setObjectName("dxfEmpty")
-        empty_layout = qw.QVBoxLayout(self._empty_page)
-        empty_layout.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
-        empty_layout.setSpacing(SPACE_SM)
-        icon = qw.QLabel()
-        icon.setObjectName("dxfEmptyIcon")
-        icon.setPixmap(icon_manager.get("dxf_icon", size=24, color=UiColor.TEXT_FAINT).pixmap(24, 24))
-        icon.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
-        text = qw.QLabel("Load a .DXF file, or press Apply to DXF to start a new drawing.")
-        text.setObjectName("dxfEmptyText")
-        text.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
-        empty_layout.addWidget(icon)
-        empty_layout.addWidget(text)
+        self._empty_page = self._build_empty_page()
 
         self._canvas_page = qw.QWidget()
         canvas_layout = qw.QVBoxLayout(self._canvas_page)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_layout.setSpacing(0)
         self._view = CadGraphicsView()
-        self._view.entitySelected.connect(self._on_entity_selected)
-        self._view.toolPointPlaced.connect(self._on_tool_point_placed)
-        self._view.itemsDragMoved.connect(self._on_items_drag_moved)
-        self._view.viewportChanged.connect(self._reposition_text_options_bar)
         self._text_options_bar = TextOptionsBar(self)
-        self._text_options_bar.contentChanged.connect(self._on_text_content_changed)
-        self._text_options_bar.heightChanged.connect(self._on_text_height_changed)
-        self._text_options_bar.rotationChanged.connect(self._on_text_rotation_changed)
-        self._text_options_bar.colorChanged.connect(self._on_text_color_changed)
         self._command_line = CommandLine()
-        self._command_line.commandEntered.connect(self._on_command_entered)
-        self._command_line.undoRequested.connect(lambda: self._echo(self.undo()))
-        self._command_line.redoRequested.connect(lambda: self._echo(self.redo()))
         canvas_layout.addWidget(self._view, 1)
         canvas_layout.addWidget(self._command_line)
 
@@ -141,6 +127,40 @@ class DxfViewer(qw.QWidget):
         outer.addWidget(canvas_column, 1)
         self._layer_panel = LayerPanel()
 
+    @staticmethod
+    def _build_empty_page() -> qw.QWidget:
+        page = qw.QWidget()
+        page.setObjectName("dxfEmpty")
+        layout = qw.QVBoxLayout(page)
+        layout.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(SPACE_SM)
+        icon = qw.QLabel()
+        icon.setObjectName("dxfEmptyIcon")
+        icon.setPixmap(icon_manager.get("dxf_icon", size=24, color=UiColor.TEXT_FAINT).pixmap(24, 24))
+        icon.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
+        text = qw.QLabel("Load a .DXF file, or press Apply to DXF to start a new drawing.")
+        text.setObjectName("dxfEmptyText")
+        text.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon)
+        layout.addWidget(text)
+        return page
+
+    def _wire_canvas(self) -> None:
+        self._view.entitySelected.connect(self._on_entity_selected)
+        self._view.toolPointPlaced.connect(self._on_tool_point_placed)
+        self._view.itemsDragMoved.connect(self._on_items_drag_moved)
+        self._view.viewportChanged.connect(self._reposition_text_options_bar)
+
+        self._text_options_bar.contentChanged.connect(self._on_text_content_changed)
+        self._text_options_bar.heightChanged.connect(self._on_text_height_changed)
+        self._text_options_bar.rotationChanged.connect(self._on_text_rotation_changed)
+        self._text_options_bar.colorChanged.connect(self._on_text_color_changed)
+
+        self._command_line.commandEntered.connect(self._on_command_entered)
+        self._command_line.undoRequested.connect(lambda: self._echo(self.undo()))
+        self._command_line.redoRequested.connect(lambda: self._echo(self.redo()))
+
+    def _wire_toolbar(self) -> None:
         self._toolbar.pointRequested.connect(lambda: self._start_draw_tool(PointToolSession))
         self._toolbar.textRequested.connect(lambda: self._start_draw_tool(TextToolSession))
         self._toolbar.lineRequested.connect(lambda: self._start_draw_tool(LineToolSession))
@@ -158,6 +178,7 @@ class DxfViewer(qw.QWidget):
         self._toolbar.zoomInRequested.connect(lambda: self._view.zoom_by(1.25))
         self._toolbar.zoomOutRequested.connect(lambda: self._view.zoom_by(0.8))
 
+    def _wire_layer_panel(self) -> None:
         self._layer_panel.addLayerRequested.connect(self._on_add_layer)
         self._layer_panel.deleteLayerRequested.connect(lambda n: self.execute_command(DeleteLayerCommand(n)))
         self._layer_panel.colorChangeRequested.connect(
@@ -172,6 +193,7 @@ class DxfViewer(qw.QWidget):
         self._layer_panel.selectLayerRequested.connect(self.select_by_layer)
         self._layer_panel.pruneLayersRequested.connect(self._on_prune_layers)
 
+    def _register_shortcuts(self) -> None:
         self._add_shortcut(
             "Ctrl+Z", lambda: self._echo(self.undo()), context=qc.Qt.ShortcutContext.WindowShortcut
         )
@@ -195,8 +217,6 @@ class DxfViewer(qw.QWidget):
         self._add_shortcut("R,E", self.start_rotate_each_tool, parent=self._view)
         self._add_shortcut("S,E", self.start_scale_each_tool, parent=self._view)
         self._add_shortcut("S,S", lambda: self._echo(self.select_similar()), parent=self._view)
-
-        self.ensure_document()
 
     def _add_shortcut(
         self,
