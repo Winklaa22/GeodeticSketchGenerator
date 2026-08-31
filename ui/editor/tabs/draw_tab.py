@@ -6,8 +6,8 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
 from core.draw_modes import DrawMode
-from ui.mode_registry import MODE_SPECS, SPEC_BY_KEY
-from ui.tabs.base import SectionWidget
+from ui.editor.mode_registry import MODE_SPECS, SPEC_BY_KEY
+from ui.editor.tabs.base import SectionWidget
 from ui.widgets import RadioCardGroup, SectionColumn
 
 _MODE_OPTIONS = [(spec.key, spec.mode_label) for spec in MODE_SPECS]

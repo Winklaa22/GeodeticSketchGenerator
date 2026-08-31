@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from core.config import PipeOptions
-from ui.tabs.base import LayeredOptionsTab
+from ui.editor.tabs.base import LayeredOptionsTab
 
 DEFAULT_WIDTH = "0.16"
 

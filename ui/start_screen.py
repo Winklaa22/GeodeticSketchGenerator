@@ -25,11 +25,11 @@ from core.exceptions import ProjectFileError
 from core.formatting import format_byte_size
 from core.project import PROJECT_FILE_FILTER, ProjectState
 from ui.app_identity import APP_TITLE, app_settings
-from ui.assets import ICON_PATH
-from ui.icons import icon_manager
 from ui.recent_projects import list_recent_projects, remove_recent_project
-from ui.style import APP_STYLESHEET
 from ui.theme import Color, ICON_SM, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL
+from ui.theme.assets import ICON_PATH
+from ui.theme.icons import icon_manager
+from ui.theme.style import APP_STYLESHEET
 from ui.window_router import WindowRouter
 
 _COLUMNS = ("File Type", "Name", "Location", "Last Opened", "Size")

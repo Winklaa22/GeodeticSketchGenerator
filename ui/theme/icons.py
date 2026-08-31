@@ -3,7 +3,7 @@ from __future__ import annotations
 import qtawesome as qta
 from PyQt6.QtGui import QIcon
 
-from .theme import Color, ICON_MD
+from ui.theme.tokens import Color, ICON_MD
 
 class IconManager:
 

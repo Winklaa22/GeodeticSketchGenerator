@@ -7,16 +7,16 @@ from PyQt6.QtCore import QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMenu, QPushButton, QWidget
 
-from ui.assets import ICON_PATH
-from ui.icons import icon_manager
 from ui.recent_projects import list_recent_projects
 from ui.theme import Color, ICON_SM, SPACE_MD, SPACE_SM
+from ui.theme.assets import ICON_PATH
+from ui.theme.icons import icon_manager
 from ui.widgets import make_button
 
 LOGO_SIZE = 24
 
 
-class AppMenuBar(QWidget):
+class MenuBar(QWidget):
 
     newProjectRequested = pyqtSignal()
     openProjectRequested = pyqtSignal()

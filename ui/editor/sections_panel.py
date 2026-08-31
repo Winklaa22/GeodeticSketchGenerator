@@ -7,12 +7,12 @@ from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
 from core.config import GenerationConfig
 from core.draw_modes import DrawMode
-from ui.mode_registry import MODE_SPECS, SPEC_BY_DRAW_MODE
-from ui.tabs.base import LayeredOptionsTab, SectionWidget
-from ui.tabs.delimiter_tab import DelimiterTab
-from ui.tabs.draw_tab import DrawTab
-from ui.tabs.layer_tab import LayerTab
-from ui.tabs.selection_tab import SelectionTab
+from ui.editor.mode_registry import MODE_SPECS, SPEC_BY_DRAW_MODE
+from ui.editor.tabs.base import LayeredOptionsTab, SectionWidget
+from ui.editor.tabs.delimiter_tab import DelimiterTab
+from ui.editor.tabs.draw_tab import DrawTab
+from ui.editor.tabs.layer_tab import LayerTab
+from ui.editor.tabs.selection_tab import SelectionTab
 from ui.theme import SPACE_LG
 from ui.widgets import Accordion, AccordionSection, DropZone, FileCard
 

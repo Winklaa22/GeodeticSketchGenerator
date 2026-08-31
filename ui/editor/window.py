@@ -22,17 +22,17 @@ from core.session import AppState, EditorSession
 from core.survey_draw_service import SurveyDrawService
 from core.validation import ensure_draw_modes, ensure_has_data, ensure_selection
 from ui.app_identity import app_settings
-from ui.app_menu_bar import AppMenuBar
-from ui.assets import ICON_PATH
-from ui.document_controller import DocumentController
-from ui.dxf_viewer import DxfViewer
-from ui.left_column import LeftColumn
-from ui.preview_panel import PreviewPanel
-from ui.project_controller import ProjectController
-from ui.sections_panel import SectionsPanel
-from ui.status_bar import StatusBar
-from ui.style import APP_STYLESHEET
+from ui.dxf.viewer import DxfViewer
+from ui.editor.document_controller import DocumentController
+from ui.editor.left_column import LeftColumn
+from ui.editor.menu_bar import MenuBar
+from ui.editor.preview_panel import PreviewPanel
+from ui.editor.project_controller import ProjectController
+from ui.editor.sections_panel import SectionsPanel
+from ui.editor.status_bar import StatusBar
 from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_XL
+from ui.theme.assets import ICON_PATH
+from ui.theme.style import APP_STYLESHEET
 from ui.window_router import WindowRouter
 
 LEFT_COLUMN_WIDTH_KEY = "ui/leftColumnWidth"
@@ -74,7 +74,7 @@ class MainWindow(QMainWindow):
         self.left_column = LeftColumn(self.panel, self.dxf_viewer.layer_panel)
         self.preview_panel = PreviewPanel(self.dxf_viewer)
         self.status_bar = StatusBar()
-        self.menu_bar = AppMenuBar(self.settings)
+        self.menu_bar = MenuBar(self.settings)
 
         central = QWidget()
         self.setCentralWidget(central)

@@ -9,8 +9,8 @@ from core.project import (
     ProjectState,
     SelectionState,
 )
-from ui.mode_registry import MODE_SPECS, options_from_state, state_from_tab
-from ui.sections_panel import SectionsPanel
+from ui.editor.mode_registry import MODE_SPECS, options_from_state, state_from_tab
+from ui.editor.sections_panel import SectionsPanel
 
 
 def collect_project_state(

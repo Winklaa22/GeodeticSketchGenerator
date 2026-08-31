@@ -6,9 +6,9 @@ import sys
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
-from ui.assets import ICON_PATH
-from ui.icons import IconManager
 from ui.start_screen import StartScreen
+from ui.theme.assets import ICON_PATH
+from ui.theme.icons import IconManager
 
 icon_manager = IconManager()
 

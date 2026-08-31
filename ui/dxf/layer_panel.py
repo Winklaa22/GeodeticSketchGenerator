@@ -5,8 +5,8 @@ from typing import List, Optional, Tuple
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 from core.dxf_document import LayerInfo
-from ui.icons import icon_manager
 from ui.theme import Color, ICON_SM, SPACE_XS
+from ui.theme.icons import icon_manager
 
 _NAME_MAX_WIDTH = 220
 

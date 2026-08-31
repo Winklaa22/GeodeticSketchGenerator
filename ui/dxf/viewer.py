@@ -15,6 +15,7 @@ from ezdxf.math import Vec2
 from ezdxf.path import Command
 
 from core.commands.base import Command as EditCommand
+from core.commands.composite import CompositeCommand
 from core.commands.draw import AddCircleCommand, AddLineCommand, AddPointCommand, AddTextCommand
 from core.commands.edit import (
     DeleteEntityCommand,
@@ -24,7 +25,6 @@ from core.commands.edit import (
     ScaleCommand,
 )
 from core.commands.history import CommandHistory
-from core.commands.composite import CompositeCommand
 from core.commands.layers import (
     AddLayerCommand,
     DeleteLayerCommand,
@@ -40,9 +40,9 @@ from core.commands.text import (
     SetTextRotationCommand,
 )
 from core.dxf_document import DXFDocument
-from ui.icons import icon_manager
-from ui.layer_panel import LayerPanel
+from ui.dxf.layer_panel import LayerPanel
 from ui.theme import Color as UiColor, ICON_MD, SPACE_SM, SPACE_XS
+from ui.theme.icons import icon_manager
 from ui.widgets import ColorSwatchButton, decimal_validator
 
 _HANDLE_ROLE = qc.Qt.ItemDataRole.UserRole

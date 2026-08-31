@@ -19,13 +19,13 @@ from core.project import (
     PipeState,
     PointsState,
 )
-from ui.tabs.base import LayeredOptionsTab, NoOptions
-from ui.tabs.cable_tab import CableTab
-from ui.tabs.heights_tab import HeightsTab
-from ui.tabs.layer_only_tab import LayerOnlyTab
-from ui.tabs.measurements_tab import MeasurementsTab
-from ui.tabs.pipe_tab import PipeTab
-from ui.tabs.points_tab import PointsTab
+from ui.editor.tabs.base import LayeredOptionsTab, NoOptions
+from ui.editor.tabs.cable_tab import CableTab
+from ui.editor.tabs.heights_tab import HeightsTab
+from ui.editor.tabs.layer_only_tab import LayerOnlyTab
+from ui.editor.tabs.measurements_tab import MeasurementsTab
+from ui.editor.tabs.pipe_tab import PipeTab
+from ui.editor.tabs.points_tab import PointsTab
 
 
 @dataclass(frozen=True)
