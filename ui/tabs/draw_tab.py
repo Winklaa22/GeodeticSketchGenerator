@@ -6,32 +6,15 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
 from core.draw_modes import DrawMode
+from ui.mode_registry import MODE_SPECS, SPEC_BY_KEY
+from ui.tabs.base import SectionWidget
 from ui.widgets import RadioCardGroup, SectionColumn
 
-_MODE_OPTIONS = [
-    ("points", "Points"),
-    ("lines", "Lines"),
-    ("plines", "PLines"),
-    ("3dpoly", "3DPOLY"),
-    ("heights", "Heights marks"),
-    ("cable", "Cable marks"),
-    ("pipe", "Pipe"),
-    ("measurements", "Measurements"),
-]
-_MODE_BY_KEY = {
-    "points": DrawMode.POINTS,
-    "lines": DrawMode.LINES,
-    "plines": DrawMode.PLINES,
-    "3dpoly": DrawMode.POLY3D,
-    "heights": DrawMode.HEIGHTS,
-    "cable": DrawMode.CABLE_MARKS,
-    "pipe": DrawMode.PIPE,
-    "measurements": DrawMode.MEASUREMENTS,
-}
+_MODE_OPTIONS = [(spec.key, spec.mode_label) for spec in MODE_SPECS]
 _DEFAULT_KEYS = ["plines"]
 
 
-class DrawTab(QWidget):
+class DrawTab(SectionWidget):
 
     modes_changed = pyqtSignal()
 
@@ -47,15 +30,15 @@ class DrawTab(QWidget):
 
     @property
     def draw_modes(self) -> List[DrawMode]:
-        return [_MODE_BY_KEY[key] for key in self.mode_group.current_keys() if key in _MODE_BY_KEY]
+        return [SPEC_BY_KEY[key].draw_mode for key in self.mode_keys if key in SPEC_BY_KEY]
 
     @property
     def mode_keys(self) -> List[str]:
         return self.mode_group.current_keys()
 
     def set_mode_keys(self, keys: List[str]) -> None:
-        valid = [key for key in keys if key in _MODE_BY_KEY]
+        valid = [key for key in keys if key in SPEC_BY_KEY]
         self.mode_group.set_current_keys(valid or _DEFAULT_KEYS)
 
     def is_modified(self) -> bool:
-        return self.mode_group.current_keys() != _DEFAULT_KEYS
+        return self.mode_keys != _DEFAULT_KEYS
