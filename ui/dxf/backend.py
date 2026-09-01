@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Iterable, Tuple
+from functools import lru_cache
+from typing import Iterable, Optional, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
@@ -11,10 +12,20 @@ from ezdxf.addons.drawing.type_hints import Color
 from ezdxf.math import Vec2
 from ezdxf.path import Command
 
+from core.plot import StrokeStyle
 from ui.dxf.items import HANDLE_ROLE, PointItem
 
 
-def _to_qpainter_path(paths: Iterable[BkPath2d]) -> qg.QPainterPath:
+@lru_cache(maxsize=512)
+def qcolor_from(color: Color) -> qg.QColor:
+    if len(color) == 7:
+        return qg.QColor(color)
+    if len(color) == 9:
+        return qg.QColor(f"#{color[7:9]}{color[1:7]}")
+    raise ValueError(f"unsupported color format: {color!r}")
+
+
+def to_qpainter_path(paths: Iterable[BkPath2d]) -> qg.QPainterPath:
     qpath = qg.QPainterPath()
     for path in paths:
         points = [qc.QPointF(v.x, v.y) for v in path.vertices()]
@@ -38,10 +49,12 @@ def _to_qpainter_path(paths: Iterable[BkPath2d]) -> qg.QPainterPath:
 
 class QtSceneBackend(Backend):
 
-    def __init__(self, scene: qw.QGraphicsScene) -> None:
+    def __init__(
+        self, scene: qw.QGraphicsScene, stroke: Optional[StrokeStyle] = None
+    ) -> None:
         super().__init__()
         self._scene = scene
-        self._color_cache: dict = {}
+        self._stroke = stroke
         self._no_line = qg.QPen(qc.Qt.PenStyle.NoPen)
         self._no_fill = qg.QBrush(qc.Qt.BrushStyle.NoBrush)
 
@@ -54,34 +67,29 @@ class QtSceneBackend(Backend):
         item.setData(HANDLE_ROLE, handle)
         self._scene.addItem(item)
 
-    def _qcolor(self, color: Color) -> qg.QColor:
-        cached = self._color_cache.get(color)
-        if cached is not None:
-            return cached
-        if len(color) == 7:
-            qcolor = qg.QColor(color)
-        elif len(color) == 9:
-            qcolor = qg.QColor(f"#{color[7:9]}{color[1:7]}")
-        else:
-            raise ValueError(f"unsupported color format: {color!r}")
-        self._color_cache[color] = qcolor
-        return qcolor
-
     def _pen(self, properties: BackendProperties) -> qg.QPen:
-        px = properties.lineweight / 0.3527 * self.config.lineweight_scaling
-        pen = qg.QPen(self._qcolor(properties.color), px)
-        pen.setCosmetic(True)
+        pen = qg.QPen(qcolor_from(properties.color))
         pen.setJoinStyle(qc.Qt.PenJoinStyle.RoundJoin)
+        if self._stroke is None:
+            pen.setWidthF(properties.lineweight / 0.3527 * self.config.lineweight_scaling)
+            pen.setCosmetic(True)
+        else:
+            pen.setWidthF(self._stroke.pen_width(properties.lineweight))
+            pen.setCapStyle(qc.Qt.PenCapStyle.RoundCap)
         return pen
 
     def _fill_brush(self, color: Color) -> qg.QBrush:
-        return qg.QBrush(self._qcolor(color), qc.Qt.BrushStyle.SolidPattern)
+        return qg.QBrush(qcolor_from(color), qc.Qt.BrushStyle.SolidPattern)
 
     def set_background(self, color: Color) -> None:
-        self._scene.setBackgroundBrush(qg.QBrush(self._qcolor(color)))
+        if self._stroke is not None:
+            return
+        self._scene.setBackgroundBrush(qg.QBrush(qcolor_from(color)))
 
     def draw_point(self, pos: Vec2, properties: BackendProperties) -> None:
-        self._add(PointItem(pos.x, pos.y, self._fill_brush(properties.color)), properties.handle)
+        radius = self._stroke.point_radius() if self._stroke is not None else None
+        item = PointItem(pos.x, pos.y, self._fill_brush(properties.color), radius)
+        self._add(item, properties.handle)
 
     def draw_line(self, start: Vec2, end: Vec2, properties: BackendProperties) -> None:
         if start.isclose(end):
@@ -106,7 +114,7 @@ class QtSceneBackend(Backend):
     def draw_path(self, path: BkPath2d, properties: BackendProperties) -> None:
         if len(path) == 0:
             return
-        item = qw.QGraphicsPathItem(_to_qpainter_path([path]))
+        item = qw.QGraphicsPathItem(to_qpainter_path([path]))
         item.setPen(self._pen(properties))
         item.setBrush(self._no_fill)
         self._add(item, properties.handle)
@@ -117,8 +125,8 @@ class QtSceneBackend(Backend):
         paths = list(paths)
         if not paths:
             return
-        item = qw.QGraphicsPathItem(_to_qpainter_path(paths))
-        item.setPen(self._pen(properties))
+        item = qw.QGraphicsPathItem(to_qpainter_path(paths))
+        item.setPen(self._no_line if self._stroke is not None else self._pen(properties))
         item.setBrush(self._fill_brush(properties.color))
         self._add(item, properties.handle)
 

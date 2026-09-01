@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 from core.dxf_document import DXFDocument
+from core.plot import PAPER_COLOR
 from ui.dxf.items import HANDLE_ROLE, PointItem, x_scale
+from ui.dxf.page_frame import PageFrame
 from ui.theme import Color as UiColor
 
 if TYPE_CHECKING:
@@ -30,21 +32,34 @@ def _distance_to_segment(point: qc.QPointF, line: qc.QLineF) -> float:
 
 
 def _distance_to_item(point: qc.QPointF, item: qw.QGraphicsItem) -> float:
+    transform = item.sceneTransform()
     if isinstance(item, PointItem):
-        return math.hypot(point.x() - item._pos.x(), point.y() - item._pos.y())
+        pos = transform.map(item._pos)
+        return math.hypot(point.x() - pos.x(), point.y() - pos.y())
     if isinstance(item, qw.QGraphicsLineItem):
-        return _distance_to_segment(point, item.line())
-    center = item.sceneTransform().mapRect(item.boundingRect()).center()
+        line = item.line()
+        return _distance_to_segment(point, qc.QLineF(transform.map(line.p1()), transform.map(line.p2())))
+    center = transform.mapRect(item.boundingRect()).center()
     return math.hypot(point.x() - center.x(), point.y() - center.y())
 
 
 def _snap_candidates(item: qw.QGraphicsItem) -> Tuple[qc.QPointF, ...]:
+    transform = item.sceneTransform()
     if isinstance(item, PointItem):
-        return (item._pos,)
+        return (transform.map(item._pos),)
     if isinstance(item, qw.QGraphicsLineItem):
         line = item.line()
-        return (line.p1(), line.p2())
+        return (transform.map(line.p1()), transform.map(line.p2()))
     return ()
+
+
+def _rotate_point(point: qc.QPointF, center: qc.QPointF, degrees: float) -> qc.QPointF:
+    if not degrees:
+        return point
+    radians = math.radians(degrees)
+    cos_a, sin_a = math.cos(radians), math.sin(radians)
+    dx, dy = point.x() - center.x(), point.y() - center.y()
+    return qc.QPointF(center.x() + dx * cos_a - dy * sin_a, center.y() + dx * sin_a + dy * cos_a)
 
 
 class CadGraphicsView(qw.QGraphicsView):
@@ -53,6 +68,8 @@ class CadGraphicsView(qw.QGraphicsView):
     toolPointPlaced = qc.pyqtSignal()
     itemsDragMoved = qc.pyqtSignal(list, float, float)
     viewportChanged = qc.pyqtSignal()
+    pageFrameMoved = qc.pyqtSignal(float, float)
+    sheetZoomRequested = qc.pyqtSignal(float)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -71,6 +88,8 @@ class CadGraphicsView(qw.QGraphicsView):
         self._dragging_items = False
         self._drag_items: List[qw.QGraphicsItem] = []
         self._drag_start_scene: Optional[qc.QPointF] = None
+        self._page_frame: Optional[PageFrame] = None
+        self._view_rotation = 0.0
 
         self.setObjectName("dxfCanvas")
         self.setFocusPolicy(qc.Qt.FocusPolicy.StrongFocus)
@@ -91,20 +110,37 @@ class CadGraphicsView(qw.QGraphicsView):
     def _current_zoom(self) -> float:
         return x_scale(self.transform()) / (self._base_scale or 1.0)
 
+    def _fit_rect(self, rect: qc.QRectF, padding: float) -> None:
+        span = max(rect.width(), rect.height()) or 1.0
+        margin = span * padding
+        padded = rect.adjusted(-margin, -margin, margin, margin)
+        self.setSceneRect(self.scene().itemsBoundingRect().united(padded))
+        self.fitInView(padded, qc.Qt.AspectRatioMode.KeepAspectRatio)
+        self._base_scale = x_scale(self.transform())
+        self.viewportChanged.emit()
+
     def fit_to_scene(self) -> None:
         rect = self.scene().itemsBoundingRect()
         if rect.isEmpty():
             return
-        margin = (max(rect.width(), rect.height()) * 0.04) or 1.0
-        rect = rect.adjusted(-margin, -margin, margin, margin)
-        self.setSceneRect(rect)
-        self.fitInView(rect, qc.Qt.AspectRatioMode.KeepAspectRatio)
+        self._fit_rect(rect, 0.04)
+
+    def fit_to_page(self) -> None:
+        if self._page_frame is None:
+            self.fit_to_scene()
+            return
+        sheet = self._page_frame.sheet_rect()
+        self.setSceneRect(sheet)
+        self.fitInView(sheet, qc.Qt.AspectRatioMode.KeepAspectRatio)
         self._base_scale = x_scale(self.transform())
         self.viewportChanged.emit()
 
     def zoom_by(self, factor: float) -> bool:
         if factor <= 0:
             return False
+        if self._page_frame is not None:
+            self.sheetZoomRequested.emit(factor)
+            return True
         resulting_zoom = self._current_zoom() * factor
         if resulting_zoom < self._min_zoom or resulting_zoom > self._max_zoom:
             return False
@@ -120,6 +156,13 @@ class CadGraphicsView(qw.QGraphicsView):
         return True
 
     def pan_by(self, dx: float, dy: float) -> None:
+        if self._page_frame is not None:
+            self._page_frame = self._page_frame.moved_to(
+                self._page_frame.center_x + dx, self._page_frame.center_y + dy
+            )
+            self.fit_to_page()
+            self.pageFrameMoved.emit(self._page_frame.center_x, self._page_frame.center_y)
+            return
         center = self.mapToScene(self.viewport().rect().center())
         self.centerOn(center.x() + dx, center.y() + dy)
         self.viewportChanged.emit()
@@ -173,10 +216,12 @@ class CadGraphicsView(qw.QGraphicsView):
         entity = self._doc.get_entity(handle) if handle else None
         if entity is None or entity.dxftype() != "CIRCLE":
             return ()
+        rotation, pivot = self._content_rotation()
+        query_point = raw_scene_point if pivot is None else _rotate_point(raw_scene_point, pivot, -rotation)
         center = entity.dxf.center
         center_point = qc.QPointF(center.x, center.y)
         radius = entity.dxf.radius
-        dx, dy = raw_scene_point.x() - center_point.x(), raw_scene_point.y() - center_point.y()
+        dx, dy = query_point.x() - center_point.x(), query_point.y() - center_point.y()
         dist_to_center = math.hypot(dx, dy)
         if radius <= 0 or dist_to_center <= 0:
             hover_point = center_point
@@ -184,6 +229,9 @@ class CadGraphicsView(qw.QGraphicsView):
             hover_point = qc.QPointF(
                 center_point.x() + dx / dist_to_center * radius, center_point.y() + dy / dist_to_center * radius
             )
+        if pivot is not None:
+            hover_point = _rotate_point(hover_point, pivot, rotation)
+            center_point = _rotate_point(center_point, pivot, rotation)
         return ((hover_point, center_point),)
 
     def _snap_point(self, view_pos: qc.QPoint, raw_scene_point: qc.QPointF) -> Tuple[qc.QPointF, bool]:
@@ -213,6 +261,52 @@ class CadGraphicsView(qw.QGraphicsView):
             return
         self._snap_indicator = point
         self.viewport().update()
+
+    def set_page_frame(self, frame: Optional[PageFrame]) -> None:
+        self._page_frame = frame
+        self.viewport().update()
+
+    def set_content_rotation(
+        self, rotation_degrees: float, pivot: Optional[Tuple[float, float]]
+    ) -> None:
+        origin = qc.QPointF(*pivot) if pivot is not None else qc.QPointF(0.0, 0.0)
+        for item in self.scene().items():
+            if item.data(HANDLE_ROLE) is None:
+                continue
+            item.setTransformOriginPoint(origin)
+            item.setRotation(rotation_degrees)
+
+    def _content_rotation(self) -> Tuple[float, Optional[qc.QPointF]]:
+        if self._page_frame is None or not self._page_frame.rotation:
+            return 0.0, None
+        return self._page_frame.rotation, qc.QPointF(self._page_frame.center_x, self._page_frame.center_y)
+
+    def page_frame_rotation(self) -> float:
+        return self._page_frame.rotation if self._page_frame is not None else 0.0
+
+    def rotate_page_frame_live(self, rotation: float) -> None:
+        if self._page_frame is None:
+            return
+        self._page_frame = self._page_frame.rotated_to(rotation)
+        self.set_content_rotation(
+            self._page_frame.rotation, (self._page_frame.center_x, self._page_frame.center_y)
+        )
+        self.viewport().update()
+
+    def view_rotation(self) -> float:
+        return self._view_rotation
+
+    def set_view_rotation(self, degrees: float) -> None:
+        delta = degrees - self._view_rotation
+        if abs(delta) < 1e-9:
+            return
+        self.rotate(delta)
+        self._view_rotation = degrees
+        self.viewportChanged.emit()
+
+    def reset_view_rotation(self) -> None:
+        if self._view_rotation:
+            self.set_view_rotation(0.0)
 
     def set_selected_item(self, item: Optional[qw.QGraphicsItem]) -> None:
         self.set_selected_items([item] if item is not None else [])
@@ -376,9 +470,17 @@ class CadGraphicsView(qw.QGraphicsView):
                 best_item = item
         return best_item
 
+    def drawBackground(self, painter: qg.QPainter, rect: qc.QRectF) -> None:
+        super().drawBackground(painter, rect)
+        if self._page_frame is not None:
+            painter.fillRect(self._page_frame.sheet_rect(), qg.QColor(PAPER_COLOR))
+
     def drawForeground(self, painter: qg.QPainter, rect: qc.QRectF) -> None:
         scale = x_scale(painter.transform()) or 1.0
         color = qg.QColor(UiColor.ACCENT)
+
+        if self._page_frame is not None:
+            self._paint_page_frame(painter, rect, scale)
 
         if self._snap_indicator is not None:
             self._paint_snap_indicator(painter, self._snap_indicator, scale, color)
@@ -389,9 +491,11 @@ class CadGraphicsView(qw.QGraphicsView):
         pen.setCosmetic(True)
         pen.setJoinStyle(qc.Qt.PenJoinStyle.RoundJoin)
         pen.setCapStyle(qc.Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
         painter.setBrush(qc.Qt.BrushStyle.NoBrush)
         for item in self._selected_items:
+            painter.save()
+            painter.setPen(pen)
+            painter.setTransform(item.sceneTransform(), True)
             if isinstance(item, PointItem):
                 radius = item._radius / scale + 3 / scale
                 painter.drawEllipse(item._pos, radius, radius)
@@ -402,9 +506,56 @@ class CadGraphicsView(qw.QGraphicsView):
             elif isinstance(item, qw.QGraphicsPolygonItem):
                 painter.drawPolygon(item.polygon())
             else:
+                painter.setPen(qc.Qt.PenStyle.NoPen)
                 fill_color = qg.QColor(color)
                 fill_color.setAlpha(90)
-                painter.fillRect(item.sceneTransform().mapRect(item.boundingRect()), fill_color)
+                painter.fillRect(item.boundingRect(), fill_color)
+            painter.restore()
+
+    @staticmethod
+    def _ring_path(outer: qc.QRectF, inner: qc.QRectF) -> qg.QPainterPath:
+        path = qg.QPainterPath()
+        path.addRect(outer)
+        path.addRect(inner)
+        path.setFillRule(qc.Qt.FillRule.OddEvenFill)
+        return path
+
+    def _paint_page_frame(self, painter: qg.QPainter, rect: qc.QRectF, scale: float) -> None:
+        assert self._page_frame is not None
+        sheet = self._page_frame.sheet_rect()
+        printable = self._page_frame.printable_rect()
+
+        painter.fillPath(self._ring_path(rect, sheet), qg.QColor(UiColor.SURFACE_SUNKEN))
+        painter.fillPath(self._ring_path(sheet, printable), qg.QColor(PAPER_COLOR))
+
+        painter.setBrush(qc.Qt.BrushStyle.NoBrush)
+        sheet_pen = qg.QPen(qg.QColor(0, 0, 0, 130), 1.4)
+        sheet_pen.setCosmetic(True)
+        painter.setPen(sheet_pen)
+        painter.drawRect(sheet)
+
+        printable_pen = qg.QPen(qg.QColor(UiColor.ACCENT), 1.2)
+        printable_pen.setCosmetic(True)
+        printable_pen.setStyle(qc.Qt.PenStyle.DashLine)
+        painter.setPen(printable_pen)
+        painter.drawRect(printable)
+
+        if self._page_frame.label:
+            self._paint_frame_label(painter, sheet, scale, self._page_frame.label)
+
+    @staticmethod
+    def _paint_frame_label(
+        painter: qg.QPainter, sheet: qc.QRectF, scale: float, label: str
+    ) -> None:
+        painter.save()
+        painter.translate(sheet.left(), sheet.top())
+        painter.scale(1.0 / scale, -1.0 / scale)
+        font = painter.font()
+        font.setPointSizeF(9.0)
+        painter.setFont(font)
+        painter.setPen(qg.QPen(qg.QColor(UiColor.TEXT_MUTED)))
+        painter.drawText(qc.QPointF(0.0, 14.0), label)
+        painter.restore()
 
     @staticmethod
     def _paint_snap_indicator(painter: qg.QPainter, point: qc.QPointF, scale: float, color: qg.QColor) -> None:

@@ -88,7 +88,7 @@ class DxfCommandInterpreter:
             return "Specify a scale factor, or [Extents/Window]:"
         keyword = args[0].upper()
         if keyword in ("E", "EXTENTS", "A", "ALL"):
-            self._view.fit_to_scene()
+            self._view.fit_to_page()
             return ""
         if keyword in ("W", "WINDOW"):
             p1, p2 = self._parse_points(args[1:], count=2)

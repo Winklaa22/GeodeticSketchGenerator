@@ -284,6 +284,43 @@ QToolButton#layerPruneBtn:hover:enabled {{ color: {c.ACCENT}; border-color: {c.A
 QToolButton#layerPruneBtn:disabled {{ color: {c.BORDER}; border-color: {c.BORDER}; }}
 
 /* ---------- dxf preview canvas ---------- */
+#sheetTabBar {{ background: transparent; }}
+QToolButton#sheetTab {{
+    background: {c.SURFACE};
+    border: 1px solid {c.BORDER};
+    border-bottom: none;
+    border-top-left-radius: {RADIUS_SM}px;
+    border-top-right-radius: {RADIUS_SM}px;
+    padding: {SPACE_XS}px {SPACE_LG}px;
+    color: {c.TEXT_MUTED};
+}}
+QToolButton#sheetTab:hover {{ background: {c.SURFACE_HOVER}; color: {c.TEXT}; }}
+QToolButton#sheetTab[active="true"] {{
+    background: {c.SURFACE_RAISED};
+    border: 1px solid {c.ACCENT_BORDER};
+    border-bottom: none;
+    color: {c.TEXT};
+}}
+QToolButton#sheetTabAdd {{
+    background: transparent;
+    border: none;
+    padding: {SPACE_XS}px {SPACE_SM}px;
+}}
+QToolButton#sheetTabAdd:hover {{ background: {c.SURFACE_HOVER}; border-radius: {RADIUS_SM}px; }}
+QToolButton#sheetRow {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-radius: {RADIUS_SM}px;
+    padding: {SPACE_SM}px {SPACE_MD}px;
+    color: {c.TEXT_MUTED};
+    text-align: left;
+}}
+QToolButton#sheetRow:hover {{ background: {c.SURFACE_HOVER}; color: {c.TEXT}; }}
+QToolButton#sheetRow[active="true"] {{
+    border: 1px solid {c.ACCENT_BORDER};
+    background: {c.ACCENT_SOFT};
+    color: {c.TEXT};
+}}
 #dxfCanvas {{
     background: {c.SURFACE_SUNKEN};
     border: 1px solid {c.BORDER};
@@ -378,16 +415,16 @@ QLineEdit#input {{
 }}
 QLineEdit#input:focus {{ border: 1px solid {c.ACCENT_BORDER}; }}
 QLineEdit#input:disabled {{ color: {c.TEXT_FAINT}; }}
-QComboBox#layerDropdown {{
+QComboBox#layerDropdown, QComboBox#dropdown {{
     background: {c.SURFACE_SUNKEN};
     border: 1px solid {c.BORDER};
     border-radius: {RADIUS_SM}px;
     padding: {SPACE_SM}px;
     color: {c.TEXT};
 }}
-QComboBox#layerDropdown:focus {{ border: 1px solid {c.ACCENT_BORDER}; }}
-QComboBox#layerDropdown::drop-down {{ border: none; width: 20px; }}
-QComboBox#layerDropdown QAbstractItemView {{
+QComboBox#layerDropdown:focus, QComboBox#dropdown:focus {{ border: 1px solid {c.ACCENT_BORDER}; }}
+QComboBox#layerDropdown::drop-down, QComboBox#dropdown::drop-down {{ border: none; width: 20px; }}
+QComboBox#layerDropdown QAbstractItemView, QComboBox#dropdown QAbstractItemView {{
     background: {c.SURFACE_RAISED};
     border: 1px solid {c.BORDER_STRONG};
     color: {c.TEXT};

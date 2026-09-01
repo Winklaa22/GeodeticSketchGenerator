@@ -56,6 +56,32 @@ class ColorSwatchButton(QToolButton):
                 self.colorChanged.emit(self._rgb)
 
 
+class Dropdown(QComboBox):
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("dropdown")
+        self._keys: List[str] = []
+
+    def set_items(self, items: Sequence[Tuple[str, str]]) -> None:
+        current = self.current_key()
+        self._keys = [key for key, _label in items]
+        self.blockSignals(True)
+        self.clear()
+        self.addItems([label for _key, label in items])
+        self.blockSignals(False)
+        if current in self._keys:
+            self.set_current_key(current)
+
+    def current_key(self) -> str:
+        index = self.currentIndex()
+        return self._keys[index] if 0 <= index < len(self._keys) else ""
+
+    def set_current_key(self, key: str) -> None:
+        if key in self._keys:
+            self.setCurrentIndex(self._keys.index(key))
+
+
 class LayerDropdown(QComboBox):
     layerChanged = pyqtSignal()
 

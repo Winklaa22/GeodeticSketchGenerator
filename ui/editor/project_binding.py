@@ -6,6 +6,7 @@ from core.project import (
     DelimiterState,
     LayerDefState,
     LayerState,
+    LayoutState,
     ProjectState,
     SelectionState,
 )
@@ -20,6 +21,7 @@ def collect_project_state(
     txt_file_path: str,
     dxf_file_path: str,
     dxf_content: Optional[str],
+    layout: LayoutState,
 ) -> ProjectState:
     separate_text, range_text = panel.selection_tab.get_expression_state()
     layers, default_name = panel.layer_tab.get_state()
@@ -43,6 +45,7 @@ def collect_project_state(
             layers=[LayerDefState(name=layer_name, rgb=rgb) for layer_name, rgb in layers],
             default_name=default_name,
         ),
+        layout=layout,
         **mode_states,
     )
 

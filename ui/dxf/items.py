@@ -16,10 +16,17 @@ def x_scale(transform: qg.QTransform) -> float:
 
 class PointItem(qw.QAbstractGraphicsShapeItem):
 
-    def __init__(self, x: float, y: float, brush: qg.QBrush) -> None:
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        brush: qg.QBrush,
+        radius_units: Optional[float] = None,
+    ) -> None:
         super().__init__()
         self._pos = qc.QPointF(x, y)
         self._radius = 1.2
+        self._radius_units = radius_units
         self.setPen(qg.QPen(qc.Qt.PenStyle.NoPen))
         self.setBrush(brush)
 
@@ -29,12 +36,14 @@ class PointItem(qw.QAbstractGraphicsShapeItem):
         option: qw.QStyleOptionGraphicsItem,
         widget: Optional[qw.QWidget] = None,
     ) -> None:
-        radius = self._radius / x_scale(painter.transform())
+        radius = self._radius_units
+        if radius is None:
+            radius = self._radius / x_scale(painter.transform())
         painter.setBrush(self.brush())
         painter.setPen(qc.Qt.PenStyle.NoPen)
         painter.drawEllipse(self._pos, radius, radius)
 
     def boundingRect(self) -> qc.QRectF:
-        r = 0.01
+        r = self._radius_units if self._radius_units is not None else 0.01
         return qc.QRectF(self._pos.x() - r, self._pos.y() - r, r * 2, r * 2)
 

@@ -46,6 +46,9 @@ class IconManager:
         "pipe_section": "mdi.pipe",
         "measurements_section": "mdi.ruler",
         "selection_section": "mdi.selection",
+        "sheets_section": "mdi.file-multiple-outline",
+        "page_setup_section": "mdi.page-layout-body",
+        "sheet_add": "fa5s.plus",
 
         "checkbox_checked": "fa5s.check-square",
         "checkbox_unchecked": "fa5.square",

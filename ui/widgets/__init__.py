@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from ui.widgets.containers import Accordion, AccordionSection, Card
 from ui.widgets.files import DropZone, DxfSourceRow, ErrorBanner, FileCard
-from ui.widgets.inputs import ColorSwatchButton, LayerDropdown, RadioCardGroup, SegmentedControl
+from ui.widgets.inputs import (
+    ColorSwatchButton,
+    Dropdown,
+    LayerDropdown,
+    RadioCardGroup,
+    SegmentedControl,
+)
 from ui.widgets.primitives import (
     CheckField,
     SectionColumn,
@@ -22,6 +28,7 @@ __all__ = [
     "CheckField",
     "ColorSwatchButton",
     "DropZone",
+    "Dropdown",
     "DxfSourceRow",
     "ErrorBanner",
     "FileCard",
