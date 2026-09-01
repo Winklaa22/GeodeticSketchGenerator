@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence, Tuple
 
 from PyQt6.QtWidgets import QFrame, QScrollArea, QStackedWidget, QVBoxLayout, QWidget
 
@@ -19,7 +19,9 @@ def _scroll_area(content: QWidget) -> QScrollArea:
 class LeftColumn(QWidget):
 
     def __init__(
-        self, point_file_page: QWidget, layers_page: QWidget, parent: Optional[QWidget] = None
+        self,
+        pages: Sequence[Tuple[str, str, QWidget]],
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.setMinimumWidth(LEFT_COLUMN_MIN_WIDTH)
@@ -31,11 +33,6 @@ class LeftColumn(QWidget):
 
         self.dxf_source_row = DxfSourceRow()
         layout.addWidget(self.dxf_source_row)
-
-        pages = (
-            ("point_file", "Point File", point_file_page),
-            ("layers", "Layers", layers_page),
-        )
 
         self._nav = SegmentedControl([(key, label) for key, label, _page in pages])
         layout.addWidget(self._nav)

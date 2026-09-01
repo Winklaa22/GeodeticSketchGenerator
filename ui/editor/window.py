@@ -19,11 +19,14 @@ from core.commands.composite import CompositeCommand
 from core.exceptions import AppError, ProjectFileError
 from core.project import ProjectState
 from core.session import AppState, EditorSession
+from core.sheets import SheetSet
 from core.survey_draw_service import SurveyDrawService
 from core.validation import ensure_draw_modes, ensure_has_data, ensure_selection
 from ui.app_identity import app_settings
 from ui.dxf.viewer import DxfViewer
 from ui.editor.document_controller import DocumentController
+from ui.editor.layout_controller import LayoutController
+from ui.editor.layout_panel import LayoutPanel
 from ui.editor.left_column import LeftColumn
 from ui.editor.menu_bar import MenuBar
 from ui.editor.preview_panel import PreviewPanel
@@ -51,6 +54,7 @@ class MainWindow(QMainWindow):
         self.settings = app_settings()
 
         self.session = EditorSession()
+        self.sheets = SheetSet()
         self.survey_draw_service = SurveyDrawService()
         self.router = WindowRouter(self)
         self.documents = DocumentController(self)
@@ -61,6 +65,7 @@ class MainWindow(QMainWindow):
         )
 
         self._build_ui()
+        self.layouts = LayoutController(self)
         self._wire_signals()
         self.setStyleSheet(APP_STYLESHEET)
         if initial_state is not None:
@@ -71,7 +76,14 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         self.dxf_viewer = DxfViewer()
         self.panel = SectionsPanel(self.settings)
-        self.left_column = LeftColumn(self.panel, self.dxf_viewer.layer_panel)
+        self.layout_panel = LayoutPanel()
+        self.left_column = LeftColumn(
+            [
+                ("point_file", "Point File", self.panel),
+                ("layers", "Layers", self.dxf_viewer.layer_panel),
+                ("layout", "Layout", self.layout_panel),
+            ]
+        )
         self.preview_panel = PreviewPanel(self.dxf_viewer)
         self.status_bar = StatusBar()
         self.menu_bar = MenuBar(self.settings)
@@ -134,6 +146,7 @@ class MainWindow(QMainWindow):
         self.preview_panel.applyRequested.connect(self.apply_to_dxf)
 
         self.dxf_viewer.documentChanged.connect(self.refresh)
+        self.layouts.wire()
 
     def _sync_edit_menu(self) -> None:
         self.menu_bar.set_undo_redo_enabled(self.dxf_viewer.can_undo(), self.dxf_viewer.can_redo())
@@ -157,6 +170,7 @@ class MainWindow(QMainWindow):
         self._refresh_status_bar(state)
         self._refresh_preview(state)
         self.panel.refresh_modified_dots()
+        self.layouts.refresh()
 
     def _refresh_point_file_view(self, state: AppState) -> None:
         if state is AppState.EMPTY:

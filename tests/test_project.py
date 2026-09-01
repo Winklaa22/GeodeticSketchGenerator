@@ -11,10 +11,12 @@ from core.project import (
     HeightsState,
     LayerDefState,
     LayerState,
+    LayoutState,
     PipeState,
     PointsState,
     ProjectState,
     SelectionState,
+    SheetState,
     default_project_name,
     load_project,
     open_any,
@@ -39,6 +41,13 @@ def test_save_then_load_round_trips_every_field(tmp_path) -> None:
         layer=LayerState(
             layers=[LayerDefState(name="RURA", rgb=(200, 30, 40)), LayerDefState(name="RZEDNE", rgb=(30, 200, 40))],
             default_name="RURA",
+        ),
+        layout=LayoutState(
+            sheets=[
+                SheetState(name="Sytuacja", page_key="a2", landscape=False, scale_denominator=250),
+                SheetState(name="Detal", color_mode="monochrome", center_x=12.0, center_y=-4.5),
+            ],
+            active_index=1,
         ),
     )
     path = str(tmp_path / "project.gsgproj")
@@ -85,6 +94,45 @@ def test_load_rejects_unknown_field_types(tmp_path) -> None:
     path = tmp_path / "bad_field.gsgproj"
     path.write_text(json.dumps({"points": {"font_size": "not-a-number-but-also-not-castable[]"}}), encoding="utf-8")
     path.write_text(json.dumps({"points": {"font_size": 0.6, "bogus_extra_field": 1}}), encoding="utf-8")
+    with pytest.raises(ProjectFileError):
+        load_project(str(path))
+
+
+def test_load_defaults_the_layout_for_projects_saved_before_sheets(tmp_path) -> None:
+    path = tmp_path / "pre_sheets.gsgproj"
+    path.write_text(json.dumps({"name": "Old", "draw_modes": ["plines"]}), encoding="utf-8")
+    layout = load_project(str(path)).layout
+    assert layout == LayoutState()
+    assert [sheet.name for sheet in layout.sheets] == ["Sheet 1"]
+    assert layout.active_index is None
+
+
+def test_load_drops_an_active_index_that_points_past_the_sheets(tmp_path) -> None:
+    path = tmp_path / "bad_active.gsgproj"
+    payload = {"layout": {"sheets": [{"name": "Only"}], "active_index": 5}}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert load_project(str(path)).layout.active_index is None
+
+
+def test_load_keeps_an_empty_sheet_list(tmp_path) -> None:
+    path = tmp_path / "no_sheets.gsgproj"
+    path.write_text(json.dumps({"layout": {"sheets": []}}), encoding="utf-8")
+    layout = load_project(str(path)).layout
+    assert layout.sheets == []
+    assert layout.active_index is None
+
+
+def test_load_fills_in_sheet_fields_left_out_of_the_file(tmp_path) -> None:
+    path = tmp_path / "partial_sheet.gsgproj"
+    payload = {"layout": {"sheets": [{"name": "Detal", "page_key": "a1"}], "active_index": 0}}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    sheet = load_project(str(path)).layout.sheets[0]
+    assert sheet == SheetState(name="Detal", page_key="a1")
+
+
+def test_load_rejects_an_unknown_sheet_field(tmp_path) -> None:
+    path = tmp_path / "bad_sheet.gsgproj"
+    path.write_text(json.dumps({"layout": {"sheets": [{"bogus": 1}]}}), encoding="utf-8")
     with pytest.raises(ProjectFileError):
         load_project(str(path))
 

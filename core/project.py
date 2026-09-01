@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.exceptions import ProjectFileError
+from core.plot import PlotOptions
 
 PROJECT_FILE_EXTENSION = ".gsgproj"
 PROJECT_FILE_FILTER = "Geodetic Sketch Project (*.gsgproj)"
@@ -63,6 +64,31 @@ class MeasurementsState:
     layer_name: str = ""
 
 
+_DEFAULT_PLOT = PlotOptions()
+
+
+@dataclass
+class SheetState:
+    name: str = "Sheet 1"
+    page_key: str = _DEFAULT_PLOT.page_key
+    landscape: bool = _DEFAULT_PLOT.landscape
+    scale_mode: str = _DEFAULT_PLOT.scale_mode
+    scale_denominator: int = _DEFAULT_PLOT.scale_denominator
+    margin_mm: float = _DEFAULT_PLOT.margin_mm
+    color_mode: str = _DEFAULT_PLOT.color_mode
+    min_lineweight_mm: float = _DEFAULT_PLOT.min_lineweight_mm
+    center_x: Optional[float] = None
+    center_y: Optional[float] = None
+    rotation: float = 0.0
+
+
+@dataclass
+class LayoutState:
+
+    sheets: List[SheetState] = field(default_factory=lambda: [SheetState()])
+    active_index: Optional[int] = None
+
+
 @dataclass
 class SelectionState:
     mode: str = "all"
@@ -102,6 +128,7 @@ class ProjectState:
     measurements: MeasurementsState = field(default_factory=MeasurementsState)
     selection: SelectionState = field(default_factory=SelectionState)
     layer: LayerState = field(default_factory=LayerState)
+    layout: LayoutState = field(default_factory=LayoutState)
 
 
 def save_project(path: str, state: ProjectState) -> None:
@@ -147,6 +174,7 @@ def load_project(path: str) -> ProjectState:
             measurements=MeasurementsState(**(payload.get("measurements") or {})),
             selection=SelectionState(**(payload.get("selection") or {})),
             layer=_load_layer_state(payload.get("layer") or {}),
+            layout=_load_layout_state(payload.get("layout") or {}),
         )
     except (TypeError, ValueError) as exc:
         raise ProjectFileError(f"Not a valid project file: {exc}") from exc
@@ -165,6 +193,19 @@ def _load_layer_state(layer_payload: Dict[str, Any]) -> LayerState:
     if default_name not in {layer.name for layer in layers}:
         default_name = layers[0].name
     return LayerState(layers=layers, default_name=default_name)
+
+
+def _load_layout_state(layout_payload: Dict[str, Any]) -> LayoutState:
+    sheets_payload = layout_payload.get("sheets")
+    if sheets_payload is None:
+        return LayoutState()
+    sheets = [SheetState(**item) for item in sheets_payload]
+    active_index = layout_payload.get("active_index")
+    if active_index is not None:
+        active_index = int(active_index)
+        if not 0 <= active_index < len(sheets):
+            active_index = None
+    return LayoutState(sheets=sheets, active_index=active_index)
 
 
 def open_any(path: str) -> ProjectState:

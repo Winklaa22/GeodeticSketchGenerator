@@ -42,11 +42,14 @@ class ProjectController:
             txt_file_path=session.file_path,
             dxf_file_path=session.dxf_path,
             dxf_content=self._host.dxf_viewer.to_dxf_text(),
+            layout=self._host.sheets.to_state(),
         )
 
     def load_state(self, state: ProjectState) -> None:
         self.name = state.name
         apply_project_state(self._host.panel, state)
+        self._host.sheets.load_state(state.layout)
+        self._host.layouts.reapply()
         missing = self._host.documents.restore_project_files(state)
         if missing:
             self._host.flash_status(

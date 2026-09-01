@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, List, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 import ezdxf
+from ezdxf import bbox as ezdxf_bbox
 from ezdxf.addons.drawing import Frontend, RenderContext
 from ezdxf.addons.drawing.config import Configuration
 
@@ -27,12 +28,25 @@ from core.commands.text import (
     SetTextRotationCommand,
 )
 from core.dxf_document import DXFDocument
+from core.plot import (
+    ANNOTATION_TEXT_MM,
+    PlotOptions,
+    StrokeStyle,
+    model_stroke_style,
+    render_configuration,
+    sheet_label,
+    units_per_mm,
+)
 from ui.dxf.backend import QtSceneBackend
 from ui.dxf.command_line import CommandLine
+from ui.dxf.compass import RotationCompass
 from ui.dxf.graphics_view import CadGraphicsView
 from ui.dxf.interpreter import DxfCommandInterpreter
 from ui.dxf.items import HANDLE_ROLE
 from ui.dxf.layer_panel import LayerPanel
+from ui.dxf.page_frame import page_frame_for
+from ui.dxf.pdf_export import PlotJob, export_sheets
+from ui.dxf.sheet_tabs import SheetTabBar
 from ui.dxf.text_options_bar import TextOptionsBar
 from ui.dxf.toolbar import DxfToolbar
 from ui.dxf.tools import (
@@ -48,7 +62,7 @@ from ui.dxf.tools import (
     TextToolSession,
     ToolSession,
 )
-from ui.theme import Color as UiColor, SPACE_SM, SPACE_XS
+from ui.theme import Color as UiColor, SPACE_MD, SPACE_SM, SPACE_XS
 from ui.theme.icons import icon_manager
 
 
@@ -69,6 +83,9 @@ _TOOL_KEYS = {
 class DxfViewer(qw.QWidget):
 
     documentChanged = qc.pyqtSignal()
+    pageFrameMoved = qc.pyqtSignal(float, float)
+    pageFrameRotated = qc.pyqtSignal(float)
+    sheetZoomRequested = qc.pyqtSignal(float)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -90,6 +107,10 @@ class DxfViewer(qw.QWidget):
         self._clipboard_handles: List[str] = []
         self._clipboard_doc: Optional[DXFDocument] = None
         self._imported_layer_names: Optional[set] = None
+        self._layout_options: Optional[PlotOptions] = None
+        self._layout_center: Optional[Tuple[float, float]] = None
+        self._layout_label = ""
+        self._layout_rotation = 0.0
 
     def _build_ui(self) -> None:
         outer = qw.QHBoxLayout(self)
@@ -116,7 +137,10 @@ class DxfViewer(qw.QWidget):
         self._view = CadGraphicsView()
         self._text_options_bar = TextOptionsBar(self)
         self._command_line = CommandLine()
+        self._sheet_tabs = SheetTabBar()
+        self._compass = RotationCompass(self._canvas_page)
         canvas_layout.addWidget(self._view, 1)
+        canvas_layout.addWidget(self._sheet_tabs)
         canvas_layout.addWidget(self._command_line)
 
         self._interpreter = DxfCommandInterpreter(self)
@@ -150,6 +174,13 @@ class DxfViewer(qw.QWidget):
         self._view.toolPointPlaced.connect(self._on_tool_point_placed)
         self._view.itemsDragMoved.connect(self._on_items_drag_moved)
         self._view.viewportChanged.connect(self._reposition_text_options_bar)
+        self._view.pageFrameMoved.connect(self._on_page_frame_moved)
+        self._view.sheetZoomRequested.connect(self.sheetZoomRequested.emit)
+        self._view.viewportChanged.connect(self._reposition_compass)
+
+        self._compass.rotationChanged.connect(self._on_compass_rotation_changed)
+        self._compass.rotationCommitted.connect(self._on_compass_rotation_committed)
+        self._compass.resetRequested.connect(self._on_compass_reset)
 
         self._text_options_bar.contentChanged.connect(self._on_text_content_changed)
         self._text_options_bar.heightChanged.connect(self._on_text_height_changed)
@@ -162,7 +193,7 @@ class DxfViewer(qw.QWidget):
 
     def _wire_toolbar(self) -> None:
         self._toolbar.pointRequested.connect(lambda: self._start_draw_tool(PointToolSession))
-        self._toolbar.textRequested.connect(lambda: self._start_draw_tool(TextToolSession))
+        self._toolbar.textRequested.connect(lambda: self._start_draw_tool(self._text_tool))
         self._toolbar.lineRequested.connect(lambda: self._start_draw_tool(LineToolSession))
         self._toolbar.circleRequested.connect(lambda: self._start_draw_tool(CircleToolSession))
         self._toolbar.pipeRequested.connect(lambda: self._start_draw_tool(PipeToolSession))
@@ -174,7 +205,7 @@ class DxfViewer(qw.QWidget):
         self._toolbar.scaleEachRequested.connect(self.start_scale_each_tool)
         self._toolbar.selectSimilarRequested.connect(lambda: self._echo(self.select_similar()))
         self._toolbar.eraseRequested.connect(lambda: self._echo(self.delete_selected()))
-        self._toolbar.zoomExtentsRequested.connect(self._view.fit_to_scene)
+        self._toolbar.zoomExtentsRequested.connect(self._view.fit_to_page)
         self._toolbar.zoomInRequested.connect(lambda: self._view.zoom_by(1.25))
         self._toolbar.zoomOutRequested.connect(lambda: self._view.zoom_by(0.8))
 
@@ -207,7 +238,7 @@ class DxfViewer(qw.QWidget):
         self._add_shortcut("Ctrl+D", lambda: self._echo(self.duplicate_selected()))
 
         self._add_shortcut("P,O", lambda: self._start_draw_tool(PointToolSession), parent=self._view)
-        self._add_shortcut("T", lambda: self._start_draw_tool(TextToolSession), parent=self._view)
+        self._add_shortcut("T", lambda: self._start_draw_tool(self._text_tool), parent=self._view)
         self._add_shortcut("L", lambda: self._start_draw_tool(LineToolSession), parent=self._view)
         self._add_shortcut("C", lambda: self._start_draw_tool(CircleToolSession), parent=self._view)
         self._add_shortcut("R,U", lambda: self._start_draw_tool(PipeToolSession), parent=self._view)
@@ -240,6 +271,124 @@ class DxfViewer(qw.QWidget):
     @property
     def layer_panel(self) -> LayerPanel:
         return self._layer_panel
+
+    @property
+    def sheet_tabs(self) -> SheetTabBar:
+        return self._sheet_tabs
+
+    def _text_tool(self) -> TextToolSession:
+        if self._layout_options is None:
+            return TextToolSession()
+        return TextToolSession(ANNOTATION_TEXT_MM * units_per_mm(self._layout_options))
+
+    @property
+    def layout_options(self) -> Optional[PlotOptions]:
+        return self._layout_options
+
+    def set_layout_mode(
+        self,
+        options: Optional[PlotOptions],
+        center: Optional[Tuple[float, float]] = None,
+        label: str = "",
+        rotation: float = 0.0,
+    ) -> None:
+        if options is None:
+            if self._layout_options is None:
+                return
+            self._layout_options = None
+            self._layout_center = None
+            self._layout_label = ""
+            self._layout_rotation = 0.0
+            self._view.set_page_frame(None)
+            self._compass.set_angle(0.0)
+        else:
+            self._view.reset_view_rotation()
+            self._layout_options = options
+            self._layout_center = (
+                center or self._layout_center or self.content_center() or (0.0, 0.0)
+            )
+            self._layout_label = label or sheet_label(options)
+            self._layout_rotation = rotation
+            self._install_page_frame()
+            self._compass.set_angle(rotation)
+        if self._doc is not None:
+            self._render(preserve_view=False)
+
+    def move_page_frame(self, center_x: float, center_y: float) -> None:
+        if self._layout_options is None:
+            return
+        self._layout_center = (center_x, center_y)
+        self._install_page_frame()
+
+    def _install_page_frame(self) -> None:
+        assert self._layout_options is not None and self._layout_center is not None
+        self._view.set_page_frame(
+            page_frame_for(
+                self._layout_options, self._layout_center, self._layout_label, self._layout_rotation
+            )
+        )
+
+    def _on_page_frame_moved(self, center_x: float, center_y: float) -> None:
+        self.move_page_frame(center_x, center_y)
+        self.pageFrameMoved.emit(center_x, center_y)
+
+    def _reposition_compass(self) -> None:
+        viewport = self._view.viewport()
+        top_right = viewport.mapToGlobal(qc.QPoint(viewport.width(), 0))
+        anchor = self._canvas_page.mapFromGlobal(top_right)
+        self._compass.move(anchor.x() - self._compass.width() - SPACE_MD, anchor.y() + SPACE_MD)
+        self._compass.raise_()
+
+    def _on_compass_rotation_changed(self, angle: float) -> None:
+        if self._layout_options is not None:
+            self._view.rotate_page_frame_live(angle)
+        else:
+            self._view.set_view_rotation(angle)
+
+    def _on_compass_rotation_committed(self, angle: float) -> None:
+        if self._layout_options is not None:
+            self._layout_rotation = self._view.page_frame_rotation()
+            self.pageFrameRotated.emit(self._layout_rotation)
+
+    def _on_compass_reset(self) -> None:
+        self._compass.set_angle(0.0)
+        if self._layout_options is not None:
+            self._view.rotate_page_frame_live(0.0)
+            self._layout_rotation = 0.0
+            self.pageFrameRotated.emit(0.0)
+        else:
+            self._view.reset_view_rotation()
+
+    def _on_page_frame_rotated(self, rotation: float) -> None:
+        self._layout_rotation = rotation
+        self.pageFrameRotated.emit(rotation)
+
+    def _render_config(self) -> Configuration:
+        if self._layout_options is None:
+            return Configuration()
+        return render_configuration(self._layout_options)
+
+    def _stroke_style(self) -> Optional[StrokeStyle]:
+        if self._layout_options is None:
+            return None
+        return model_stroke_style(self._layout_options)
+
+    def content_bbox(self):
+        if self._doc is None:
+            return None
+        box = ezdxf_bbox.extents(self._doc.modelspace)
+        return box if box.has_data else None
+
+    def content_center(self) -> Optional[Tuple[float, float]]:
+        box = self.content_bbox()
+        return (box.center.x, box.center.y) if box is not None else None
+
+    def export_sheets(
+        self, file_path: str, jobs: Sequence[PlotJob], title: str = ""
+    ) -> Tuple[bool, str]:
+        if self._doc is None:
+            return False, "There is no drawing to export."
+        return export_sheets(self._doc, file_path, jobs, title)
 
     def save_document(self, file_path: str) -> None:
         assert self._doc is not None
@@ -599,14 +748,18 @@ class DxfViewer(qw.QWidget):
         self._view.set_document(self._doc)
         saved = self._view.save_view() if preserve_view else None
         scene = qw.QGraphicsScene()
-        backend = QtSceneBackend(scene)
+        backend = QtSceneBackend(scene, self._stroke_style())
         context = RenderContext(self._doc.drawing)
-        Frontend(context, backend, config=Configuration()).draw_layout(self._doc.modelspace, finalize=True)
+        Frontend(context, backend, config=self._render_config()).draw_layout(
+            self._doc.modelspace, finalize=True
+        )
         self._view.setScene(scene)
+        if self._layout_options is not None:
+            self._view.set_content_rotation(self._layout_rotation, self._layout_center)
         if saved is not None:
             self._view.restore_view(saved)
         else:
-            self._view.fit_to_scene()
+            self._view.fit_to_page()
 
         handle_set = set(self._selected_handles)
         matched = [item for item in scene.items() if item.data(HANDLE_ROLE) in handle_set]
