@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from PyQt6 import QtGui
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.theme import Color, ICON_MD, ICON_SM, SPACE_LG, SPACE_MD, SPACE_SM
 from ui.theme.icons import icon_manager
@@ -34,6 +34,7 @@ class AccordionSection(QWidget):
         super().__init__(parent)
         self._content = content
         self._expanded = False
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -42,6 +43,7 @@ class AccordionSection(QWidget):
         self._header = _ClickableRow()
         self._header.setObjectName("accordionHeader")
         self._header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._header.clicked.connect(self.toggled.emit)
         header_layout = QHBoxLayout(self._header)
         header_layout.setContentsMargins(SPACE_LG, SPACE_MD, SPACE_LG, SPACE_MD)
@@ -99,12 +101,13 @@ class Accordion(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
+        self._layout.addStretch(1)
         self._sections: List[AccordionSection] = []
 
     def add_section(self, section: AccordionSection) -> None:
         section.toggled.connect(lambda s=section: self._on_toggle(s))
         self._sections.append(section)
-        self._layout.addWidget(section)
+        self._layout.insertWidget(self._layout.count() - 1, section)
         if len(self._sections) == 1:
             section.set_expanded(True)
 

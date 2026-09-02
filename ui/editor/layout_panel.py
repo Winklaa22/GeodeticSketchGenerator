@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QGridLayout, QVBoxLayout, QWidget
 from ui.dxf.sheet_tabs import SheetList
 from ui.editor.tabs.base import SectionWidget
 from ui.editor.tabs.plot_tab import PlotTab
+from ui.editor.tabs.sheet_fields_tab import SheetFieldsTab
 from ui.theme import SPACE_LG, SPACE_SM
 from ui.widgets import Accordion, AccordionSection, make_button
 
@@ -87,6 +88,7 @@ class LayoutPanel(QWidget):
         super().__init__(parent)
         self.sheets_section = _SheetsSection()
         self.plot_tab = PlotTab()
+        self.sheet_fields_tab = SheetFieldsTab()
 
         self.accordion = Accordion()
         layout = QVBoxLayout(self)
@@ -97,6 +99,10 @@ class LayoutPanel(QWidget):
         self.accordion.add_section(
             AccordionSection("sheets_section", "Sheets", self.sheets_section)
         )
+        self._fields_section = AccordionSection(
+            "sheet_fields_section", "Sheet details", self.sheet_fields_tab
+        )
+        self.accordion.add_section(self._fields_section)
         self._page_section = AccordionSection(
             "page_setup_section", "Page setup", self.plot_tab
         )
@@ -110,12 +116,14 @@ class LayoutPanel(QWidget):
         self.sheets_section.moveUpRequested.connect(self.moveUpRequested.emit)
         self.sheets_section.moveDownRequested.connect(self.moveDownRequested.emit)
         self.sheets_section.exportAllRequested.connect(self.exportAllRequested.emit)
+        self.sheet_fields_tab.fieldsChanged.connect(self.optionsChanged.emit)
         self.plot_tab.optionsChanged.connect(self.optionsChanged.emit)
         self.plot_tab.exportRequested.connect(self.exportRequested.emit)
         self.plot_tab.centerRequested.connect(self.centerRequested.emit)
 
     def refresh(self, names: Sequence[str], active: Optional[int], has_document: bool) -> None:
         self.sheets_section.refresh(names, active, has_document)
+        self.sheet_fields_tab.setEnabled(active is not None)
         self.plot_tab.setEnabled(active is not None)
         self.plot_tab.set_export_enabled(has_document and active is not None)
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 from core.plot import PlotOptions
 from core.project import LayoutState, SheetState
+from core.title_block import SheetTitleBlockFields
 
 SHEET_NAME_PREFIX = "Sheet"
 
@@ -15,6 +16,7 @@ class Sheet:
     options: PlotOptions = PlotOptions()
     center: Optional[Tuple[float, float]] = None
     rotation: float = 0.0
+    title_block: SheetTitleBlockFields = field(default_factory=SheetTitleBlockFields)
 
 
 def options_from_state(state: SheetState) -> PlotOptions:
@@ -22,12 +24,23 @@ def options_from_state(state: SheetState) -> PlotOptions:
     return PlotOptions(**{key: value for key, value in asdict(state).items() if key in names})
 
 
+def title_block_from_state(state: SheetState) -> SheetTitleBlockFields:
+    names = {field.name for field in fields(SheetTitleBlockFields)}
+    return SheetTitleBlockFields(
+        **{key: value for key, value in asdict(state).items() if key in names}
+    )
+
+
 def sheet_from_state(state: SheetState) -> Sheet:
     center = None
     if state.center_x is not None and state.center_y is not None:
         center = (state.center_x, state.center_y)
     return Sheet(
-        name=state.name, options=options_from_state(state), center=center, rotation=state.rotation
+        name=state.name,
+        options=options_from_state(state),
+        center=center,
+        rotation=state.rotation,
+        title_block=title_block_from_state(state),
     )
 
 
@@ -39,6 +52,7 @@ def state_from_sheet(sheet: Sheet) -> SheetState:
         center_y=center_y,
         rotation=sheet.rotation,
         **asdict(sheet.options),
+        **asdict(sheet.title_block),
     )
 
 
@@ -156,6 +170,9 @@ class SheetSet:
 
     def set_rotation(self, index: int, rotation: float) -> None:
         self._sheets[index] = replace(self._sheets[index], rotation=rotation)
+
+    def set_title_block(self, index: int, fields_: SheetTitleBlockFields) -> None:
+        self._sheets[index] = replace(self._sheets[index], title_block=fields_)
 
     def to_state(self) -> LayoutState:
         return LayoutState(

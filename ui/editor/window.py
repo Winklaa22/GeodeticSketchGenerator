@@ -33,6 +33,7 @@ from ui.editor.preview_panel import PreviewPanel
 from ui.editor.project_controller import ProjectController
 from ui.editor.sections_panel import SectionsPanel
 from ui.editor.status_bar import StatusBar
+from ui.editor.title_block_dialog import TitleBlockProfileDialog
 from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_XL
 from ui.theme.assets import ICON_PATH
 from ui.theme.style import APP_STYLESHEET
@@ -126,6 +127,7 @@ class MainWindow(QMainWindow):
         self.menu_bar.saveProjectAsRequested.connect(self.project.save_as)
         self.menu_bar.renameProjectRequested.connect(self.project.rename)
         self.menu_bar.exportDxfRequested.connect(self.documents.save_dxf)
+        self.menu_bar.titleBlockProfileRequested.connect(self.open_title_block_profile_dialog)
         self.menu_bar.closeProjectRequested.connect(self.open_start_screen)
         self.menu_bar.undoRequested.connect(lambda: self.dxf_viewer.echo(self.dxf_viewer.undo()))
         self.menu_bar.redoRequested.connect(lambda: self.dxf_viewer.echo(self.dxf_viewer.redo()))
@@ -240,6 +242,11 @@ class MainWindow(QMainWindow):
         self.session.mark_applied()
         self.documents.refresh_dxf_source()
         self.refresh()
+
+    def open_title_block_profile_dialog(self) -> None:
+        dialog = TitleBlockProfileDialog(self.settings, self)
+        if dialog.exec():
+            self.layouts.reapply()
 
     def open_start_screen(self) -> None:
         self.router.start_screen()

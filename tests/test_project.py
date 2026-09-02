@@ -44,7 +44,11 @@ def test_save_then_load_round_trips_every_field(tmp_path) -> None:
         ),
         layout=LayoutState(
             sheets=[
-                SheetState(name="Sytuacja", page_key="a2", landscape=False, scale_denominator=250),
+                SheetState(
+                    name="Sytuacja", page_key="a2", landscape=False, scale_denominator=250,
+                    powiat="wrocławski", gmina="Kobierzyce", obreb="KOBIERZYCE", dz_nr="394",
+                    sketch_number="1",
+                ),
                 SheetState(name="Detal", color_mode="monochrome", center_x=12.0, center_y=-4.5),
             ],
             active_index=1,

@@ -7,6 +7,7 @@ from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 from core.dxf_document import DXFDocument
 from core.plot import PAPER_COLOR
+from core.title_block import BORDER_WIDTH_MM, CELL_PADDING_MM, ResolvedCell
 from ui.dxf.items import HANDLE_ROLE, PointItem, x_scale
 from ui.dxf.page_frame import PageFrame
 from ui.theme import Color as UiColor
@@ -69,7 +70,6 @@ class CadGraphicsView(qw.QGraphicsView):
     itemsDragMoved = qc.pyqtSignal(list, float, float)
     viewportChanged = qc.pyqtSignal()
     pageFrameMoved = qc.pyqtSignal(float, float)
-    sheetZoomRequested = qc.pyqtSignal(float)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -77,6 +77,7 @@ class CadGraphicsView(qw.QGraphicsView):
         self._min_zoom = 0.02
         self._max_zoom = 200.0
         self._zoom_step = 0.2
+        self._frame_transform: Optional[qg.QTransform] = None
         self._tool: Optional["ToolSession"] = None
         self._press_pos: Optional[qc.QPoint] = None
         self._selected_items: List[qw.QGraphicsItem] = []
@@ -90,6 +91,8 @@ class CadGraphicsView(qw.QGraphicsView):
         self._drag_start_scene: Optional[qc.QPointF] = None
         self._page_frame: Optional[PageFrame] = None
         self._view_rotation = 0.0
+        self._title_block_cells: List[ResolvedCell] = []
+        self._title_block_scale = 1.0
 
         self.setObjectName("dxfCanvas")
         self.setFocusPolicy(qc.Qt.FocusPolicy.StrongFocus)
@@ -129,18 +132,28 @@ class CadGraphicsView(qw.QGraphicsView):
         if self._page_frame is None:
             self.fit_to_scene()
             return
+        self._refit_page(preserve_zoom=False)
+
+    def _refit_page(self, preserve_zoom: bool) -> None:
+        assert self._page_frame is not None
+        zoom_factor = self._current_zoom() if preserve_zoom else 1.0
         sheet = self._page_frame.sheet_rect()
         self.setSceneRect(sheet)
         self.fitInView(sheet, qc.Qt.AspectRatioMode.KeepAspectRatio)
         self._base_scale = x_scale(self.transform())
+        # Freeze THIS 1x fit as the frame's own transform, before any zoom is reapplied
+        # below. The live view transform is free to change afterwards (scrolling zooms
+        # into the drawing, same as the model view), but the paper/table chrome is always
+        # drawn with this frozen transform, so it stays put on screen no matter how far
+        # the content underneath is zoomed.
+        self._frame_transform = qg.QTransform(self.viewportTransform())
+        if abs(zoom_factor - 1.0) > 1e-9:
+            self.scale(zoom_factor, zoom_factor)
         self.viewportChanged.emit()
 
     def zoom_by(self, factor: float) -> bool:
         if factor <= 0:
             return False
-        if self._page_frame is not None:
-            self.sheetZoomRequested.emit(factor)
-            return True
         resulting_zoom = self._current_zoom() * factor
         if resulting_zoom < self._min_zoom or resulting_zoom > self._max_zoom:
             return False
@@ -160,7 +173,7 @@ class CadGraphicsView(qw.QGraphicsView):
             self._page_frame = self._page_frame.moved_to(
                 self._page_frame.center_x + dx, self._page_frame.center_y + dy
             )
-            self.fit_to_page()
+            self._refit_page(preserve_zoom=True)
             self.pageFrameMoved.emit(self._page_frame.center_x, self._page_frame.center_y)
             return
         center = self.mapToScene(self.viewport().rect().center())
@@ -186,7 +199,16 @@ class CadGraphicsView(qw.QGraphicsView):
 
     def resizeEvent(self, event: qg.QResizeEvent) -> None:
         super().resizeEvent(event)
-        self.viewportChanged.emit()
+        if self._page_frame is not None:
+            # Re-fit whenever the viewport's actual size changes, not just on request: the
+            # very first fit (right after the window/splitters are constructed) commonly
+            # runs before layout has settled on the widget's final size, which used to
+            # leave the page stuck small and off to one side until something else forced
+            # a re-fit. Preserving zoom keeps this a no-op for the common "just resizing
+            # the window" case rather than fighting whatever zoom the user had set.
+            self._refit_page(preserve_zoom=True)
+        else:
+            self.viewportChanged.emit()
 
     def wheelEvent(self, event: qg.QWheelEvent) -> None:
         notches = event.angleDelta().y() / 120
@@ -264,6 +286,11 @@ class CadGraphicsView(qw.QGraphicsView):
 
     def set_page_frame(self, frame: Optional[PageFrame]) -> None:
         self._page_frame = frame
+        self.viewport().update()
+
+    def set_title_block(self, cells: List[ResolvedCell], scale: float = 1.0) -> None:
+        self._title_block_cells = cells
+        self._title_block_scale = scale
         self.viewport().update()
 
     def set_content_rotation(
@@ -473,14 +500,21 @@ class CadGraphicsView(qw.QGraphicsView):
     def drawBackground(self, painter: qg.QPainter, rect: qc.QRectF) -> None:
         super().drawBackground(painter, rect)
         if self._page_frame is not None:
+            painter.save()
+            painter.setTransform(self._frame_transform or painter.transform())
             painter.fillRect(self._page_frame.sheet_rect(), qg.QColor(PAPER_COLOR))
+            painter.restore()
 
     def drawForeground(self, painter: qg.QPainter, rect: qc.QRectF) -> None:
         scale = x_scale(painter.transform()) or 1.0
         color = qg.QColor(UiColor.ACCENT)
 
         if self._page_frame is not None:
-            self._paint_page_frame(painter, rect, scale)
+            painter.save()
+            frame_transform = self._frame_transform or painter.transform()
+            painter.setTransform(frame_transform)
+            self._paint_page_frame(painter, x_scale(frame_transform) or 1.0)
+            painter.restore()
 
         if self._snap_indicator is not None:
             self._paint_snap_indicator(painter, self._snap_indicator, scale, color)
@@ -520,13 +554,19 @@ class CadGraphicsView(qw.QGraphicsView):
         path.setFillRule(qc.Qt.FillRule.OddEvenFill)
         return path
 
-    def _paint_page_frame(self, painter: qg.QPainter, rect: qc.QRectF, scale: float) -> None:
+    def _paint_page_frame(self, painter: qg.QPainter, scale: float) -> None:
         assert self._page_frame is not None
         sheet = self._page_frame.sheet_rect()
-        printable = self._page_frame.printable_rect()
+        map_rect = self._page_frame.map_rect()
+        table_rect = self._page_frame.table_rect()
 
-        painter.fillPath(self._ring_path(rect, sheet), qg.QColor(UiColor.SURFACE_SUNKEN))
-        painter.fillPath(self._ring_path(sheet, printable), qg.QColor(PAPER_COLOR))
+        # Painted with the frozen frame transform (see fit_to_page), so the live exposed
+        # scene rect no longer means "the viewport" here. A generous fixed margin around
+        # the sheet covers the canvas background regardless of how far content is zoomed.
+        margin = max(sheet.width(), sheet.height()) * 4.0
+        outer = sheet.adjusted(-margin, -margin, margin, margin)
+        painter.fillPath(self._ring_path(outer, sheet), qg.QColor(UiColor.SURFACE_SUNKEN))
+        painter.fillPath(self._ring_path(sheet, map_rect), qg.QColor(PAPER_COLOR))
 
         painter.setBrush(qc.Qt.BrushStyle.NoBrush)
         sheet_pen = qg.QPen(qg.QColor(0, 0, 0, 130), 1.4)
@@ -534,14 +574,102 @@ class CadGraphicsView(qw.QGraphicsView):
         painter.setPen(sheet_pen)
         painter.drawRect(sheet)
 
-        printable_pen = qg.QPen(qg.QColor(UiColor.ACCENT), 1.2)
-        printable_pen.setCosmetic(True)
-        printable_pen.setStyle(qc.Qt.PenStyle.DashLine)
-        painter.setPen(printable_pen)
-        painter.drawRect(printable)
+        border_width = max(BORDER_WIDTH_MM * self._title_block_scale, 0.02)
+        solid_pen = qg.QPen(qg.QColor(0, 0, 0), border_width)
+        solid_pen.setCosmetic(False)
+        painter.setPen(solid_pen)
+        if map_rect.height() > 0.0:
+            painter.drawRect(map_rect)
+        if table_rect.height() > 0.0:
+            painter.drawRect(table_rect)
+            self._paint_title_block_table(painter, table_rect, border_width)
 
         if self._page_frame.label:
             self._paint_frame_label(painter, sheet, scale, self._page_frame.label)
+
+    def _paint_title_block_table(
+        self, painter: qg.QPainter, table_rect: qc.QRectF, border_width: float
+    ) -> None:
+        if not self._title_block_cells:
+            return
+        # Cells are computed in a LOCAL, Y-down frame (row 0 = header, at the top of the
+        # table). Placing them with translate(left, bottom) + scale(1, -1) both (a) maps
+        # that local frame onto the scene's Y-up table_rect with the header ending up next
+        # to the map (as intended), and (b) cancels the view's own Y-flip for anything
+        # drawn here, so text/logos render upright with no separate correction needed.
+        painter.save()
+        painter.translate(table_rect.left(), table_rect.bottom())
+        painter.scale(1.0, -1.0)
+        thin_pen = qg.QPen(qg.QColor(0, 0, 0), max(border_width * 0.6, 0.015))
+        thin_pen.setCosmetic(False)
+        padding = CELL_PADDING_MM * self._title_block_scale
+        for cell in self._title_block_cells:
+            cell_rect = qc.QRectF(cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h)
+            painter.setPen(thin_pen)
+            painter.setBrush(qc.Qt.BrushStyle.NoBrush)
+            painter.drawRect(cell_rect)
+            padded = cell_rect.adjusted(padding, padding, -padding, -padding)
+            if cell.text:
+                self._paint_cell_text(painter, padded, cell)
+        painter.restore()
+
+    @staticmethod
+    def _cell_flags(cell: ResolvedCell) -> int:
+        align = {
+            "left": qc.Qt.AlignmentFlag.AlignLeft,
+            "center": qc.Qt.AlignmentFlag.AlignHCenter,
+            "right": qc.Qt.AlignmentFlag.AlignRight,
+        }.get(cell.align, qc.Qt.AlignmentFlag.AlignLeft)
+        valign = {
+            "top": qc.Qt.AlignmentFlag.AlignTop,
+            "middle": qc.Qt.AlignmentFlag.AlignVCenter,
+            "bottom": qc.Qt.AlignmentFlag.AlignBottom,
+        }.get(cell.valign, qc.Qt.AlignmentFlag.AlignTop)
+        return int(align) | int(valign) | int(qc.Qt.TextFlag.TextWordWrap)
+
+    _TEXT_REFERENCE_PX = 200.0
+
+    @classmethod
+    def _draw_scaled_text(
+        cls,
+        painter: qg.QPainter,
+        rect: qc.QRectF,
+        flags: int,
+        text: str,
+        font_size: float,
+        bold: bool = False,
+        italic: bool = False,
+    ) -> None:
+        if font_size <= 0.0 or not text:
+            return
+        # cell.font_size is a small scene-unit value (often well under 2). Asking Qt's font
+        # rasterizer for that size directly is unreliable: glyphs are hinted onto an integer
+        # pixel grid, so at a couple of "points" Qt quantizes/clamps outright (measured:
+        # 1.5, 1.6, 1.7 and 1.8pt all rasterize to the exact same height). As cell.font_size
+        # drifts continuously with the sheet's scale, that quantization makes the on-screen
+        # text visibly snap between sizes while zooming. Fix: render at a large, stable
+        # reference pixel size (negligible relative rounding error) and reach the actual
+        # target size via a continuous painter scale instead, which the view's own zoom then
+        # magnifies smoothly with no further quantization.
+        local_scale = font_size / cls._TEXT_REFERENCE_PX
+        painter.save()
+        painter.translate(rect.left(), rect.top())
+        painter.scale(local_scale, local_scale)
+        font = qg.QFont()
+        font.setPixelSize(round(cls._TEXT_REFERENCE_PX))
+        font.setBold(bold)
+        font.setItalic(italic)
+        painter.setFont(font)
+        painter.setPen(qg.QColor(0, 0, 0))
+        local_rect = qc.QRectF(0.0, 0.0, rect.width() / local_scale, rect.height() / local_scale)
+        painter.drawText(local_rect, flags, text)
+        painter.restore()
+
+    @classmethod
+    def _paint_cell_text(cls, painter: qg.QPainter, rect: qc.QRectF, cell: ResolvedCell) -> None:
+        cls._draw_scaled_text(
+            painter, rect, cls._cell_flags(cell), cell.text, cell.font_size, cell.bold, cell.italic
+        )
 
     @staticmethod
     def _paint_frame_label(
