@@ -405,7 +405,7 @@ QWidget#accordionContent {{
 
 /* ---------- fields ---------- */
 QLabel#fieldLabel {{ color: {c.TEXT_MUTED}; font-size: {TEXT_SM}px; }}
-QLineEdit#input {{
+QLineEdit#input, QPlainTextEdit#input {{
     background: {c.SURFACE_SUNKEN};
     border: 1px solid {c.BORDER};
     border-radius: {RADIUS_SM}px;
@@ -413,8 +413,8 @@ QLineEdit#input {{
     color: {c.TEXT};
     selection-background-color: {c.ACCENT_SOFT};
 }}
-QLineEdit#input:focus {{ border: 1px solid {c.ACCENT_BORDER}; }}
-QLineEdit#input:disabled {{ color: {c.TEXT_FAINT}; }}
+QLineEdit#input:focus, QPlainTextEdit#input:focus {{ border: 1px solid {c.ACCENT_BORDER}; }}
+QLineEdit#input:disabled, QPlainTextEdit#input:disabled {{ color: {c.TEXT_FAINT}; }}
 QComboBox#layerDropdown, QComboBox#dropdown {{
     background: {c.SURFACE_SUNKEN};
     border: 1px solid {c.BORDER};

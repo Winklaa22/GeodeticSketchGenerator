@@ -5,7 +5,8 @@ from typing import Tuple
 
 from PyQt6 import QtCore as qc
 
-from core.plot import PlotOptions, margin_in_units, normalize_degrees, sheet_size_in_units
+from core.plot import PlotOptions, margin_in_units, normalize_degrees, sheet_size_in_units, units_per_mm
+from core.title_block import TABLE_HEIGHT_MM
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class PageFrame:
     margin: float
     label: str = ""
     rotation: float = 0.0
+    table_height: float = 0.0
 
     def sheet_rect(self) -> qc.QRectF:
         return qc.QRectF(
@@ -31,6 +33,20 @@ class PageFrame:
         inset = min(self.margin, rect.width() / 2.0, rect.height() / 2.0)
         return rect.adjusted(inset, inset, -inset, -inset)
 
+    def map_rect(self) -> qc.QRectF:
+        printable = self.printable_rect()
+        # Scene space is Y-up: printable.top() (the smaller y) is the visual BOTTOM of
+        # the page, so the table is carved off starting there, and the map fills the rest.
+        top_edge = min(printable.top() + self.table_height, printable.bottom())
+        return qc.QRectF(printable.left(), top_edge, printable.width(), printable.bottom() - top_edge)
+
+    def table_rect(self) -> qc.QRectF:
+        printable = self.printable_rect()
+        map_rect = self.map_rect()
+        return qc.QRectF(
+            printable.left(), printable.top(), printable.width(), map_rect.top() - printable.top()
+        )
+
     def moved_to(self, center_x: float, center_y: float) -> "PageFrame":
         return replace(self, center_x=center_x, center_y=center_y)
 
@@ -39,7 +55,11 @@ class PageFrame:
 
 
 def page_frame_for(
-    options: PlotOptions, center: Tuple[float, float], label: str = "", rotation: float = 0.0
+    options: PlotOptions,
+    center: Tuple[float, float],
+    label: str = "",
+    rotation: float = 0.0,
+    table_height_mm: float = TABLE_HEIGHT_MM,
 ) -> PageFrame:
     width, height = sheet_size_in_units(options)
     return PageFrame(
@@ -50,4 +70,5 @@ def page_frame_for(
         margin=margin_in_units(options),
         label=label,
         rotation=normalize_degrees(rotation),
+        table_height=table_height_mm * units_per_mm(options),
     )

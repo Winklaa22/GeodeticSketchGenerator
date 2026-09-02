@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from core.plot import PlotOptions
+from core.plot import PlotOptions, units_per_mm
+from core.title_block import TABLE_HEIGHT_MM
 from ui.dxf.page_frame import PageFrame, page_frame_for
 from ui.dxf.pdf_export import PlotJob, export_sheets, job_render_box
 
@@ -85,3 +86,43 @@ def test_export_sheets_reports_when_there_is_nothing_to_plot() -> None:
     ok, message = export_sheets(None, "unused.pdf", [])
     assert not ok
     assert "no sheets" in message.lower()
+
+
+def test_page_frame_for_defaults_to_the_standard_table_height() -> None:
+    frame = page_frame_for(A3, (0.0, 0.0))
+    assert abs(frame.table_height - TABLE_HEIGHT_MM * units_per_mm(A3)) < 1e-9
+
+
+def test_page_frame_for_zero_table_height_degenerates_to_the_old_behaviour() -> None:
+    frame = page_frame_for(A3, (0.0, 0.0), table_height_mm=0.0)
+    assert frame.map_rect() == frame.printable_rect()
+    assert frame.table_rect().height() == 0.0
+
+
+def test_map_rect_carves_the_table_off_the_visual_bottom() -> None:
+    frame = page_frame_for(A3, (0.0, 0.0), table_height_mm=30.0)
+    printable = frame.printable_rect()
+    map_rect = frame.map_rect()
+    assert map_rect.bottom() == printable.bottom()
+    assert map_rect.top() > printable.top()
+    assert map_rect.width() == printable.width()
+
+
+def test_table_rect_is_the_complement_of_map_rect() -> None:
+    frame = page_frame_for(A3, (0.0, 0.0), table_height_mm=30.0)
+    printable = frame.printable_rect()
+    map_rect = frame.map_rect()
+    table_rect = frame.table_rect()
+    assert table_rect.top() == printable.top()
+    assert table_rect.bottom() == map_rect.top()
+    assert table_rect.width() == printable.width()
+    assert abs(table_rect.height() - (printable.height() - map_rect.height())) < 1e-9
+
+
+def test_table_rect_clamps_when_taller_than_the_printable_area() -> None:
+    frame = page_frame_for(A3, (0.0, 0.0), table_height_mm=100000.0)
+    printable = frame.printable_rect()
+    map_rect = frame.map_rect()
+    table_rect = frame.table_rect()
+    assert map_rect.height() == 0.0
+    assert abs(table_rect.height() - printable.height()) < 1e-9

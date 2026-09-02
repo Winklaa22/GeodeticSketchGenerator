@@ -37,6 +37,7 @@ from core.plot import (
     sheet_label,
     units_per_mm,
 )
+from core.title_block import ResolvedCell
 from ui.dxf.backend import QtSceneBackend
 from ui.dxf.command_line import CommandLine
 from ui.dxf.compass import RotationCompass
@@ -85,7 +86,6 @@ class DxfViewer(qw.QWidget):
     documentChanged = qc.pyqtSignal()
     pageFrameMoved = qc.pyqtSignal(float, float)
     pageFrameRotated = qc.pyqtSignal(float)
-    sheetZoomRequested = qc.pyqtSignal(float)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -175,7 +175,6 @@ class DxfViewer(qw.QWidget):
         self._view.itemsDragMoved.connect(self._on_items_drag_moved)
         self._view.viewportChanged.connect(self._reposition_text_options_bar)
         self._view.pageFrameMoved.connect(self._on_page_frame_moved)
-        self._view.sheetZoomRequested.connect(self.sheetZoomRequested.emit)
         self._view.viewportChanged.connect(self._reposition_compass)
 
         self._compass.rotationChanged.connect(self._on_compass_rotation_changed)
@@ -300,6 +299,7 @@ class DxfViewer(qw.QWidget):
             self._layout_label = ""
             self._layout_rotation = 0.0
             self._view.set_page_frame(None)
+            self._view.set_title_block([])
             self._compass.set_angle(0.0)
         else:
             self._view.reset_view_rotation()
@@ -327,6 +327,9 @@ class DxfViewer(qw.QWidget):
                 self._layout_options, self._layout_center, self._layout_label, self._layout_rotation
             )
         )
+
+    def set_title_block(self, cells: List[ResolvedCell], scale: float = 1.0) -> None:
+        self._view.set_title_block(cells, scale)
 
     def _on_page_frame_moved(self, center_x: float, center_y: float) -> None:
         self.move_page_frame(center_x, center_y)

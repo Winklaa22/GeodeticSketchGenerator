@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Iterable, Sequence, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg
@@ -23,12 +23,33 @@ from core.plot import (
     render_configuration,
     settings_for,
 )
+from core.title_block import (
+    BORDER_WIDTH_MM,
+    CELL_PADDING_MM,
+    TABLE_HEIGHT_MM,
+    Rect,
+    ResolvedCell,
+    SheetTitleBlockFields,
+    TitleBlockProfile,
+    title_block_layout,
+)
 from ui.dxf.backend import qcolor_from, to_qpainter_path
 from ui.dxf.page_frame import PageFrame
 
 RESOLUTION_DPI = 1200
 MM_PER_INCH = 25.4
 CROP_PRECISION_MM = 0.1
+
+_ALIGN_H = {
+    "left": qc.Qt.AlignmentFlag.AlignLeft,
+    "center": qc.Qt.AlignmentFlag.AlignHCenter,
+    "right": qc.Qt.AlignmentFlag.AlignRight,
+}
+_ALIGN_V = {
+    "top": qc.Qt.AlignmentFlag.AlignTop,
+    "middle": qc.Qt.AlignmentFlag.AlignVCenter,
+    "bottom": qc.Qt.AlignmentFlag.AlignBottom,
+}
 
 
 class QtPainterBackend(Backend):
@@ -174,6 +195,8 @@ class PlotJob:
     name: str
     options: PlotOptions
     frame: PageFrame
+    profile: TitleBlockProfile = field(default_factory=TitleBlockProfile)
+    title_block: SheetTitleBlockFields = field(default_factory=SheetTitleBlockFields)
 
 
 def job_render_box(job: PlotJob) -> BoundingBox2d:
@@ -184,7 +207,62 @@ def job_render_box(job: PlotJob) -> BoundingBox2d:
 
 
 def _final_page(job: PlotJob, settings: Settings, render_box: BoundingBox2d) -> Page:
-    return layout.Layout(render_box, flip_y=True).get_final_page(page_for(job.options), settings)
+    page = page_for(job.options, TABLE_HEIGHT_MM)
+    return layout.Layout(render_box, flip_y=True).get_final_page(page, settings)
+
+
+def _cell_flags(cell: ResolvedCell) -> qc.Qt.AlignmentFlag:
+    return _ALIGN_H.get(cell.align, qc.Qt.AlignmentFlag.AlignLeft) | _ALIGN_V.get(
+        cell.valign, qc.Qt.AlignmentFlag.AlignTop
+    )
+
+
+def _cell_font(cell: ResolvedCell) -> qg.QFont:
+    font = qg.QFont()
+    font.setPixelSize(max(1, round(cell.font_size)))
+    font.setBold(cell.bold)
+    font.setItalic(cell.italic)
+    return font
+
+
+def _draw_cell(painter: qg.QPainter, cell: ResolvedCell) -> None:
+    rect = qc.QRectF(cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h)
+    padded = rect.adjusted(CELL_PADDING_MM, CELL_PADDING_MM, -CELL_PADDING_MM, -CELL_PADDING_MM)
+    if not cell.text:
+        return
+    painter.setFont(_cell_font(cell))
+    painter.setPen(qg.QColor(0, 0, 0))
+    painter.drawText(padded, int(_cell_flags(cell)) | qc.Qt.TextFlag.TextWordWrap, cell.text)
+
+
+def _draw_title_block_chrome(painter: qg.QPainter, page: Page, job: PlotJob) -> None:
+    p1, p2 = page.get_margin_rect(top_origin=True)
+    map_w, map_h = p2.x - p1.x, p2.y - p1.y
+    if map_w <= 0.0:
+        return
+    table_top = p2.y
+    table_bottom = page.height_in_mm - job.options.margin_mm
+    table_h = max(table_bottom - table_top, 0.0)
+
+    border_pen = qg.QPen(qg.QColor(0, 0, 0), BORDER_WIDTH_MM)
+    painter.setPen(border_pen)
+    painter.setBrush(qc.Qt.BrushStyle.NoBrush)
+    if map_h > 0.0:
+        painter.drawRect(qc.QRectF(p1.x, p1.y, map_w, map_h))
+    if table_h <= 0.0:
+        return
+    table_rect = qc.QRectF(p1.x, table_top, map_w, table_h)
+    painter.drawRect(table_rect)
+
+    cells = title_block_layout(
+        Rect(p1.x, table_top, map_w, table_h), job.profile, job.title_block, scale=1.0
+    )
+    thin_pen = qg.QPen(qg.QColor(0, 0, 0), BORDER_WIDTH_MM * 0.6)
+    for cell in cells:
+        painter.setPen(thin_pen)
+        painter.setBrush(qc.Qt.BrushStyle.NoBrush)
+        painter.drawRect(qc.QRectF(cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h))
+        _draw_cell(painter, cell)
 
 
 def export_sheets(
@@ -236,6 +314,7 @@ def export_sheets(
             painter.save()
             painter.scale(writer.resolution() / MM_PER_INCH, writer.resolution() / MM_PER_INCH)
             _replay(player, painter, page, settings, render_box, paper_stroke_style(job.options))
+            _draw_title_block_chrome(painter, page, job)
             painter.restore()
     except Exception as exc:
         return False, f"Could not write the PDF file: {exc}"

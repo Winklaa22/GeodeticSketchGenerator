@@ -80,6 +80,11 @@ class SheetState:
     center_x: Optional[float] = None
     center_y: Optional[float] = None
     rotation: float = 0.0
+    powiat: str = ""
+    gmina: str = ""
+    obreb: str = ""
+    dz_nr: str = ""
+    sketch_number: str = ""
 
 
 @dataclass

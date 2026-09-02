@@ -9,8 +9,10 @@ from core.sheets import (
     options_from_state,
     sheet_from_state,
     state_from_sheet,
+    title_block_from_state,
     unique_name,
 )
+from core.title_block import SheetTitleBlockFields
 
 
 def test_a_fresh_set_holds_one_sheet_in_model_space() -> None:
@@ -224,3 +226,34 @@ def test_load_state_accepts_an_empty_sheet_list() -> None:
     sheets = SheetSet.from_state(LayoutState(sheets=[], active_index=None))
     assert len(sheets) == 0
     assert sheets.names() == []
+
+
+def test_a_fresh_sheet_has_empty_title_block_fields() -> None:
+    assert SheetSet().at(0).title_block == SheetTitleBlockFields()
+
+
+def test_set_title_block_replaces_the_sheet_in_place() -> None:
+    sheets = SheetSet()
+    fields = SheetTitleBlockFields(powiat="wrocławski", gmina="Kobierzyce", dz_nr="394")
+    sheets.set_title_block(0, fields)
+    assert sheets.at(0).title_block == fields
+
+
+def test_title_block_fields_survive_a_state_round_trip() -> None:
+    fields = SheetTitleBlockFields(
+        powiat="trzebnicki", gmina="Trzebnica", obreb="KOMOROWO", dz_nr="34/1", sketch_number="2"
+    )
+    sheet = Sheet(name="Sheet 1", title_block=fields)
+    assert sheet_from_state(state_from_sheet(sheet)) == sheet
+
+
+def test_title_block_from_state_ignores_non_title_block_fields() -> None:
+    state = SheetState(name="Sheet 1", page_key="a3", powiat="wrocławski", sketch_number="1")
+    assert title_block_from_state(state) == SheetTitleBlockFields(powiat="wrocławski", sketch_number="1")
+
+
+def test_the_whole_set_with_title_blocks_survives_a_state_round_trip() -> None:
+    sheets = SheetSet()
+    sheets.set_title_block(0, SheetTitleBlockFields(powiat="wrocławski", sketch_number="1"))
+    restored = SheetSet.from_state(sheets.to_state())
+    assert restored.sheets == sheets.sheets

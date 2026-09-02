@@ -98,9 +98,11 @@ def page_size_mm(options: PlotOptions) -> Tuple[float, float]:
     return spec.width_mm, spec.height_mm
 
 
-def page_for(options: PlotOptions) -> Page:
+def page_for(options: PlotOptions, extra_bottom_margin_mm: float = 0.0) -> Page:
     width, height = page_size_mm(options)
-    return Page(width, height, Units.mm, Margins.all(options.margin_mm))
+    margin = options.margin_mm
+    margins = Margins(margin, margin, margin + extra_bottom_margin_mm, margin)
+    return Page(width, height, Units.mm, margins)
 
 
 def denominator(options: PlotOptions) -> int:
@@ -138,10 +140,13 @@ def fit_denominator(content_size: Vec2, page: Page) -> int:
     return max(1, math.ceil(MM_PER_METER / factor))
 
 
-def resolved_options(options: PlotOptions, content_size: Optional[Vec2]) -> PlotOptions:
+def resolved_options(
+    options: PlotOptions, content_size: Optional[Vec2], extra_bottom_margin_mm: float = 0.0
+) -> PlotOptions:
     if options.scale_mode != SCALE_MODE_FIT or content_size is None:
         return options
-    return replace(options, scale_denominator=fit_denominator(content_size, page_for(options)))
+    page = page_for(options, extra_bottom_margin_mm)
+    return replace(options, scale_denominator=fit_denominator(content_size, page))
 
 
 def settings_for(options: PlotOptions) -> Settings:
@@ -186,12 +191,6 @@ def scale_label(options: PlotOptions) -> str:
 def sheet_label(options: PlotOptions) -> str:
     orientation = "landscape" if options.landscape else "portrait"
     return f"{page_spec(options).name} {orientation} · {scale_label(options)}"
-
-
-def zoomed_denominator(denominator_value: int, factor: float) -> int:
-    if factor <= 0.0:
-        return denominator_value
-    return max(1, round(denominator_value / factor))
 
 
 def normalize_degrees(value: float) -> float:

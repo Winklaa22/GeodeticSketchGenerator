@@ -10,8 +10,8 @@ from core.plot import (
     SCALE_MODE_FIT,
     content_rotation_matrix,
     normalize_degrees,
+    page_for,
     rotated_bbox_extents,
-    zoomed_denominator,
     PlotOptions,
     StrokeStyle,
     margin_in_units,
@@ -130,23 +130,6 @@ def test_annotation_height_prints_the_same_size_at_any_scale() -> None:
         assert height_in_units / units_per_mm(options) == ANNOTATION_TEXT_MM
 
 
-def test_zoomed_denominator_shrinks_when_zooming_in() -> None:
-    assert zoomed_denominator(500, 1.2) == 417
-
-
-def test_zoomed_denominator_grows_when_zooming_out() -> None:
-    assert zoomed_denominator(500, 1 / 1.2) == 600
-
-
-def test_zoomed_denominator_never_drops_below_one() -> None:
-    assert zoomed_denominator(1, 100.0) == 1
-
-
-def test_zoomed_denominator_ignores_a_non_positive_factor() -> None:
-    assert zoomed_denominator(500, 0.0) == 500
-    assert zoomed_denominator(500, -2.0) == 500
-
-
 def test_normalize_degrees_is_a_no_op_inside_the_range() -> None:
     assert normalize_degrees(0.0) == 0.0
     assert normalize_degrees(45.0) == 45.0
@@ -205,3 +188,24 @@ def test_rotated_bbox_extents_keeps_a_square_the_same_size_at_90_degrees() -> No
 def test_rotated_bbox_extents_shifts_with_a_pivot_away_from_the_box() -> None:
     xmin, ymin, xmax, ymax = rotated_bbox_extents(0.0, 0.0, 2.0, 2.0, (10.0, 0.0), 90.0)
     assert xmin > 5.0 and xmax > 5.0
+
+
+def test_page_for_applies_extra_bottom_margin_only() -> None:
+    options = PlotOptions(page_key="a4", landscape=False, margin_mm=10.0)
+    plain = page_for(options)
+    with_table = page_for(options, extra_bottom_margin_mm=31.0)
+    margins = with_table.margins_in_mm
+    assert margins.top == 10.0
+    assert margins.right == 10.0
+    assert margins.left == 10.0
+    assert margins.bottom == 41.0
+    assert plain.width_in_mm == with_table.width_in_mm
+    assert plain.height_in_mm == with_table.height_in_mm
+
+
+def test_resolved_options_with_extra_bottom_margin_fits_a_smaller_area() -> None:
+    options = PlotOptions(page_key="a4", landscape=True, scale_mode=SCALE_MODE_FIT)
+    content = Vec2(100.0, 50.0)
+    plain = resolved_options(options, content)
+    shrunk = resolved_options(options, content, extra_bottom_margin_mm=40.0)
+    assert shrunk.scale_denominator >= plain.scale_denominator

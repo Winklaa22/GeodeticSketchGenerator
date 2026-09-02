@@ -25,6 +25,7 @@ class MenuBar(QWidget):
     saveProjectAsRequested = pyqtSignal()
     renameProjectRequested = pyqtSignal()
     exportDxfRequested = pyqtSignal()
+    titleBlockProfileRequested = pyqtSignal()
     closeProjectRequested = pyqtSignal()
     undoRequested = pyqtSignal()
     redoRequested = pyqtSignal()
@@ -81,6 +82,8 @@ class MenuBar(QWidget):
         menu.addAction("Save Project As…", self.saveProjectAsRequested.emit)
         menu.addAction("Rename Project…", self.renameProjectRequested.emit)
         menu.addAction("Export DXF…", self.exportDxfRequested.emit)
+        menu.addSeparator()
+        menu.addAction("Title Block Profile…", self.titleBlockProfileRequested.emit)
         menu.addSeparator()
         menu.addAction("Close Project", self.closeProjectRequested.emit)
         return button
