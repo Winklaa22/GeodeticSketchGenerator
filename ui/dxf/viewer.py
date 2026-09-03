@@ -37,7 +37,7 @@ from core.plot import (
     sheet_label,
     units_per_mm,
 )
-from core.title_block import ResolvedCell
+from core.table_template import ResolvedCell
 from ui.dxf.backend import QtSceneBackend
 from ui.dxf.command_line import CommandLine
 from ui.dxf.compass import RotationCompass
@@ -111,6 +111,7 @@ class DxfViewer(qw.QWidget):
         self._layout_center: Optional[Tuple[float, float]] = None
         self._layout_label = ""
         self._layout_rotation = 0.0
+        self._layout_table_height_mm = 0.0
 
     def _build_ui(self) -> None:
         outer = qw.QHBoxLayout(self)
@@ -290,6 +291,7 @@ class DxfViewer(qw.QWidget):
         center: Optional[Tuple[float, float]] = None,
         label: str = "",
         rotation: float = 0.0,
+        table_height_mm: float = 0.0,
     ) -> None:
         if options is None:
             if self._layout_options is None:
@@ -298,6 +300,7 @@ class DxfViewer(qw.QWidget):
             self._layout_center = None
             self._layout_label = ""
             self._layout_rotation = 0.0
+            self._layout_table_height_mm = 0.0
             self._view.set_page_frame(None)
             self._view.set_title_block([])
             self._compass.set_angle(0.0)
@@ -309,6 +312,7 @@ class DxfViewer(qw.QWidget):
             )
             self._layout_label = label or sheet_label(options)
             self._layout_rotation = rotation
+            self._layout_table_height_mm = table_height_mm
             self._install_page_frame()
             self._compass.set_angle(rotation)
         if self._doc is not None:
@@ -324,7 +328,8 @@ class DxfViewer(qw.QWidget):
         assert self._layout_options is not None and self._layout_center is not None
         self._view.set_page_frame(
             page_frame_for(
-                self._layout_options, self._layout_center, self._layout_label, self._layout_rotation
+                self._layout_options, self._layout_center, self._layout_label, self._layout_rotation,
+                table_height_mm=self._layout_table_height_mm,
             )
         )
 

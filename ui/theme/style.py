@@ -505,6 +505,15 @@ QTableWidget#startTable {{
     selection-color: {c.TEXT};
 }}
 QTableWidget#startTable::item {{ padding: {SPACE_SM}px; border-bottom: 1px solid {c.BORDER}; }}
+QTableWidget#tableStructureGrid {{
+    background: {c.SURFACE};
+    border: 1px solid {c.TEXT};
+    gridline-color: {c.TEXT};
+    color: {c.TEXT};
+    selection-background-color: {c.ACCENT_SOFT};
+    selection-color: {c.TEXT};
+}}
+QTableWidget#tableStructureGrid::item {{ padding: {SPACE_SM}px; }}
 QHeaderView::section {{
     background: {c.SURFACE_RAISED};
     color: {c.TEXT_MUTED};

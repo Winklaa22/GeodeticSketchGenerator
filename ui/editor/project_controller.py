@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
 from core import project as project_io
 from core.exceptions import ProjectFileError
-from core.project import ProjectState
+from core.project import ProjectState, state_from_template, template_from_state
 from ui.app_identity import APP_TITLE
 from ui.editor.project_binding import apply_project_state, collect_project_state
 from ui.recent_projects import add_recent_project, remove_recent_project
@@ -43,12 +43,15 @@ class ProjectController:
             dxf_file_path=session.dxf_path,
             dxf_content=self._host.dxf_viewer.to_dxf_text(),
             layout=self._host.sheets.to_state(),
+            table_template=state_from_template(self._host.table_template),
         )
 
     def load_state(self, state: ProjectState) -> None:
         self.name = state.name
         apply_project_state(self._host.panel, state)
         self._host.sheets.load_state(state.layout)
+        self._host.table_template = template_from_state(state.table_template)
+        self._host.refresh_table_template_bindings()
         self._host.layouts.reapply()
         missing = self._host.documents.restore_project_files(state)
         if missing:

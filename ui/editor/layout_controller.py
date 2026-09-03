@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from PyQt6.QtCore import QRectF
@@ -17,10 +18,9 @@ from core.plot import (
     units_per_mm,
 )
 from core.sheets import Sheet
-from core.title_block import TABLE_HEIGHT_MM, Rect, title_block_layout
+from core.table_template import Rect, table_layout
 from ui.dxf.page_frame import PageFrame, page_frame_for
 from ui.dxf.pdf_export import PlotJob
-from ui.editor.title_block_store import load_profile
 
 if TYPE_CHECKING:
     from ui.editor.window import MainWindow
@@ -69,6 +69,7 @@ class LayoutController:
 
         self._viewer.pageFrameMoved.connect(self.on_page_frame_moved)
         self._viewer.pageFrameRotated.connect(self.on_page_frame_rotated)
+        panel.projectFieldsChanged.connect(self.on_project_fields_changed)
 
     def reapply(self) -> None:
         self._apply_active()
@@ -93,7 +94,7 @@ class LayoutController:
         try:
             self._panel.plot_tab.set_options(sheet.options)
             self._panel.plot_tab.set_rotation(sheet.rotation)
-            self._panel.sheet_fields_tab.set_fields(sheet.title_block)
+            self._panel.sheet_fields_tab.set_values(sheet.field_values)
         finally:
             self._syncing = False
 
@@ -109,17 +110,21 @@ class LayoutController:
             return
         options = self._resolved(sheet)
         self._viewer.set_layout_mode(
-            options, self._center(sheet), self._label(sheet, options), sheet.rotation
+            options, self._center(sheet), self._label(sheet, options), sheet.rotation,
+            table_height_mm=self._host.table_template.total_height_mm(),
         )
-        self._apply_title_block(sheet, options)
+        self._apply_table(sheet, options)
 
-    def _apply_title_block(self, sheet: Sheet, options: PlotOptions) -> None:
-        frame = page_frame_for(options, self._center(sheet), rotation=sheet.rotation)
+    def _apply_table(self, sheet: Sheet, options: PlotOptions) -> None:
+        template = self._host.table_template
+        frame = page_frame_for(
+            options, self._center(sheet), rotation=sheet.rotation,
+            table_height_mm=template.total_height_mm(),
+        )
         table = frame.table_rect()
         scale = units_per_mm(options)
         local_table = Rect(0.0, 0.0, table.width(), table.height())
-        profile = load_profile(self._host.settings)
-        cells = title_block_layout(local_table, profile, sheet.title_block, scale=scale)
+        cells = table_layout(template, local_table, sheet.field_values, template.project_field_values, scale=scale)
         self._viewer.set_title_block(cells, scale)
 
     @staticmethod
@@ -131,7 +136,7 @@ class LayoutController:
         return Vec2(box.size.x, box.size.y) if box is not None else None
 
     def _resolved(self, sheet: Sheet) -> PlotOptions:
-        return resolved_options(sheet.options, self._content_size(), TABLE_HEIGHT_MM)
+        return resolved_options(sheet.options, self._content_size(), self._host.table_template.total_height_mm())
 
     def _center(self, sheet: Sheet) -> Tuple[float, float]:
         if sheet.center is not None:
@@ -141,7 +146,8 @@ class LayoutController:
     def frame_for(self, sheet: Sheet) -> PageFrame:
         options = self._resolved(sheet)
         return page_frame_for(
-            options, self._center(sheet), self._label(sheet, options), sheet.rotation
+            options, self._center(sheet), self._label(sheet, options), sheet.rotation,
+            table_height_mm=self._host.table_template.total_height_mm(),
         )
 
     def on_options_changed(self) -> None:
@@ -152,9 +158,16 @@ class LayoutController:
             return
         self._sheets.set_options(index, self._panel.plot_tab.get_options())
         self._sheets.set_rotation(index, self._panel.plot_tab.get_rotation())
-        self._sheets.set_title_block(index, self._panel.sheet_fields_tab.get_fields())
+        self._sheets.set_field_values(index, self._panel.sheet_fields_tab.get_values())
         self._apply_active()
         self.refresh()
+
+    def on_project_fields_changed(self) -> None:
+        if self._syncing:
+            return
+        values = self._panel.project_fields_tab.get_values()
+        self._host.table_template = replace(self._host.table_template, project_field_values=values)
+        self._apply_active()
 
     def on_page_frame_moved(self, center_x: float, center_y: float) -> None:
         index = self._sheets.active_index
@@ -235,8 +248,7 @@ class LayoutController:
     def job_for(self, index: int) -> PlotJob:
         sheet = self._sheets.at(index)
         options = self._resolved(sheet)
-        profile = load_profile(self._host.settings)
-        return PlotJob(sheet.name, options, self.frame_for(sheet), profile, sheet.title_block)
+        return PlotJob(sheet.name, options, self.frame_for(sheet), self._host.table_template, sheet.field_values)
 
     def export_active(self) -> None:
         index = self._sheets.active_index

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields, replace
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from core.plot import PlotOptions
 from core.project import LayoutState, SheetState
-from core.title_block import SheetTitleBlockFields
 
 SHEET_NAME_PREFIX = "Sheet"
 
@@ -16,19 +15,12 @@ class Sheet:
     options: PlotOptions = PlotOptions()
     center: Optional[Tuple[float, float]] = None
     rotation: float = 0.0
-    title_block: SheetTitleBlockFields = field(default_factory=SheetTitleBlockFields)
+    field_values: Dict[str, str] = field(default_factory=dict)
 
 
 def options_from_state(state: SheetState) -> PlotOptions:
     names = {field.name for field in fields(PlotOptions)}
     return PlotOptions(**{key: value for key, value in asdict(state).items() if key in names})
-
-
-def title_block_from_state(state: SheetState) -> SheetTitleBlockFields:
-    names = {field.name for field in fields(SheetTitleBlockFields)}
-    return SheetTitleBlockFields(
-        **{key: value for key, value in asdict(state).items() if key in names}
-    )
 
 
 def sheet_from_state(state: SheetState) -> Sheet:
@@ -40,7 +32,7 @@ def sheet_from_state(state: SheetState) -> Sheet:
         options=options_from_state(state),
         center=center,
         rotation=state.rotation,
-        title_block=title_block_from_state(state),
+        field_values=dict(state.field_values),
     )
 
 
@@ -51,8 +43,8 @@ def state_from_sheet(sheet: Sheet) -> SheetState:
         center_x=center_x,
         center_y=center_y,
         rotation=sheet.rotation,
+        field_values=dict(sheet.field_values),
         **asdict(sheet.options),
-        **asdict(sheet.title_block),
     )
 
 
@@ -171,8 +163,8 @@ class SheetSet:
     def set_rotation(self, index: int, rotation: float) -> None:
         self._sheets[index] = replace(self._sheets[index], rotation=rotation)
 
-    def set_title_block(self, index: int, fields_: SheetTitleBlockFields) -> None:
-        self._sheets[index] = replace(self._sheets[index], title_block=fields_)
+    def set_field_values(self, index: int, values: Dict[str, str]) -> None:
+        self._sheets[index] = replace(self._sheets[index], field_values=values)
 
     def to_state(self) -> LayoutState:
         return LayoutState(
