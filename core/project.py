@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.exceptions import ProjectFileError
 from core.plot import PlotOptions
+from core.table_template import CellDef, ColumnDef, FieldDef, RowDef, TableTemplate, default_template
 
 PROJECT_FILE_EXTENSION = ".gsgproj"
 PROJECT_FILE_FILTER = "Geodetic Sketch Project (*.gsgproj)"
 _FORMAT_VERSION = 1
+
+TABLE_TEMPLATE_FILE_EXTENSION = ".gsgtable"
+TABLE_TEMPLATE_FILE_FILTER = "Table Template (*.gsgtable)"
+_TEMPLATE_FORMAT_VERSION = 1
 
 DEFAULT_LAYER_RGB: Tuple[int, int, int] = (145, 132, 217)
 
@@ -80,11 +85,7 @@ class SheetState:
     center_x: Optional[float] = None
     center_y: Optional[float] = None
     rotation: float = 0.0
-    powiat: str = ""
-    gmina: str = ""
-    obreb: str = ""
-    dz_nr: str = ""
-    sketch_number: str = ""
+    field_values: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -115,6 +116,155 @@ class LayerState:
 
 
 @dataclass
+class ColumnState:
+    width_fraction: float = 0.25
+
+
+@dataclass
+class RowState:
+    height_mm: float = 8.0
+
+
+@dataclass
+class CellDefState:
+    row: int = 0
+    col: int = 0
+    row_span: int = 1
+    col_span: int = 1
+    kind: str = "static"
+    label: str = ""
+    field_name: str = ""
+    show_label: bool = False
+    align: str = "left"
+    valign: str = "top"
+    font_size: float = 2.4
+    bold: bool = False
+    italic: bool = False
+
+
+@dataclass
+class FieldDefState:
+    name: str = ""
+    label: str = ""
+    scope: str = "sheet"
+    blank_behavior: str = "hide"
+
+
+def _cell_def_state(cell: CellDef) -> CellDefState:
+    return CellDefState(
+        row=cell.row, col=cell.col, row_span=cell.row_span, col_span=cell.col_span, kind=cell.kind,
+        label=cell.label, field_name=cell.field_name, show_label=cell.show_label, align=cell.align,
+        valign=cell.valign, font_size=cell.font_size, bold=cell.bold, italic=cell.italic,
+    )
+
+
+def _field_def_state(field_def: FieldDef) -> FieldDefState:
+    return FieldDefState(
+        name=field_def.name, label=field_def.label, scope=field_def.scope,
+        blank_behavior=field_def.blank_behavior,
+    )
+
+
+_DEFAULT_TABLE_TEMPLATE = default_template()
+
+
+@dataclass
+class TableTemplateState:
+    columns: List[ColumnState] = field(
+        default_factory=lambda: [ColumnState(c.width_fraction) for c in _DEFAULT_TABLE_TEMPLATE.columns]
+    )
+    rows: List[RowState] = field(
+        default_factory=lambda: [RowState(r.height_mm) for r in _DEFAULT_TABLE_TEMPLATE.rows]
+    )
+    cells: List[CellDefState] = field(
+        default_factory=lambda: [_cell_def_state(c) for c in _DEFAULT_TABLE_TEMPLATE.cells]
+    )
+    fields: List[FieldDefState] = field(
+        default_factory=lambda: [_field_def_state(f) for f in _DEFAULT_TABLE_TEMPLATE.fields]
+    )
+    project_field_values: Dict[str, str] = field(default_factory=dict)
+
+
+def state_from_template(template: TableTemplate) -> TableTemplateState:
+    return TableTemplateState(
+        columns=[ColumnState(c.width_fraction) for c in template.columns],
+        rows=[RowState(r.height_mm) for r in template.rows],
+        cells=[_cell_def_state(c) for c in template.cells],
+        fields=[_field_def_state(f) for f in template.fields],
+        project_field_values=dict(template.project_field_values),
+    )
+
+
+def template_from_state(state: TableTemplateState) -> TableTemplate:
+    return TableTemplate(
+        columns=[ColumnDef(c.width_fraction) for c in state.columns],
+        rows=[RowDef(r.height_mm) for r in state.rows],
+        cells=[
+            CellDef(
+                row=c.row, col=c.col, row_span=c.row_span, col_span=c.col_span, kind=c.kind,
+                label=c.label, field_name=c.field_name, show_label=c.show_label, align=c.align,
+                valign=c.valign, font_size=c.font_size, bold=c.bold, italic=c.italic,
+            )
+            for c in state.cells
+        ],
+        fields=[
+            FieldDef(name=f.name, label=f.label, scope=f.scope, blank_behavior=f.blank_behavior)
+            for f in state.fields
+        ],
+        project_field_values=dict(state.project_field_values),
+    )
+
+
+def table_template_state_from_payload(payload: Dict[str, Any]) -> TableTemplateState:
+    default = TableTemplateState()
+    columns_payload = payload.get("columns")
+    rows_payload = payload.get("rows")
+    cells_payload = payload.get("cells")
+    fields_payload = payload.get("fields")
+    columns = [ColumnState(**item) for item in columns_payload] if columns_payload is not None else default.columns
+    rows = [RowState(**item) for item in rows_payload] if rows_payload is not None else default.rows
+    cells = [CellDefState(**item) for item in cells_payload] if cells_payload is not None else default.cells
+    fields = [FieldDefState(**item) for item in fields_payload] if fields_payload is not None else default.fields
+    project_field_values = {str(k): str(v) for k, v in (payload.get("project_field_values") or {}).items()}
+    return TableTemplateState(
+        columns=columns, rows=rows, cells=cells, fields=fields, project_field_values=project_field_values
+    )
+
+
+def save_table_template_file(path: str, template: TableTemplate) -> None:
+    state = state_from_template(template)
+    payload: Dict[str, Any] = {
+        "version": _TEMPLATE_FORMAT_VERSION,
+        "columns": [asdict(c) for c in state.columns],
+        "rows": [asdict(r) for r in state.rows],
+        "cells": [asdict(c) for c in state.cells],
+        "fields": [asdict(f) for f in state.fields],
+    }
+    try:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+    except OSError as exc:
+        raise ProjectFileError(f"Could not save table template: {exc}") from exc
+
+
+def load_table_template_file(path: str) -> TableTemplate:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except OSError as exc:
+        raise ProjectFileError(f"Could not read table template file: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ProjectFileError(f"Not a valid table template file: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ProjectFileError("Not a valid table template file: expected a JSON object.")
+    try:
+        state = table_template_state_from_payload(payload)
+    except (TypeError, ValueError) as exc:
+        raise ProjectFileError(f"Not a valid table template file: {exc}") from exc
+    return template_from_state(state)
+
+
+@dataclass
 class ProjectState:
 
     name: str = "Untitled"
@@ -134,6 +284,7 @@ class ProjectState:
     selection: SelectionState = field(default_factory=SelectionState)
     layer: LayerState = field(default_factory=LayerState)
     layout: LayoutState = field(default_factory=LayoutState)
+    table_template: TableTemplateState = field(default_factory=TableTemplateState)
 
 
 def save_project(path: str, state: ProjectState) -> None:
@@ -180,6 +331,7 @@ def load_project(path: str) -> ProjectState:
             selection=SelectionState(**(payload.get("selection") or {})),
             layer=_load_layer_state(payload.get("layer") or {}),
             layout=_load_layout_state(payload.get("layout") or {}),
+            table_template=table_template_state_from_payload(payload.get("table_template") or {}),
         )
     except (TypeError, ValueError) as exc:
         raise ProjectFileError(f"Not a valid project file: {exc}") from exc
@@ -200,11 +352,17 @@ def _load_layer_state(layer_payload: Dict[str, Any]) -> LayerState:
     return LayerState(layers=layers, default_name=default_name)
 
 
+_SHEET_STATE_FIELD_NAMES = {f.name for f in fields(SheetState)}
+
+
 def _load_layout_state(layout_payload: Dict[str, Any]) -> LayoutState:
     sheets_payload = layout_payload.get("sheets")
     if sheets_payload is None:
         return LayoutState()
-    sheets = [SheetState(**item) for item in sheets_payload]
+    sheets = [
+        SheetState(**{key: value for key, value in item.items() if key in _SHEET_STATE_FIELD_NAMES})
+        for item in sheets_payload
+    ]
     active_index = layout_payload.get("active_index")
     if active_index is not None:
         active_index = int(active_index)

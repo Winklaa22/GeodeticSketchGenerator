@@ -7,7 +7,10 @@ import pytest
 from core.exceptions import ProjectFileError
 from core.project import (
     CableState,
+    CellDefState,
+    ColumnState,
     DelimiterState,
+    FieldDefState,
     HeightsState,
     LayerDefState,
     LayerState,
@@ -15,8 +18,10 @@ from core.project import (
     PipeState,
     PointsState,
     ProjectState,
+    RowState,
     SelectionState,
     SheetState,
+    TableTemplateState,
     default_project_name,
     load_project,
     open_any,
@@ -46,8 +51,10 @@ def test_save_then_load_round_trips_every_field(tmp_path) -> None:
             sheets=[
                 SheetState(
                     name="Sytuacja", page_key="a2", landscape=False, scale_denominator=250,
-                    powiat="wrocławski", gmina="Kobierzyce", obreb="KOBIERZYCE", dz_nr="394",
-                    sketch_number="1",
+                    field_values={
+                        "powiat": "wrocławski", "gmina": "Kobierzyce", "obreb": "KOBIERZYCE",
+                        "dz_nr": "394", "sketch_number": "1",
+                    },
                 ),
                 SheetState(name="Detal", color_mode="monochrome", center_x=12.0, center_y=-4.5),
             ],
@@ -134,9 +141,52 @@ def test_load_fills_in_sheet_fields_left_out_of_the_file(tmp_path) -> None:
     assert sheet == SheetState(name="Detal", page_key="a1")
 
 
-def test_load_rejects_an_unknown_sheet_field(tmp_path) -> None:
-    path = tmp_path / "bad_sheet.gsgproj"
-    path.write_text(json.dumps({"layout": {"sheets": [{"bogus": 1}]}}), encoding="utf-8")
+def test_load_ignores_unknown_sheet_fields_for_forward_compatibility(tmp_path) -> None:
+    path = tmp_path / "unknown_sheet_field.gsgproj"
+    path.write_text(json.dumps({"layout": {"sheets": [{"name": "Only", "bogus": 1}]}}), encoding="utf-8")
+    sheet = load_project(str(path)).layout.sheets[0]
+    assert sheet.name == "Only"
+
+
+def test_load_drops_legacy_title_block_fields_from_old_sheets(tmp_path) -> None:
+    payload = {"layout": {"sheets": [{
+        "name": "Sytuacja", "powiat": "wrocławski", "gmina": "Kobierzyce",
+        "obreb": "KOBIERZYCE", "dz_nr": "394", "sketch_number": "1",
+    }]}}
+    path = tmp_path / "legacy_title_block.gsgproj"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    sheet = load_project(str(path)).layout.sheets[0]
+    assert sheet.name == "Sytuacja"
+    assert sheet.field_values == {}
+
+
+def test_table_template_survives_a_project_round_trip(tmp_path) -> None:
+    template = TableTemplateState(
+        columns=[ColumnState(0.5), ColumnState(0.5)],
+        rows=[RowState(10.0)],
+        cells=[
+            CellDefState(row=0, col=0, kind="static", label="Left"),
+            CellDefState(row=0, col=1, kind="field", field_name="surveyor", label="surveyor", show_label=True),
+        ],
+        fields=[FieldDefState(name="surveyor", label="Surveyor", scope="project")],
+        project_field_values={"surveyor": "Lucjan Winkler"},
+    )
+    state = ProjectState(name="WithTemplate", table_template=template)
+    path = str(tmp_path / "with_template.gsgproj")
+    save_project(path, state)
+    assert load_project(path) == state
+
+
+def test_load_defaults_the_table_template_for_projects_saved_before_this_feature(tmp_path) -> None:
+    path = tmp_path / "no_table_template.gsgproj"
+    path.write_text(json.dumps({"name": "Old"}), encoding="utf-8")
+    assert load_project(str(path)).table_template == TableTemplateState()
+
+
+def test_load_rejects_unknown_table_template_field_types(tmp_path) -> None:
+    path = tmp_path / "bad_table_template.gsgproj"
+    payload = {"table_template": {"columns": [{"width_fraction": 0.5, "bogus": 1}]}}
+    path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ProjectFileError):
         load_project(str(path))
 

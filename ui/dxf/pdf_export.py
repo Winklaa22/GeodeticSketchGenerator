@@ -23,15 +23,14 @@ from core.plot import (
     render_configuration,
     settings_for,
 )
-from core.title_block import (
+from core.table_template import (
     BORDER_WIDTH_MM,
     CELL_PADDING_MM,
-    TABLE_HEIGHT_MM,
     Rect,
     ResolvedCell,
-    SheetTitleBlockFields,
-    TitleBlockProfile,
-    title_block_layout,
+    TableTemplate,
+    default_template,
+    table_layout,
 )
 from ui.dxf.backend import qcolor_from, to_qpainter_path
 from ui.dxf.page_frame import PageFrame
@@ -195,8 +194,8 @@ class PlotJob:
     name: str
     options: PlotOptions
     frame: PageFrame
-    profile: TitleBlockProfile = field(default_factory=TitleBlockProfile)
-    title_block: SheetTitleBlockFields = field(default_factory=SheetTitleBlockFields)
+    template: TableTemplate = field(default_factory=default_template)
+    sheet_field_values: Dict[str, str] = field(default_factory=dict)
 
 
 def job_render_box(job: PlotJob) -> BoundingBox2d:
@@ -207,7 +206,7 @@ def job_render_box(job: PlotJob) -> BoundingBox2d:
 
 
 def _final_page(job: PlotJob, settings: Settings, render_box: BoundingBox2d) -> Page:
-    page = page_for(job.options, TABLE_HEIGHT_MM)
+    page = page_for(job.options, job.template.total_height_mm())
     return layout.Layout(render_box, flip_y=True).get_final_page(page, settings)
 
 
@@ -254,8 +253,9 @@ def _draw_title_block_chrome(painter: qg.QPainter, page: Page, job: PlotJob) -> 
     table_rect = qc.QRectF(p1.x, table_top, map_w, table_h)
     painter.drawRect(table_rect)
 
-    cells = title_block_layout(
-        Rect(p1.x, table_top, map_w, table_h), job.profile, job.title_block, scale=1.0
+    cells = table_layout(
+        job.template, Rect(p1.x, table_top, map_w, table_h),
+        job.sheet_field_values, job.template.project_field_values, scale=1.0,
     )
     thin_pen = qg.QPen(qg.QColor(0, 0, 0), BORDER_WIDTH_MM * 0.6)
     for cell in cells:

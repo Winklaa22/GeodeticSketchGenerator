@@ -29,6 +29,12 @@ _TEXT_ALIGNMENTS = {
 }
 
 DEFAULT_LAYER_NAME = "0"
+# DXF layers with no explicit lineweight resolve to AutoCAD's own default (0.25mm), which
+# renders noticeably heavier than intended once plotted at true scale (min_lineweight_mm in
+# core/plot.py defaults to 0.13). New layers this app creates get that same 0.13mm instead,
+# so a fresh project's own lines print as fine as the app already assumes elsewhere. Layers
+# read in from an imported/loaded DXF keep whatever lineweight that file already defines.
+DEFAULT_LAYER_LINEWEIGHT = 13
 
 
 @lru_cache(maxsize=None)
@@ -61,7 +67,11 @@ class DXFDocument:
 
     @classmethod
     def new(cls) -> "DXFDocument":
-        return cls(ezdxf.new())
+        drawing = ezdxf.new()
+        # Layer "0" always pre-exists, so ensure_layer()/add_layer() never touch it - set its
+        # lineweight explicitly here for the same reason they set it on every other new layer.
+        drawing.layers.get(DEFAULT_LAYER_NAME).dxf.lineweight = DEFAULT_LAYER_LINEWEIGHT
+        return cls(drawing)
 
     @classmethod
     def load(cls, file_path: str) -> "DXFDocument":
@@ -118,7 +128,7 @@ class DXFDocument:
 
     def ensure_layer(self, name: str) -> None:
         if name not in self.layers:
-            self.layers.add(name)
+            self.layers.add(name, lineweight=DEFAULT_LAYER_LINEWEIGHT)
 
     def add_point(self, location: Sequence[float], layer: str = "0") -> str:
         self.ensure_layer(layer)
@@ -268,7 +278,7 @@ class DXFDocument:
     def add_layer(self, name: str, rgb: Optional[Tuple[int, int, int]] = None) -> None:
         if name in self.layers:
             return
-        layer = self.layers.add(name)
+        layer = self.layers.add(name, lineweight=DEFAULT_LAYER_LINEWEIGHT)
         if rgb is not None:
             self._apply_color(layer, rgb)
 

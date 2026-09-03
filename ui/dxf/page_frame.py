@@ -6,7 +6,6 @@ from typing import Tuple
 from PyQt6 import QtCore as qc
 
 from core.plot import PlotOptions, margin_in_units, normalize_degrees, sheet_size_in_units, units_per_mm
-from core.title_block import TABLE_HEIGHT_MM
 
 
 @dataclass(frozen=True)
@@ -59,7 +58,7 @@ def page_frame_for(
     center: Tuple[float, float],
     label: str = "",
     rotation: float = 0.0,
-    table_height_mm: float = TABLE_HEIGHT_MM,
+    table_height_mm: float = 0.0,
 ) -> PageFrame:
     width, height = sheet_size_in_units(options)
     return PageFrame(

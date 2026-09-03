@@ -9,6 +9,7 @@ from core.project import (
     LayoutState,
     ProjectState,
     SelectionState,
+    TableTemplateState,
 )
 from ui.editor.mode_registry import MODE_SPECS, options_from_state, state_from_tab
 from ui.editor.sections_panel import SectionsPanel
@@ -22,6 +23,7 @@ def collect_project_state(
     dxf_file_path: str,
     dxf_content: Optional[str],
     layout: LayoutState,
+    table_template: TableTemplateState,
 ) -> ProjectState:
     separate_text, range_text = panel.selection_tab.get_expression_state()
     layers, default_name = panel.layer_tab.get_state()
@@ -46,6 +48,7 @@ def collect_project_state(
             default_name=default_name,
         ),
         layout=layout,
+        table_template=table_template,
         **mode_states,
     )
 

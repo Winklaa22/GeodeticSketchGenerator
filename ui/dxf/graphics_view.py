@@ -7,7 +7,7 @@ from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 from core.dxf_document import DXFDocument
 from core.plot import PAPER_COLOR
-from core.title_block import BORDER_WIDTH_MM, CELL_PADDING_MM, ResolvedCell
+from core.table_template import BORDER_WIDTH_MM, CELL_PADDING_MM, ResolvedCell
 from ui.dxf.items import HANDLE_ROLE, PointItem, x_scale
 from ui.dxf.page_frame import PageFrame
 from ui.theme import Color as UiColor
@@ -134,21 +134,37 @@ class CadGraphicsView(qw.QGraphicsView):
             return
         self._refit_page(preserve_zoom=False)
 
-    def _refit_page(self, preserve_zoom: bool) -> None:
+    def _refit_page(self, preserve_zoom: bool, recenter_delta: Tuple[float, float] = (0.0, 0.0)) -> None:
         assert self._page_frame is not None
         zoom_factor = self._current_zoom() if preserve_zoom else 1.0
+        # fitInView below always recenters on the sheet's own geometric center, which would
+        # discard any off-center position the user reached by zooming with the mouse wheel
+        # (AnchorUnderMouse deliberately zooms toward the cursor, not the sheet center). Read
+        # where the view is actually centered now so it can be restored - shifted by
+        # recenter_delta for a pan, unchanged for a resize - once the fit below is done.
+        # Without this, every pan drag or window resize while zoomed in on a page snaps the
+        # content back to dead-center, which reads as the view jumping sideways.
+        prior_center = self.mapToScene(self.viewport().rect().center()) if preserve_zoom else None
         sheet = self._page_frame.sheet_rect()
         self.setSceneRect(sheet)
         self.fitInView(sheet, qc.Qt.AspectRatioMode.KeepAspectRatio)
         self._base_scale = x_scale(self.transform())
-        # Freeze THIS 1x fit as the frame's own transform, before any zoom is reapplied
-        # below. The live view transform is free to change afterwards (scrolling zooms
-        # into the drawing, same as the model view), but the paper/table chrome is always
-        # drawn with this frozen transform, so it stays put on screen no matter how far
-        # the content underneath is zoomed.
+        # Freeze THIS 1x fit as the frame's own transform, before any zoom/recenter is
+        # reapplied below. The live view transform is free to change afterwards (scrolling
+        # zooms into the drawing, same as the model view), but the paper/table chrome is
+        # always drawn with this frozen transform, so it stays put on screen no matter how
+        # far the content underneath is zoomed or panned.
         self._frame_transform = qg.QTransform(self.viewportTransform())
         if abs(zoom_factor - 1.0) > 1e-9:
+            # Reapplying the preserved zoom must not re-anchor on the mouse cursor (the
+            # view's transformationAnchor is AnchorUnderMouse, needed for wheel-zoom) since
+            # the explicit recenter below is what should decide the final position.
+            anchor = self.transformationAnchor()
+            self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorViewCenter)
             self.scale(zoom_factor, zoom_factor)
+            self.setTransformationAnchor(anchor)
+        if prior_center is not None:
+            self.centerOn(prior_center.x() + recenter_delta[0], prior_center.y() + recenter_delta[1])
         self.viewportChanged.emit()
 
     def zoom_by(self, factor: float) -> bool:
@@ -173,7 +189,7 @@ class CadGraphicsView(qw.QGraphicsView):
             self._page_frame = self._page_frame.moved_to(
                 self._page_frame.center_x + dx, self._page_frame.center_y + dy
             )
-            self._refit_page(preserve_zoom=True)
+            self._refit_page(preserve_zoom=True, recenter_delta=(dx, dy))
             self.pageFrameMoved.emit(self._page_frame.center_x, self._page_frame.center_y)
             return
         center = self.mapToScene(self.viewport().rect().center())

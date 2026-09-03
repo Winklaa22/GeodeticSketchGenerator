@@ -21,6 +21,7 @@ from core.project import ProjectState
 from core.session import AppState, EditorSession
 from core.sheets import SheetSet
 from core.survey_draw_service import SurveyDrawService
+from core.table_template import default_template
 from core.validation import ensure_draw_modes, ensure_has_data, ensure_selection
 from ui.app_identity import app_settings
 from ui.dxf.viewer import DxfViewer
@@ -33,7 +34,7 @@ from ui.editor.preview_panel import PreviewPanel
 from ui.editor.project_controller import ProjectController
 from ui.editor.sections_panel import SectionsPanel
 from ui.editor.status_bar import StatusBar
-from ui.editor.title_block_dialog import TitleBlockProfileDialog
+from ui.editor.table_template_controller import TableTemplateController
 from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_XL
 from ui.theme.assets import ICON_PATH
 from ui.theme.style import APP_STYLESHEET
@@ -56,6 +57,7 @@ class MainWindow(QMainWindow):
 
         self.session = EditorSession()
         self.sheets = SheetSet()
+        self.table_template = default_template()
         self.survey_draw_service = SurveyDrawService()
         self.router = WindowRouter(self)
         self.documents = DocumentController(self)
@@ -64,10 +66,12 @@ class MainWindow(QMainWindow):
             path=project_path,
             name=initial_state.name if initial_state is not None else None,
         )
+        self.table_template_controller = TableTemplateController(self)
 
         self._build_ui()
         self.layouts = LayoutController(self)
         self._wire_signals()
+        self.refresh_table_template_bindings()
         self.setStyleSheet(APP_STYLESHEET)
         if initial_state is not None:
             self.project.load_state(initial_state)
@@ -127,7 +131,9 @@ class MainWindow(QMainWindow):
         self.menu_bar.saveProjectAsRequested.connect(self.project.save_as)
         self.menu_bar.renameProjectRequested.connect(self.project.rename)
         self.menu_bar.exportDxfRequested.connect(self.documents.save_dxf)
-        self.menu_bar.titleBlockProfileRequested.connect(self.open_title_block_profile_dialog)
+        self.menu_bar.tableStructureRequested.connect(self.table_template_controller.open_editor)
+        self.menu_bar.importTableTemplateRequested.connect(self.table_template_controller.import_template)
+        self.menu_bar.exportTableTemplateRequested.connect(self.table_template_controller.export_template)
         self.menu_bar.closeProjectRequested.connect(self.open_start_screen)
         self.menu_bar.undoRequested.connect(lambda: self.dxf_viewer.echo(self.dxf_viewer.undo()))
         self.menu_bar.redoRequested.connect(lambda: self.dxf_viewer.echo(self.dxf_viewer.redo()))
@@ -243,10 +249,13 @@ class MainWindow(QMainWindow):
         self.documents.refresh_dxf_source()
         self.refresh()
 
-    def open_title_block_profile_dialog(self) -> None:
-        dialog = TitleBlockProfileDialog(self.settings, self)
-        if dialog.exec():
-            self.layouts.reapply()
+    def refresh_table_template_bindings(self) -> None:
+        sheet_fields = [f for f in self.table_template.fields if f.scope == "sheet"]
+        project_fields = [f for f in self.table_template.fields if f.scope == "project"]
+        self.layout_panel.sheet_fields_tab.rebuild(sheet_fields)
+        self.layout_panel.project_fields_tab.rebuild(project_fields)
+        self.layout_panel.project_fields_tab.set_values(self.table_template.project_field_values)
+        self.layouts.refresh()
 
     def open_start_screen(self) -> None:
         self.router.start_screen()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from core.plot import PlotOptions, units_per_mm
-from core.title_block import TABLE_HEIGHT_MM
+from core.plot import PlotOptions
 from ui.dxf.page_frame import PageFrame, page_frame_for
 from ui.dxf.pdf_export import PlotJob, export_sheets, job_render_box
 
@@ -88,9 +87,10 @@ def test_export_sheets_reports_when_there_is_nothing_to_plot() -> None:
     assert "no sheets" in message.lower()
 
 
-def test_page_frame_for_defaults_to_the_standard_table_height() -> None:
+def test_page_frame_for_defaults_to_no_table_when_height_is_omitted() -> None:
     frame = page_frame_for(A3, (0.0, 0.0))
-    assert abs(frame.table_height - TABLE_HEIGHT_MM * units_per_mm(A3)) < 1e-9
+    assert frame.table_height == 0.0
+    assert frame.map_rect() == frame.printable_rect()
 
 
 def test_page_frame_for_zero_table_height_degenerates_to_the_old_behaviour() -> None:
