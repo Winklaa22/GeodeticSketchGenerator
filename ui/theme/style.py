@@ -507,7 +507,7 @@ QTableWidget#startTable {{
 QTableWidget#startTable::item {{ padding: {SPACE_SM}px; border-bottom: 1px solid {c.BORDER}; }}
 QTableWidget#tableStructureGrid {{
     background: {c.SURFACE};
-    border: 1px solid {c.TEXT};
+    border: none;
     gridline-color: {c.TEXT};
     color: {c.TEXT};
     selection-background-color: {c.ACCENT_SOFT};

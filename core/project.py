@@ -140,6 +140,7 @@ class CellDefState:
     font_size: float = 2.4
     bold: bool = False
     italic: bool = False
+    image_path: str = ""
 
 
 @dataclass
@@ -155,6 +156,7 @@ def _cell_def_state(cell: CellDef) -> CellDefState:
         row=cell.row, col=cell.col, row_span=cell.row_span, col_span=cell.col_span, kind=cell.kind,
         label=cell.label, field_name=cell.field_name, show_label=cell.show_label, align=cell.align,
         valign=cell.valign, font_size=cell.font_size, bold=cell.bold, italic=cell.italic,
+        image_path=cell.image_path,
     )
 
 
@@ -204,6 +206,7 @@ def template_from_state(state: TableTemplateState) -> TableTemplate:
                 row=c.row, col=c.col, row_span=c.row_span, col_span=c.col_span, kind=c.kind,
                 label=c.label, field_name=c.field_name, show_label=c.show_label, align=c.align,
                 valign=c.valign, font_size=c.font_size, bold=c.bold, italic=c.italic,
+                image_path=c.image_path,
             )
             for c in state.cells
         ],

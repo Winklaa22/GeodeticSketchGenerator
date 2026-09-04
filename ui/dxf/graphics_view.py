@@ -10,6 +10,7 @@ from core.plot import PAPER_COLOR
 from core.table_template import BORDER_WIDTH_MM, CELL_PADDING_MM, ResolvedCell
 from ui.dxf.items import HANDLE_ROLE, PointItem, x_scale
 from ui.dxf.page_frame import PageFrame
+from ui.dxf.stamp_cache import stamp_cache
 from ui.theme import Color as UiColor
 
 if TYPE_CHECKING:
@@ -625,9 +626,25 @@ class CadGraphicsView(qw.QGraphicsView):
             painter.setBrush(qc.Qt.BrushStyle.NoBrush)
             painter.drawRect(cell_rect)
             padded = cell_rect.adjusted(padding, padding, -padding, -padding)
-            if cell.text:
+            if cell.kind == "image" and cell.image_path:
+                self._paint_cell_image(painter, padded, cell.image_path)
+            elif cell.text:
                 self._paint_cell_text(painter, padded, cell)
         painter.restore()
+
+    @staticmethod
+    def _paint_cell_image(painter: qg.QPainter, rect: qc.QRectF, path: str) -> None:
+        pixmap = stamp_cache.get(path)
+        if pixmap is None or pixmap.isNull() or rect.width() <= 0 or rect.height() <= 0:
+            return
+        src_w, src_h = pixmap.width(), pixmap.height()
+        if src_w <= 0 or src_h <= 0:
+            return
+        scale = min(rect.width() / src_w, rect.height() / src_h)
+        target = qc.QRectF(0.0, 0.0, src_w * scale, src_h * scale)
+        target.moveCenter(rect.center())
+        painter.setRenderHint(qg.QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.drawPixmap(target, pixmap, qc.QRectF(0.0, 0.0, float(src_w), float(src_h)))
 
     @staticmethod
     def _cell_flags(cell: ResolvedCell) -> int:

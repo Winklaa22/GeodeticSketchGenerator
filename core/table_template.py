@@ -66,6 +66,7 @@ class CellDef:
     font_size: float = BODY_FONT_MM
     bold: bool = False
     italic: bool = False
+    image_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,7 @@ def _cell_kwargs(cell: CellDef) -> dict:
         "font_size": cell.font_size,
         "bold": cell.bold,
         "italic": cell.italic,
+        "image_path": cell.image_path,
     }
 
 
@@ -138,7 +140,7 @@ def _resolve_cell_text(
     sheet_values: Dict[str, str],
     project_values: Dict[str, str],
 ) -> str:
-    if cell.kind == "blank":
+    if cell.kind in ("blank", "image"):
         return ""
     if cell.kind == "field":
         field_def = fields_by_name.get(cell.field_name)

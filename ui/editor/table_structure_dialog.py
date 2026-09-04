@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from typing import Optional, Tuple
 
@@ -12,6 +13,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -53,8 +55,9 @@ from ui.widgets import CheckField, Dropdown, SectionColumn, make_button, make_fi
 
 _ALIGN_OPTIONS = [("left", "Left"), ("center", "Center"), ("right", "Right")]
 _VALIGN_OPTIONS = [("top", "Top"), ("middle", "Middle"), ("bottom", "Bottom")]
-_KIND_OPTIONS = [("static", "Static text"), ("field", "Field"), ("blank", "Blank")]
+_KIND_OPTIONS = [("static", "Static text"), ("field", "Field"), ("image", "Stamp (image/DXF)"), ("blank", "Blank")]
 _SCOPE_OPTIONS = [("sheet", "Per sheet"), ("project", "Per project")]
+_STAMP_FILE_FILTER = "Images and DXF Files (*.png *.jpg *.jpeg *.bmp *.gif *.dxf);;Image Files (*.png *.jpg *.jpeg *.bmp *.gif);;DXF Files (*.dxf)"
 
 _EDITOR_PX_PER_MM = 4.0
 _REFERENCE_EDITOR_WIDTH_PX = 760
@@ -79,6 +82,8 @@ class TableStructureDialog(QDialog):
         self._grid = QTableWidget()
         self._grid.setObjectName("tableStructureGrid")
         self._grid.setSelectionMode(QAbstractItemView.SelectionMode.ContiguousSelection)
+        self._grid.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self._grid.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._grid.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self._grid.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self._grid.itemChanged.connect(self._on_item_changed)
@@ -139,6 +144,19 @@ class TableStructureDialog(QDialog):
         self._field_dropdown.currentIndexChanged.connect(self._on_field_changed)
         column.addWidget(make_field("Field", self._field_dropdown))
 
+        stamp_row = QWidget()
+        stamp_layout = QHBoxLayout(stamp_row)
+        stamp_layout.setContentsMargins(0, 0, 0, 0)
+        stamp_layout.setSpacing(SPACE_MD)
+        self._stamp_label = QLabel("No file selected")
+        self._stamp_label.setWordWrap(True)
+        stamp_layout.addWidget(self._stamp_label, 1)
+        self._stamp_browse_button = make_button("Browse…", "secondary", self._on_stamp_browse)
+        stamp_layout.addWidget(self._stamp_browse_button)
+        self._stamp_clear_button = make_button("Clear", "secondary", self._on_stamp_clear)
+        stamp_layout.addWidget(self._stamp_clear_button)
+        column.addWidget(make_field("Stamp file", stamp_row))
+
         self._show_label_check = CheckField("Show label before value")
         self._show_label_check.toggled.connect(self._on_show_label_toggled)
         column.addWidget(self._show_label_check)
@@ -178,6 +196,8 @@ class TableStructureDialog(QDialog):
             return ""
         if cell.kind == "field":
             return f"[{cell.field_name}]" if cell.field_name else "[field]"
+        if cell.kind == "image":
+            return f"[stamp: {os.path.basename(cell.image_path)}]" if cell.image_path else "[stamp]"
         return cell.label
 
     def _rebuild_grid(self) -> None:
@@ -302,6 +322,8 @@ class TableStructureDialog(QDialog):
         try:
             if cell is None:
                 self._label_input.setText("")
+                self._stamp_label.setText("No file selected")
+                self._stamp_label.setToolTip("")
                 self._set_property_panel_enabled(False)
                 return
             self._set_property_panel_enabled(True)
@@ -310,6 +332,10 @@ class TableStructureDialog(QDialog):
             self._refresh_field_dropdown_items()
             self._field_dropdown.set_current_key(cell.field_name)
             self._field_dropdown.setEnabled(cell.kind == "field")
+            self._stamp_label.setText(os.path.basename(cell.image_path) if cell.image_path else "No file selected")
+            self._stamp_label.setToolTip(cell.image_path)
+            self._stamp_browse_button.setEnabled(cell.kind == "image")
+            self._stamp_clear_button.setEnabled(cell.kind == "image" and bool(cell.image_path))
             self._show_label_check.setChecked(cell.show_label)
             self._align_dropdown.set_current_key(cell.align)
             self._valign_dropdown.set_current_key(cell.valign)
@@ -323,7 +349,7 @@ class TableStructureDialog(QDialog):
         for widget in (
             self._label_input, self._kind_dropdown, self._field_dropdown, self._show_label_check,
             self._align_dropdown, self._valign_dropdown, self._bold_check, self._italic_check,
-            self._font_size_input,
+            self._font_size_input, self._stamp_browse_button, self._stamp_clear_button,
         ):
             widget.setEnabled(enabled)
 
@@ -354,6 +380,14 @@ class TableStructureDialog(QDialog):
         name = self._field_dropdown.current_key()
         if name:
             self._apply_property_change(field_name=name)
+
+    def _on_stamp_browse(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Choose Stamp File", "", _STAMP_FILE_FILTER)
+        if path:
+            self._apply_property_change(image_path=path)
+
+    def _on_stamp_clear(self) -> None:
+        self._apply_property_change(image_path="")
 
     def _on_show_label_toggled(self, checked: bool) -> None:
         self._apply_property_change(show_label=checked)
