@@ -4,6 +4,7 @@ from typing import Dict, Optional
 
 from PyQt6 import QtCore as qc, QtWidgets as qw
 
+from ui.i18n import tr
 from ui.theme import Color as UiColor, ICON_MD, SPACE_XS
 from ui.theme.icons import icon_manager
 
@@ -61,27 +62,31 @@ class DxfToolbar(qw.QWidget):
             "scale_each": "scale_each_tool",
         }
 
-        self._add_tool_button(layout, "select", "select_tool", "Select / cancel current tool (Esc)")
+        self._add_tool_button(layout, "select", "select_tool", tr("toolbar.select_tooltip"))
         self._select_similar_btn = self._add_plain_button(
-            layout, "select_similar_tool", "Select Similar (S, S)", self.selectSimilarRequested
+            layout, "select_similar_tool", tr("toolbar.select_similar_tooltip"), self.selectSimilarRequested
         )
         layout.addWidget(self._separator())
-        self._add_tool_button(layout, "point", "point_tool", "Point (P, O)")
-        self._add_tool_button(layout, "text", "text_tool", "Text (T)")
-        self._add_tool_button(layout, "line", "line_tool", "Line (L)")
-        self._add_tool_button(layout, "circle", "circle_tool", "Circle (C)")
-        self._add_tool_button(layout, "pipe", "pipe_tool", "Pipe (R, U)")
+        self._add_tool_button(layout, "point", "point_tool", tr("toolbar.point_tooltip"))
+        self._add_tool_button(layout, "text", "text_tool", tr("toolbar.text_tooltip"))
+        self._add_tool_button(layout, "line", "line_tool", tr("toolbar.line_tooltip"))
+        self._add_tool_button(layout, "circle", "circle_tool", tr("toolbar.circle_tooltip"))
+        self._add_tool_button(layout, "pipe", "pipe_tool", tr("toolbar.pipe_tooltip"))
         layout.addWidget(self._separator())
-        self._add_tool_button(layout, "move", "move_tool", "Move selected (M)")
-        self._add_tool_button(layout, "rotate", "rotate_tool", "Rotate selected as one (R, O)")
-        self._add_tool_button(layout, "scale", "scale_tool", "Scale selected as one (S, C)")
-        self._add_tool_button(layout, "rotate_each", "rotate_each_tool", "Rotate each in place (R, E)")
-        self._add_tool_button(layout, "scale_each", "scale_each_tool", "Scale each in place (S, E)")
-        self._erase_btn = self._add_plain_button(layout, "erase_tool", "Erase selected (Del)", self.eraseRequested)
+        self._add_tool_button(layout, "move", "move_tool", tr("toolbar.move_tooltip"))
+        self._add_tool_button(layout, "rotate", "rotate_tool", tr("toolbar.rotate_tooltip"))
+        self._add_tool_button(layout, "scale", "scale_tool", tr("toolbar.scale_tooltip"))
+        self._add_tool_button(layout, "rotate_each", "rotate_each_tool", tr("toolbar.rotate_each_tooltip"))
+        self._add_tool_button(layout, "scale_each", "scale_each_tool", tr("toolbar.scale_each_tooltip"))
+        self._erase_btn = self._add_plain_button(
+            layout, "erase_tool", tr("toolbar.erase_tooltip"), self.eraseRequested
+        )
         layout.addWidget(self._separator())
-        self._add_plain_button(layout, "zoom_extents_tool", "Zoom Extents (ZOOM E)", self.zoomExtentsRequested)
-        self._add_plain_button(layout, "zoom_in_tool", "Zoom In", self.zoomInRequested)
-        self._add_plain_button(layout, "zoom_out_tool", "Zoom Out", self.zoomOutRequested)
+        self._add_plain_button(
+            layout, "zoom_extents_tool", tr("toolbar.zoom_extents_tooltip"), self.zoomExtentsRequested
+        )
+        self._add_plain_button(layout, "zoom_in_tool", tr("toolbar.zoom_in_tooltip"), self.zoomInRequested)
+        self._add_plain_button(layout, "zoom_out_tool", tr("toolbar.zoom_out_tooltip"), self.zoomOutRequested)
         layout.addStretch(1)
 
         self.set_active_tool(None)

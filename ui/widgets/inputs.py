@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ui.i18n import tr
 from ui.theme import Color, ICON_MD, ICON_SM, SPACE_SM
 from ui.theme.icons import icon_manager
 
@@ -48,7 +49,7 @@ class ColorSwatchButton(QToolButton):
 
     def _pick_color(self) -> None:
         dialog = QColorDialog(QColor(*self._rgb), self)
-        dialog.setWindowTitle("Choose Color")
+        dialog.setWindowTitle(tr("widgets.choose_color_title"))
         dialog.setStyleSheet("")
         if dialog.exec() == QColorDialog.DialogCode.Accepted:
             color = dialog.selectedColor()

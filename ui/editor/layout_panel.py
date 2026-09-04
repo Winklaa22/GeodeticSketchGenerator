@@ -9,6 +9,7 @@ from ui.dxf.sheet_tabs import SheetList
 from ui.editor.tabs.base import SectionWidget
 from ui.editor.tabs.dynamic_fields_tab import DynamicFieldsTab
 from ui.editor.tabs.plot_tab import PlotTab
+from ui.i18n import tr
 from ui.theme import SPACE_LG, SPACE_SM
 from ui.widgets import Accordion, AccordionSection, make_button
 
@@ -36,15 +37,21 @@ class _SheetsSection(SectionWidget):
 
         grid = QGridLayout()
         grid.setSpacing(SPACE_SM)
-        self._add_button = make_button("Add", "secondary", lambda: self.addRequested.emit())
+        self._add_button = make_button(tr("layout_panel.add"), "secondary", lambda: self.addRequested.emit())
         self._duplicate_button = make_button(
-            "Duplicate", "secondary", lambda: self.duplicateRequested.emit()
+            tr("common.duplicate"), "secondary", lambda: self.duplicateRequested.emit()
         )
-        self._rename_button = make_button("Rename", "secondary", lambda: self.renameRequested.emit())
-        self._delete_button = make_button("Delete", "secondary", lambda: self.deleteRequested.emit())
-        self._up_button = make_button("Move up", "secondary", lambda: self.moveUpRequested.emit())
+        self._rename_button = make_button(
+            tr("layout_panel.rename"), "secondary", lambda: self.renameRequested.emit()
+        )
+        self._delete_button = make_button(
+            tr("common.delete"), "secondary", lambda: self.deleteRequested.emit()
+        )
+        self._up_button = make_button(
+            tr("layout_panel.move_up"), "secondary", lambda: self.moveUpRequested.emit()
+        )
         self._down_button = make_button(
-            "Move down", "secondary", lambda: self.moveDownRequested.emit()
+            tr("layout_panel.move_down"), "secondary", lambda: self.moveDownRequested.emit()
         )
         grid.addWidget(self._add_button, 0, 0)
         grid.addWidget(self._duplicate_button, 0, 1)
@@ -55,7 +62,7 @@ class _SheetsSection(SectionWidget):
         layout.addLayout(grid)
 
         self.export_all_button = make_button(
-            "Export all sheets to one PDF", "primary", lambda: self.exportAllRequested.emit()
+            tr("layout_panel.export_all"), "primary", lambda: self.exportAllRequested.emit()
         )
         layout.addWidget(self.export_all_button)
 
@@ -99,18 +106,18 @@ class LayoutPanel(QWidget):
         layout.addWidget(self.accordion)
 
         self.accordion.add_section(
-            AccordionSection("sheets_section", "Sheets", self.sheets_section)
+            AccordionSection("sheets_section", tr("layout_panel.sheets_section"), self.sheets_section)
         )
         self._fields_section = AccordionSection(
-            "sheet_fields_section", "Sheet details", self.sheet_fields_tab
+            "sheet_fields_section", tr("layout_panel.sheet_details_section"), self.sheet_fields_tab
         )
         self.accordion.add_section(self._fields_section)
         self._project_fields_section = AccordionSection(
-            "project_fields_section", "Project fields", self.project_fields_tab
+            "project_fields_section", tr("layout_panel.project_fields_section"), self.project_fields_tab
         )
         self.accordion.add_section(self._project_fields_section)
         self._page_section = AccordionSection(
-            "page_setup_section", "Page setup", self.plot_tab
+            "page_setup_section", tr("layout_panel.page_setup_section"), self.plot_tab
         )
         self.accordion.add_section(self._page_section)
 

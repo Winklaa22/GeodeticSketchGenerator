@@ -63,6 +63,7 @@ from ui.dxf.tools import (
     TextToolSession,
     ToolSession,
 )
+from ui.i18n import tr
 from ui.theme import Color as UiColor, SPACE_MD, SPACE_SM, SPACE_XS
 from ui.theme.icons import icon_manager
 
@@ -164,7 +165,7 @@ class DxfViewer(qw.QWidget):
         icon.setObjectName("dxfEmptyIcon")
         icon.setPixmap(icon_manager.get("dxf_icon", size=24, color=UiColor.TEXT_FAINT).pixmap(24, 24))
         icon.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
-        text = qw.QLabel("Load a .DXF file, or press Apply to DXF to start a new drawing.")
+        text = qw.QLabel(tr("viewer.empty_hint"))
         text.setObjectName("dxfEmptyText")
         text.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(icon)
@@ -399,7 +400,7 @@ class DxfViewer(qw.QWidget):
         self, file_path: str, jobs: Sequence[PlotJob], title: str = ""
     ) -> Tuple[bool, str]:
         if self._doc is None:
-            return False, "There is no drawing to export."
+            return False, tr("viewer.no_drawing_to_export")
         return export_sheets(self._doc, file_path, jobs, title)
 
     def save_document(self, file_path: str) -> None:
@@ -438,16 +439,16 @@ class DxfViewer(qw.QWidget):
         try:
             doc = DXFDocument.load(file_path)
         except IOError as exc:
-            return False, f"Could not read file: {exc}"
+            return False, tr("viewer.could_not_read_file", error=exc)
         except ezdxf.DXFError as exc:
-            return False, f"Not a valid DXF file: {exc}"
+            return False, tr("viewer.not_valid_dxf", error=exc)
         return self._adopt_document(doc)
 
     def load_from_text(self, content: str) -> Tuple[bool, str]:
         try:
             doc = DXFDocument.from_text(content)
         except ezdxf.DXFError as exc:
-            return False, f"Could not restore the project's DXF snapshot: {exc}"
+            return False, tr("viewer.could_not_restore_snapshot", error=exc)
         return self._adopt_document(doc)
 
     def to_dxf_text(self) -> Optional[str]:
@@ -467,7 +468,7 @@ class DxfViewer(qw.QWidget):
             self._view.set_document(None)
             self._history = None
             self._imported_layer_names = None
-            return False, f"Could not render drawing: {exc}"
+            return False, tr("viewer.could_not_render", error=exc)
 
         self._command_line.reset()
         self._stack.setCurrentWidget(self._canvas_page)
@@ -481,21 +482,21 @@ class DxfViewer(qw.QWidget):
 
     def undo(self) -> str:
         if self._doc is None or self._history is None or not self._history.undo(self._doc):
-            return "Nothing to undo."
+            return tr("viewer.nothing_to_undo")
         self.clear_selection()
         self._render(preserve_view=True)
         return ""
 
     def redo(self) -> str:
         if self._doc is None or self._history is None or not self._history.redo(self._doc):
-            return "Nothing to redo."
+            return tr("viewer.nothing_to_redo")
         self.clear_selection()
         self._render(preserve_view=True)
         return ""
 
     def delete_selected(self) -> str:
         if not self._selected_handles:
-            return "Select an object first."
+            return tr("common.select_object_first")
         self.execute_command(DeleteEntityCommand(self._selected_handles))
         self.clear_selection()
         return ""
@@ -534,7 +535,7 @@ class DxfViewer(qw.QWidget):
             self._active_tool.cleanup(self._view.scene())
             self._active_tool = None
             self._view.set_tool(None)
-            self._command_line.show_response("Cancelled.")
+            self._command_line.show_response(tr("viewer.cancelled"))
         self.clear_selection()
         self._toolbar.set_active_tool(None)
         self._view.setFocus()
@@ -545,72 +546,72 @@ class DxfViewer(qw.QWidget):
 
     def start_move_tool(self) -> None:
         if not self._selected_handles:
-            self._echo("Select objects to move first.")
+            self._echo(tr("viewer.select_to_move"))
             self._toolbar.set_active_tool(None)
             return
         self.start_tool(MoveToolSession(list(self._selected_handles)))
 
     def start_rotate_tool(self) -> None:
         if not self._selected_handles:
-            self._echo("Select objects to rotate first.")
+            self._echo(tr("viewer.select_to_rotate"))
             self._toolbar.set_active_tool(None)
             return
         self.start_tool(RotateToolSession(list(self._selected_handles)))
 
     def start_scale_tool(self) -> None:
         if not self._selected_handles:
-            self._echo("Select objects to scale first.")
+            self._echo(tr("viewer.select_to_scale"))
             self._toolbar.set_active_tool(None)
             return
         self.start_tool(ScaleToolSession(list(self._selected_handles)))
 
     def start_rotate_each_tool(self) -> None:
         if not self._selected_handles:
-            self._echo("Select objects to rotate first.")
+            self._echo(tr("viewer.select_to_rotate"))
             self._toolbar.set_active_tool(None)
             return
         self.start_tool(RotateEachToolSession(list(self._selected_handles)))
 
     def start_scale_each_tool(self) -> None:
         if not self._selected_handles:
-            self._echo("Select objects to scale first.")
+            self._echo(tr("viewer.select_to_scale"))
             self._toolbar.set_active_tool(None)
             return
         self.start_tool(ScaleEachToolSession(list(self._selected_handles)))
 
     def copy_selected(self) -> str:
         if not self._selected_handles:
-            return "Select an object first."
+            return tr("common.select_object_first")
         self._clipboard_doc = self._doc
         self._clipboard_handles = list(self._selected_handles)
-        return f"{len(self._clipboard_handles)} object(s) copied."
+        return tr("viewer.objects_copied", count=len(self._clipboard_handles))
 
     def paste_clipboard(self) -> str:
         if self._clipboard_doc is not self._doc or not self._clipboard_handles:
-            return "Nothing to paste."
+            return tr("viewer.nothing_to_paste")
         dx, dy = self._view.default_duplicate_offset()
         command = DuplicateEntitiesCommand(self._clipboard_handles, dx, dy)
         self.execute_command(command)
         self._select_handles(command.new_handles)
-        return f"{len(command.new_handles)} object(s) pasted."
+        return tr("viewer.objects_pasted", count=len(command.new_handles))
 
     def duplicate_selected(self) -> str:
         if not self._selected_handles:
-            return "Select an object first."
+            return tr("common.select_object_first")
         dx, dy = self._view.default_duplicate_offset()
         command = DuplicateEntitiesCommand(self._selected_handles, dx, dy)
         self.execute_command(command)
         self._select_handles(command.new_handles)
-        return f"{len(command.new_handles)} object(s) duplicated."
+        return tr("viewer.objects_duplicated", count=len(command.new_handles))
 
     def select_similar(self) -> str:
         if self._doc is None or not self._selected_handles:
-            return "Select an object first."
+            return tr("common.select_object_first")
         matched = set()
         for handle in self._selected_handles:
             matched.update(self._doc.find_similar(handle))
         self._select_handles(matched)
-        return f"{len(matched)} object(s) selected."
+        return tr("viewer.objects_selected", count=len(matched))
 
     def _on_add_layer(self, name: str, rgb: Tuple[int, int, int]) -> None:
         self.ensure_document()
@@ -622,22 +623,22 @@ class DxfViewer(qw.QWidget):
         existing_names = {info.name for info in self._doc.iter_layers()}
         to_delete = layers_to_prune(self._imported_layer_names, existing_names)
         if not to_delete:
-            self._echo("No layers to remove — everything already starts with 994, 211, or 219.")
+            self._echo(tr("viewer.no_layers_to_remove"))
             return
-        preview = ", ".join(to_delete[:8]) + (f", +{len(to_delete) - 8} more" if len(to_delete) > 8 else "")
+        preview = ", ".join(to_delete[:8]) + (
+            tr("viewer.more_suffix", count=len(to_delete) - 8) if len(to_delete) > 8 else ""
+        )
         confirmed = qw.QMessageBox.question(
             self,
-            "Remove layers",
-            f"Delete {len(to_delete)} imported layer(s) not starting with 994, 211, or 219, "
-            f"along with everything drawn on them?\n\n{preview}\n\n"
-            "Layers added since importing are not affected. This can be undone with Ctrl+Z.",
+            tr("viewer.remove_layers_title"),
+            tr("viewer.remove_layers_message", count=len(to_delete), preview=preview),
             qw.QMessageBox.StandardButton.Yes | qw.QMessageBox.StandardButton.No,
             qw.QMessageBox.StandardButton.No,
         )
         if confirmed != qw.QMessageBox.StandardButton.Yes:
             return
         self.execute_command(CompositeCommand([DeleteLayerCommand(name) for name in to_delete]))
-        self._echo(f"Removed {len(to_delete)} layer(s).")
+        self._echo(tr("viewer.removed_layers", count=len(to_delete)))
 
     def _on_command_entered(self, text: str) -> None:
         if self._active_tool is not None:

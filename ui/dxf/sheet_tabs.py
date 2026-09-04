@@ -4,10 +4,10 @@ from typing import List, Optional, Sequence
 
 from PyQt6 import QtCore as qc, QtWidgets as qw
 
+from ui.i18n import tr
 from ui.theme import Color as UiColor, ICON_SM, SPACE_XS
 from ui.theme.icons import icon_manager
 
-MODEL_TAB_TEXT = "Model"
 _NAME_MAX_WIDTH = 160
 
 
@@ -35,14 +35,14 @@ class SheetTabBar(qw.QWidget):
             if widget is not None:
                 widget.setParent(None)
 
-        model_tab = self._make_tab(MODEL_TAB_TEXT, active is None)
-        model_tab.setToolTip("Model space — draw and edit at full size")
+        model_tab = self._make_tab(tr("sheet_tabs.model"), active is None)
+        model_tab.setToolTip(tr("sheet_tabs.model_tooltip"))
         model_tab.clicked.connect(lambda: self.modelActivated.emit())
         self._layout.addWidget(model_tab)
 
         for index, name in enumerate(names):
             tab = self._make_tab(name, index == active)
-            tab.setToolTip(f"{name} — right-click to rename, duplicate or delete")
+            tab.setToolTip(tr("sheet_tabs.sheet_tooltip", name=name))
             tab.clicked.connect(lambda _checked=False, i=index: self.sheetActivated.emit(i))
             tab.setContextMenuPolicy(qc.Qt.ContextMenuPolicy.CustomContextMenu)
             tab.customContextMenuRequested.connect(
@@ -54,7 +54,7 @@ class SheetTabBar(qw.QWidget):
         add_tab.setObjectName("sheetTabAdd")
         add_tab.setIcon(icon_manager.get("sheet_add", size=ICON_SM, color=UiColor.TEXT_MUTED))
         add_tab.setIconSize(qc.QSize(ICON_SM, ICON_SM))
-        add_tab.setToolTip("Add a sheet")
+        add_tab.setToolTip(tr("sheet_tabs.add_sheet_tooltip"))
         add_tab.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         add_tab.clicked.connect(lambda: self.addRequested.emit())
         self._layout.addWidget(add_tab)
@@ -71,10 +71,10 @@ class SheetTabBar(qw.QWidget):
 
     def _show_menu(self, tab: qw.QToolButton, pos: qc.QPoint, index: int) -> None:
         menu = qw.QMenu(self)
-        menu.addAction("Rename…", lambda: self.renameRequested.emit(index))
-        menu.addAction("Duplicate", lambda: self.duplicateRequested.emit(index))
+        menu.addAction(tr("sheet_tabs.rename_ellipsis"), lambda: self.renameRequested.emit(index))
+        menu.addAction(tr("common.duplicate"), lambda: self.duplicateRequested.emit(index))
         menu.addSeparator()
-        menu.addAction("Delete", lambda: self.deleteRequested.emit(index))
+        menu.addAction(tr("common.delete"), lambda: self.deleteRequested.emit(index))
         menu.exec(tab.mapToGlobal(pos))
 
 
@@ -98,7 +98,7 @@ class SheetList(qw.QWidget):
         self._rows = []
 
         if not names:
-            empty = qw.QLabel("No sheets yet — add one to lay out a PDF.")
+            empty = qw.QLabel(tr("sheet_tabs.empty_hint"))
             empty.setObjectName("previewMeta")
             empty.setWordWrap(True)
             self._layout.addWidget(empty)

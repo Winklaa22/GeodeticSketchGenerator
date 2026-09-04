@@ -7,6 +7,7 @@ from PyQt6.QtCore import QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMenu, QPushButton, QWidget
 
+from ui.i18n import tr
 from ui.recent_projects import list_recent_projects
 from ui.theme import Color, ICON_SM, SPACE_MD, SPACE_SM
 from ui.theme.assets import ICON_PATH
@@ -74,31 +75,31 @@ class MenuBar(QWidget):
         return button, menu
 
     def _build_file_button(self) -> QPushButton:
-        button, menu = self._menu_button("File", "fileMenu")
-        menu.addAction("New Project", self.newProjectRequested.emit)
-        menu.addAction("Open Project…", self.openProjectRequested.emit)
-        self._recent_menu = menu.addMenu("Open Recent")
+        button, menu = self._menu_button(tr("menu.file"), "fileMenu")
+        menu.addAction(tr("menu.new_project"), self.newProjectRequested.emit)
+        menu.addAction(tr("menu.open_project"), self.openProjectRequested.emit)
+        self._recent_menu = menu.addMenu(tr("menu.open_recent"))
         menu.aboutToShow.connect(self._refresh_recent_menu)
         menu.addSeparator()
-        save_action = menu.addAction("Save Project", self.saveProjectRequested.emit)
+        save_action = menu.addAction(tr("menu.save_project"), self.saveProjectRequested.emit)
         save_action.setShortcut(QKeySequence("Ctrl+S"))
-        menu.addAction("Save Project As…", self.saveProjectAsRequested.emit)
-        menu.addAction("Rename Project…", self.renameProjectRequested.emit)
-        menu.addAction("Export DXF…", self.exportDxfRequested.emit)
+        menu.addAction(tr("menu.save_project_as"), self.saveProjectAsRequested.emit)
+        menu.addAction(tr("menu.rename_project"), self.renameProjectRequested.emit)
+        menu.addAction(tr("menu.export_dxf"), self.exportDxfRequested.emit)
         menu.addSeparator()
-        menu.addAction("Table Structure…", self.tableStructureRequested.emit)
-        menu.addAction("Import Table Template…", self.importTableTemplateRequested.emit)
-        menu.addAction("Export Table Template…", self.exportTableTemplateRequested.emit)
+        menu.addAction(tr("menu.table_structure"), self.tableStructureRequested.emit)
+        menu.addAction(tr("menu.import_table_template"), self.importTableTemplateRequested.emit)
+        menu.addAction(tr("menu.export_table_template"), self.exportTableTemplateRequested.emit)
         menu.addSeparator()
-        menu.addAction("Settings…", self.settingsRequested.emit)
+        menu.addAction(tr("common.settings"), self.settingsRequested.emit)
         menu.addSeparator()
-        menu.addAction("Close Project", self.closeProjectRequested.emit)
+        menu.addAction(tr("menu.close_project"), self.closeProjectRequested.emit)
         return button
 
     def _build_edit_button(self) -> QPushButton:
-        button, menu = self._menu_button("Edit", "editMenu")
-        self._undo_action = menu.addAction("Undo (Ctrl+Z)", self.undoRequested.emit)
-        self._redo_action = menu.addAction("Redo (Ctrl+Y)", self.redoRequested.emit)
+        button, menu = self._menu_button(tr("menu.edit"), "editMenu")
+        self._undo_action = menu.addAction(tr("menu.undo"), self.undoRequested.emit)
+        self._redo_action = menu.addAction(tr("menu.redo"), self.redoRequested.emit)
         menu.aboutToShow.connect(self.editMenuAboutToShow.emit)
         return button
 
@@ -106,7 +107,7 @@ class MenuBar(QWidget):
         self._recent_menu.clear()
         paths = list_recent_projects(self._settings)
         if not paths:
-            placeholder = self._recent_menu.addAction("No recent projects")
+            placeholder = self._recent_menu.addAction(tr("menu.no_recent_projects"))
             placeholder.setEnabled(False)
             return
         for path in paths:

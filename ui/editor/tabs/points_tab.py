@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from core.config import PointsOptions
 from ui.editor.tabs.base import LayeredOptionsTab
+from ui.i18n import tr
 
 DEFAULT_FONT_SIZE = "0.6"
 DEFAULT_DIAMETER = "0.05"
@@ -13,9 +14,9 @@ class PointsTab(LayeredOptionsTab):
     DEFAULT_OPTIONS = PointsOptions()
 
     def _build_fields(self) -> None:
-        self.numbers_checkbox = self._add_check_field("Add numbers to points")
-        self.font_size_input = self._add_decimal_field("Text size", DEFAULT_FONT_SIZE)
-        self.diameter_input = self._add_decimal_field("Circle diameter", DEFAULT_DIAMETER)
+        self.numbers_checkbox = self._add_check_field(tr("tabs.add_numbers_checkbox"))
+        self.font_size_input = self._add_decimal_field(tr("common.text_size"), DEFAULT_FONT_SIZE)
+        self.diameter_input = self._add_decimal_field(tr("tabs.circle_diameter"), DEFAULT_DIAMETER)
 
     def get_options(self) -> PointsOptions:
         font_size = float(self.font_size_input.text() or DEFAULT_FONT_SIZE)

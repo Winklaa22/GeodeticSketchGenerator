@@ -14,6 +14,7 @@ from core.project import (
 )
 from core.table_template import TableTemplate
 from ui.editor.table_structure_dialog import TableStructureDialog
+from ui.i18n import tr
 
 if TYPE_CHECKING:
     from ui.editor.window import MainWindow
@@ -36,7 +37,7 @@ class TableTemplateController:
 
     def import_template(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self._host, "Import Table Template", "", TABLE_TEMPLATE_FILE_FILTER
+            self._host, tr("common.import_table_template_title"), "", TABLE_TEMPLATE_FILE_FILTER
         )
         if not path:
             return
@@ -46,12 +47,12 @@ class TableTemplateController:
             self._host.flash_status(str(exc))
             return
         self.apply(template)
-        self._host.flash_status(f"Imported table template from {os.path.basename(path)}")
+        self._host.flash_status(tr("table_template.imported_from", name=os.path.basename(path)))
 
     def export_template(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
-            self._host, "Export Table Template", "table_template" + TABLE_TEMPLATE_FILE_EXTENSION,
-            TABLE_TEMPLATE_FILE_FILTER,
+            self._host, tr("common.export_table_template_title"),
+            "table_template" + TABLE_TEMPLATE_FILE_EXTENSION, TABLE_TEMPLATE_FILE_FILTER,
         )
         if not path:
             return
@@ -62,4 +63,4 @@ class TableTemplateController:
         except ProjectFileError as exc:
             self._host.flash_status(str(exc))
             return
-        self._host.flash_status(f"Exported table template to {os.path.basename(path)}")
+        self._host.flash_status(tr("table_template.exported_to", name=os.path.basename(path)))

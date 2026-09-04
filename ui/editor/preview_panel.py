@@ -5,6 +5,7 @@ from typing import Optional
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
+from ui.i18n import tr
 from ui.theme import Color, ICON_SM, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL
 from ui.theme.icons import icon_manager
 from ui.widgets import Card, ErrorBanner, make_button
@@ -32,7 +33,7 @@ class PreviewPanel(Card):
         header = QHBoxLayout()
         header.setSpacing(SPACE_SM)
 
-        title = QLabel("DXF preview")
+        title = QLabel(tr("common.dxf_preview"))
         title.setObjectName("previewHeaderTitle")
         self._meta = QLabel("")
         self._meta.setObjectName("previewMeta")
@@ -46,8 +47,8 @@ class PreviewPanel(Card):
         row = QHBoxLayout()
         row.setSpacing(SPACE_SM)
 
-        self._save_button = make_button("Save DXF", "secondary", lambda: self.saveRequested.emit())
-        self._apply_button = make_button("Apply to DXF", "primary", lambda: self.applyRequested.emit())
+        self._save_button = make_button(tr("common.save_dxf"), "secondary", lambda: self.saveRequested.emit())
+        self._apply_button = make_button(tr("preview.apply_to_dxf"), "primary", lambda: self.applyRequested.emit())
         self._apply_button.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self._apply_button.setIcon(icon_manager.get("arrow_right", size=ICON_SM, color=Color.ACCENT))
 
@@ -57,7 +58,7 @@ class PreviewPanel(Card):
         return row
 
     def set_meta(self, entity_count: int, layer_count: int) -> None:
-        self._meta.setText(f"{entity_count} entities · {layer_count} layers")
+        self._meta.setText(tr("preview.meta", entities=entity_count, layers=layer_count))
 
     def clear_meta(self) -> None:
         self._meta.setText("")

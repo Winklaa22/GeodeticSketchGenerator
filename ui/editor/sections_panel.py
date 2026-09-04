@@ -13,6 +13,7 @@ from ui.editor.tabs.delimiter_tab import DelimiterTab
 from ui.editor.tabs.draw_tab import DrawTab
 from ui.editor.tabs.layer_tab import LayerTab
 from ui.editor.tabs.selection_tab import SelectionTab
+from ui.i18n import tr
 from ui.theme import SPACE_LG
 from ui.widgets import Accordion, AccordionSection, DropZone, FileCard
 
@@ -61,14 +62,15 @@ class SectionsPanel(QWidget):
         layout.addWidget(self.accordion)
 
         self._point_file_section = self._add_section(
-            "point_file_section", "Point File", _PointFileSection(self.file_stack, self.delimiter_tab)
+            "point_file_section", tr("sections.point_file"),
+            _PointFileSection(self.file_stack, self.delimiter_tab),
         )
-        self._add_section("drawing_mode_section", "Drawing Mode", self.draw_tab)
-        self._layer_section = self._add_section("layer_section", "Layer", self.layer_tab)
+        self._add_section("drawing_mode_section", tr("sections.drawing_mode"), self.draw_tab)
+        self._layer_section = self._add_section("layer_section", tr("common.layer_field"), self.layer_tab)
         for spec in MODE_SPECS:
             section = self._add_section(spec.icon, spec.title, self.mode_tabs[spec.key])
             self._mode_section_keys[section] = spec.key
-        self._add_section("selection_section", "Selection", self.selection_tab)
+        self._add_section("selection_section", tr("sections.selection"), self.selection_tab)
 
         self.sync_layer_dropdowns()
         self._wire_signals()

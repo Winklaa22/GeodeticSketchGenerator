@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QLabel, QLineEdit, QWidget
 
 from core.table_template import FieldDef
 from ui.editor.tabs.base import SectionWidget
+from ui.i18n import tr
 from ui.widgets import SectionColumn, make_field, styled_line_edit
 
 
@@ -18,7 +19,7 @@ class DynamicFieldsTab(SectionWidget):
         super().__init__(parent)
         self._column = SectionColumn(self)
         self._inputs: Dict[str, QLineEdit] = {}
-        self._placeholder = QLabel("No fields defined for this scope yet.")
+        self._placeholder = QLabel(tr("tabs.no_fields_defined"))
         self._placeholder.setObjectName("fieldLabel")
         self._show_placeholder()
 

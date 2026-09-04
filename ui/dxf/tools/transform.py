@@ -10,6 +10,7 @@ from core.commands.edit import MoveCommand, RotateCommand, ScaleCommand
 from core.dxf_document import DXFDocument
 from ui.dxf.items import HANDLE_ROLE
 from ui.dxf.tools.base import ToolSession, angle_degrees, parse_coordinate, point_distance, preview_pen
+from ui.i18n import tr
 
 
 class MoveToolSession(ToolSession):
@@ -17,7 +18,7 @@ class MoveToolSession(ToolSession):
     def __init__(self, handles: List[str]) -> None:
         super().__init__()
         self._handles = handles
-        self.prompt = "Specify base point: "
+        self.prompt = tr("tool.specify_base_point")
         self._base: Optional[Tuple[float, float]] = None
         self._dest: Optional[Tuple[float, float]] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
@@ -25,17 +26,17 @@ class MoveToolSession(ToolSession):
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._base is None:
             self._base = point
-            self.prompt = "Specify second point: "
+            self.prompt = tr("tool.specify_second_point")
         else:
             self._dest = point
 
     def on_text(self, text: str) -> Optional[str]:
         coord = parse_coordinate(text, last_point=self._base)
         if coord is None:
-            return f'Point must be given as "x,y" or "@dx,dy": "{text}".'
+            return tr("common.point_xy_or_rel_format", value=text)
         if self._base is None:
             self._base = coord
-            self.prompt = "Specify second point: "
+            self.prompt = tr("tool.specify_second_point")
         else:
             self._dest = coord
         return None
@@ -69,7 +70,7 @@ class RotateToolSession(ToolSession):
     def __init__(self, handles: List[str]) -> None:
         super().__init__()
         self._handles = handles
-        self.prompt = "Specify base point: "
+        self.prompt = tr("tool.specify_base_point")
         self._base: Optional[Tuple[float, float]] = None
         self._angle: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
@@ -78,7 +79,7 @@ class RotateToolSession(ToolSession):
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._base is None:
             self._base = point
-            self.prompt = "Specify rotation angle: "
+            self.prompt = tr("tool.specify_rotation_angle")
         else:
             self._angle = angle_degrees(self._base, point)
 
@@ -86,16 +87,16 @@ class RotateToolSession(ToolSession):
         if self._base is None:
             coord = parse_coordinate(text, last_point=None)
             if coord is None:
-                return f'Point must be given as "x,y": "{text}".'
+                return tr("common.point_xy_format", value=text)
             self._base = coord
-            self.prompt = "Specify rotation angle: "
+            self.prompt = tr("tool.specify_rotation_angle")
             return None
         try:
             angle = float(text.strip())
         except ValueError:
             coord = parse_coordinate(text, last_point=self._base)
             if coord is None:
-                return f'Requires a numeric angle (degrees) or a point: "{text}".'
+                return tr("tool.angle_or_point_numeric", value=text)
             angle = angle_degrees(self._base, coord)
         self._angle = angle
         return None
@@ -141,7 +142,7 @@ class ScaleToolSession(ToolSession):
     def __init__(self, handles: List[str]) -> None:
         super().__init__()
         self._handles = handles
-        self.prompt = "Specify base point: "
+        self.prompt = tr("tool.specify_base_point")
         self._base: Optional[Tuple[float, float]] = None
         self._factor: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
@@ -150,7 +151,7 @@ class ScaleToolSession(ToolSession):
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._base is None:
             self._base = point
-            self.prompt = "Specify scale factor: "
+            self.prompt = tr("tool.specify_scale_factor")
         else:
             factor = point_distance(self._base, point)
             if factor > 0:
@@ -160,19 +161,19 @@ class ScaleToolSession(ToolSession):
         if self._base is None:
             coord = parse_coordinate(text, last_point=None)
             if coord is None:
-                return f'Point must be given as "x,y": "{text}".'
+                return tr("common.point_xy_format", value=text)
             self._base = coord
-            self.prompt = "Specify scale factor: "
+            self.prompt = tr("tool.specify_scale_factor")
             return None
         try:
             factor = float(text.strip())
         except ValueError:
             coord = parse_coordinate(text, last_point=self._base)
             if coord is None:
-                return f'Requires a numeric scale factor or a point: "{text}".'
+                return tr("tool.scale_or_point_numeric", value=text)
             factor = point_distance(self._base, coord)
         if factor <= 0:
-            return "Scale factor must be positive."
+            return tr("common.scale_positive")
         self._factor = factor
         return None
 
@@ -219,7 +220,7 @@ class RotateEachToolSession(ToolSession):
     def __init__(self, handles: List[str]) -> None:
         super().__init__()
         self._handles = handles
-        self.prompt = "Specify reference point: "
+        self.prompt = tr("tool.specify_reference_point")
         self._base: Optional[Tuple[float, float]] = None
         self._angle: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
@@ -228,7 +229,7 @@ class RotateEachToolSession(ToolSession):
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._base is None:
             self._base = point
-            self.prompt = "Specify rotation angle: "
+            self.prompt = tr("tool.specify_rotation_angle")
         else:
             self._angle = angle_degrees(self._base, point)
 
@@ -236,16 +237,16 @@ class RotateEachToolSession(ToolSession):
         if self._base is None:
             coord = parse_coordinate(text, last_point=None)
             if coord is None:
-                return f'Point must be given as "x,y": "{text}".'
+                return tr("common.point_xy_format", value=text)
             self._base = coord
-            self.prompt = "Specify rotation angle: "
+            self.prompt = tr("tool.specify_rotation_angle")
             return None
         try:
             angle = float(text.strip())
         except ValueError:
             coord = parse_coordinate(text, last_point=self._base)
             if coord is None:
-                return f'Requires a numeric angle (degrees) or a point: "{text}".'
+                return tr("tool.angle_or_point_numeric", value=text)
             angle = angle_degrees(self._base, coord)
         self._angle = angle
         return None
@@ -292,7 +293,7 @@ class ScaleEachToolSession(ToolSession):
     def __init__(self, handles: List[str]) -> None:
         super().__init__()
         self._handles = handles
-        self.prompt = "Specify reference point: "
+        self.prompt = tr("tool.specify_reference_point")
         self._base: Optional[Tuple[float, float]] = None
         self._factor: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
@@ -301,7 +302,7 @@ class ScaleEachToolSession(ToolSession):
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._base is None:
             self._base = point
-            self.prompt = "Specify scale factor: "
+            self.prompt = tr("tool.specify_scale_factor")
         else:
             factor = point_distance(self._base, point)
             if factor > 0:
@@ -311,19 +312,19 @@ class ScaleEachToolSession(ToolSession):
         if self._base is None:
             coord = parse_coordinate(text, last_point=None)
             if coord is None:
-                return f'Point must be given as "x,y": "{text}".'
+                return tr("common.point_xy_format", value=text)
             self._base = coord
-            self.prompt = "Specify scale factor: "
+            self.prompt = tr("tool.specify_scale_factor")
             return None
         try:
             factor = float(text.strip())
         except ValueError:
             coord = parse_coordinate(text, last_point=self._base)
             if coord is None:
-                return f'Requires a numeric scale factor or a point: "{text}".'
+                return tr("tool.scale_or_point_numeric", value=text)
             factor = point_distance(self._base, coord)
         if factor <= 0:
-            return "Scale factor must be positive."
+            return tr("common.scale_positive")
         self._factor = factor
         return None
 

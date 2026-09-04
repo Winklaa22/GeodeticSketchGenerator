@@ -4,6 +4,7 @@ from typing import Optional
 
 from PyQt6 import QtCore as qc, QtWidgets as qw
 
+from ui.i18n import tr
 from ui.theme import SPACE_SM, SPACE_XS
 
 
@@ -34,11 +35,11 @@ class CommandLine(qw.QWidget):
         input_layout = qw.QHBoxLayout(input_row)
         input_layout.setContentsMargins(SPACE_SM, SPACE_XS, SPACE_SM, SPACE_XS)
         input_layout.setSpacing(SPACE_XS)
-        prompt = qw.QLabel("Command:")
+        prompt = qw.QLabel(tr("command_line.prompt"))
         prompt.setObjectName("dxfCommandPrompt")
         self._input = qw.QLineEdit()
         self._input.setObjectName("dxfCommandInput")
-        self._input.setPlaceholderText("POINT, TEXT, LINE, CIRCLE, PIPE, ZOOM …")
+        self._input.setPlaceholderText(tr("command_line.placeholder"))
         self._input.returnPressed.connect(self._submit)
         self._input.installEventFilter(self)
         input_layout.addWidget(prompt)
@@ -62,7 +63,7 @@ class CommandLine(qw.QWidget):
 
     def reset(self) -> None:
         self._history.clear()
-        self._echo("Type POINT, TEXT, LINE, CIRCLE, PIPE, ERASE, U(ndo), REDO, ZOOM, PAN or REGEN.")
+        self._echo(tr("command_line.hint"))
 
     def show_response(self, message: str) -> None:
         if message:
@@ -79,7 +80,7 @@ class CommandLine(qw.QWidget):
         self._input.clear()
         if not text:
             return
-        self._echo(f"Command: {text}")
+        self._echo(tr("command_line.echo", text=text))
         self.commandEntered.emit(text)
 
     def _echo(self, line: str) -> None:

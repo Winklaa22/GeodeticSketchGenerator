@@ -7,6 +7,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import QLineEdit, QWidget
 
+from ui.i18n import tr
 from ui.widgets import (
     CheckField,
     LayerDropdown,
@@ -43,7 +44,7 @@ class LayeredOptionsTab(SectionWidget):
         self._build_fields()
         self.layer_dropdown = LayerDropdown()
         self.layer_dropdown.layerChanged.connect(self.option_changed.emit)
-        self._column.addWidget(make_field("Layer", self.layer_dropdown))
+        self._column.addWidget(make_field(tr("common.layer_field"), self.layer_dropdown))
         self._column.addStretch(1)
 
     def _build_fields(self) -> None:

@@ -5,6 +5,7 @@ from typing import List, Optional, Tuple
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 from core.dxf_document import LayerInfo
+from ui.i18n import tr
 from ui.theme import Color, ICON_SM, SPACE_XS
 from ui.theme.icons import icon_manager
 
@@ -49,26 +50,26 @@ class _LayerRow(qw.QFrame):
         active_icon = "layer_active" if info.is_active else "layer_inactive"
         active_btn.setIcon(icon_manager.get(active_icon, size=ICON_SM, color=Color.ACCENT))
         active_btn.setIconSize(qc.QSize(ICON_SM, ICON_SM))
-        active_btn.setToolTip("Set as active layer — new entities draw here")
+        active_btn.setToolTip(tr("layer_panel.active_tooltip"))
         active_btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         active_btn.clicked.connect(lambda: self.activateRequested.emit(self._name))
         layout.addWidget(active_btn)
 
         name_btn = qw.QToolButton()
         name_btn.setObjectName("layerNameBtn")
-        label = info.name if info.entity_count == 0 else f"{info.name} ({info.entity_count})"
+        label = info.name if info.entity_count == 0 else tr("layer_panel.row_label", name=info.name, count=info.entity_count)
         elided = qg.QFontMetrics(name_btn.font()).elidedText(
             label, qc.Qt.TextElideMode.ElideRight, _NAME_MAX_WIDTH
         )
         name_btn.setText(elided)
-        name_btn.setToolTip(f'{label} — click to select all entities on this layer')
+        name_btn.setToolTip(tr("layer_panel.row_tooltip", label=label))
         name_btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         name_btn.clicked.connect(lambda: self.selectRequested.emit(self._name))
         layout.addWidget(name_btn, 1)
 
         swatch = qw.QToolButton()
         swatch.setObjectName("layerColorSwatch")
-        swatch.setToolTip("Change color")
+        swatch.setToolTip(tr("common.change_color"))
         swatch.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         swatch.setStyleSheet(f"background-color: rgb{info.rgb};")
         swatch.clicked.connect(lambda: self._pick_color(info.rgb))
@@ -76,7 +77,7 @@ class _LayerRow(qw.QFrame):
 
         visible_box = qw.QCheckBox()
         visible_box.setObjectName("layerVisibleCheck")
-        visible_box.setToolTip("Show/hide this layer")
+        visible_box.setToolTip(tr("layer_panel.visibility_tooltip"))
         visible_box.setChecked(info.visible)
         visible_box.toggled.connect(lambda checked: self.visibilityToggled.emit(self._name, checked))
         layout.addWidget(visible_box)
@@ -85,7 +86,7 @@ class _LayerRow(qw.QFrame):
         delete_btn.setObjectName("layerDeleteBtn")
         delete_btn.setIcon(icon_manager.get("layer_row_delete", size=ICON_SM, color=Color.TEXT_FAINT))
         delete_btn.setIconSize(qc.QSize(ICON_SM, ICON_SM))
-        delete_btn.setToolTip("Delete layer" if info.name != "0" else 'Layer "0" cannot be deleted')
+        delete_btn.setToolTip(tr("common.delete_layer_tooltip") if info.name != "0" else tr("common.layer_zero_protected_tooltip"))
         delete_btn.setEnabled(info.name != "0")
         delete_btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         delete_btn.clicked.connect(lambda: self.deleteRequested.emit(self._name))
@@ -94,7 +95,7 @@ class _LayerRow(qw.QFrame):
     def _pick_color(self, current_rgb: Tuple[int, int, int]) -> None:
         initial = qg.QColor(*current_rgb)
         dialog = qw.QColorDialog(initial, self)
-        dialog.setWindowTitle("Layer Color")
+        dialog.setWindowTitle(tr("layer_panel.color_dialog_title"))
         dialog.setStyleSheet("")
         if dialog.exec() == qw.QColorDialog.DialogCode.Accepted:
             color = dialog.selectedColor()
@@ -120,7 +121,7 @@ class LayerPanel(qw.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACE_XS)
 
-        title = qw.QLabel("Layers")
+        title = qw.QLabel(tr("layer_panel.title"))
         title.setObjectName("layerPanelTitle")
         layout.addWidget(title)
 
@@ -145,7 +146,7 @@ class LayerPanel(qw.QWidget):
         add_btn.setIcon(icon_manager.get("layer_add", size=ICON_SM, color=Color.TEXT_MUTED))
         add_btn.setIconSize(qc.QSize(ICON_SM, ICON_SM))
         add_btn.setToolButtonStyle(qc.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        add_btn.setText("Add layer")
+        add_btn.setText(tr("common.add_layer"))
         add_btn.setCursor(qc.Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self._on_add_clicked)
         bottom_row.addWidget(add_btn, 1)
@@ -183,7 +184,7 @@ class LayerPanel(qw.QWidget):
         self._rows_layout.addStretch(1)
 
     def _on_add_clicked(self) -> None:
-        name, ok = qw.QInputDialog.getText(self, "New Layer", "Layer name:")
+        name, ok = qw.QInputDialog.getText(self, tr("common.new_layer_title"), tr("common.layer_name_label"))
         name = name.strip()
         if not ok or not name:
             return
@@ -197,11 +198,5 @@ class LayerPanel(qw.QWidget):
         self._set_prune_tooltip(available)
 
     def _set_prune_tooltip(self, available: bool) -> None:
-        if available:
-            text = (
-                "Remove imported layers not starting with 994, 211, or 219\n"
-                "(layers added since importing are never touched)"
-            )
-        else:
-            text = "Import a DXF file to use this"
-        self._prune_btn.setToolTip(text)
+        key = "layer_panel.prune_tooltip_available" if available else "layer_panel.prune_tooltip_unavailable"
+        self._prune_btn.setToolTip(tr(key))
