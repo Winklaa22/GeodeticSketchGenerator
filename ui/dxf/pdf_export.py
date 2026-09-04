@@ -34,6 +34,7 @@ from core.table_template import (
 )
 from ui.dxf.backend import qcolor_from, to_qpainter_path
 from ui.dxf.page_frame import PageFrame
+from ui.dxf.stamp_cache import stamp_cache
 
 RESOLUTION_DPI = 1200
 MM_PER_INCH = 25.4
@@ -224,9 +225,26 @@ def _cell_font(cell: ResolvedCell) -> qg.QFont:
     return font
 
 
+def _draw_cell_image(painter: qg.QPainter, rect: qc.QRectF, path: str) -> None:
+    pixmap = stamp_cache.get(path)
+    if pixmap is None or pixmap.isNull() or rect.width() <= 0 or rect.height() <= 0:
+        return
+    src_w, src_h = pixmap.width(), pixmap.height()
+    if src_w <= 0 or src_h <= 0:
+        return
+    scale = min(rect.width() / src_w, rect.height() / src_h)
+    target = qc.QRectF(0.0, 0.0, src_w * scale, src_h * scale)
+    target.moveCenter(rect.center())
+    painter.setRenderHint(qg.QPainter.RenderHint.SmoothPixmapTransform, True)
+    painter.drawPixmap(target, pixmap, qc.QRectF(0.0, 0.0, float(src_w), float(src_h)))
+
+
 def _draw_cell(painter: qg.QPainter, cell: ResolvedCell) -> None:
     rect = qc.QRectF(cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h)
     padded = rect.adjusted(CELL_PADDING_MM, CELL_PADDING_MM, -CELL_PADDING_MM, -CELL_PADDING_MM)
+    if cell.kind == "image" and cell.image_path:
+        _draw_cell_image(painter, padded, cell.image_path)
+        return
     if not cell.text:
         return
     painter.setFont(_cell_font(cell))
