@@ -523,6 +523,33 @@ QHeaderView::section {{
     font-size: {TEXT_SM}px;
     font-weight: 600;
 }}
+
+/* ---------- settings dialog ---------- */
+#settingsSidebar {{
+    background: {c.SURFACE};
+    border-right: 1px solid {c.BORDER};
+}}
+#settingsFooter {{
+    background: {c.APP_BG};
+    border-top: 1px solid {c.BORDER};
+}}
+QPushButton#settingsNavBtn {{
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: {RADIUS}px;
+    padding: {SPACE_SM}px {SPACE_MD}px;
+    color: {c.TEXT_MUTED};
+    font-size: {TEXT_MD}px;
+}}
+QPushButton#settingsNavBtn:hover {{ background: {c.SURFACE_HOVER}; color: {c.TEXT}; }}
+QPushButton#settingsNavBtn:checked {{
+    background: {c.ACCENT_SOFT};
+    border: 1px solid {c.ACCENT_BORDER};
+    color: {c.ACCENT};
+    font-weight: 600;
+}}
+QPushButton#settingsNavBtn:disabled {{ color: {c.TEXT_FAINT}; }}
 """
 
 

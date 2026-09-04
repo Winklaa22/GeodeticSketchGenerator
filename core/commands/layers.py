@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from core.commands.edit import DeleteEntityCommand
 from core.dxf_document import DXFDocument
@@ -38,14 +38,26 @@ class SetLayerColorCommand:
         self._name = name
         self._rgb = rgb
         self._previous: Optional[Tuple[int, int, int]] = None
+        self._entity_overrides: Dict[str, Tuple[int, Optional[Tuple[int, int, int]]]] = {}
 
     def execute(self, doc: DXFDocument) -> None:
         self._previous = doc.get_layer_color(self._name)
+        # Entities are only tinted by the layer color while they're BYLAYER - one carrying
+        # its own explicit ACI or true color (common on layers that came in with an imported
+        # DXF) ignores the layer entirely, so changing the layer color here would have no
+        # visible effect on it. Strip those per-entity overrides so the new layer color
+        # actually shows, remembering them to restore on undo.
+        handles = doc.layer_entity_handles(self._name)
+        self._entity_overrides = {handle: doc.entity_color_override(handle) for handle in handles}
+        for handle in handles:
+            doc.clear_entity_color_override(handle)
         doc.set_layer_color(self._name, self._rgb)
 
     def undo(self, doc: DXFDocument) -> None:
         if self._previous is not None:
             doc.set_layer_color(self._name, self._previous)
+        for handle, (color, true_color) in self._entity_overrides.items():
+            doc.set_entity_color_override(handle, color, true_color)
 
 
 class SetLayerVisibleCommand:

@@ -248,11 +248,14 @@ class DXFDocument:
 
     def get_entity_color(self, handle: str) -> Tuple[int, int, int]:
         entity = self._require_entity(handle)
-        if entity.dxf.color in (0, 256):
-            return self.get_layer_color(entity.dxf.layer)
+        # A true color (group code 420) overrides BYLAYER/ACI regardless of what dxf.color
+        # says - an entity can carry both color=256 (BYLAYER) and an explicit true color at
+        # once, and ezdxf's own renderer always prefers the true color in that case.
         rgb = entity.rgb
         if rgb is not None:
             return (rgb.r, rgb.g, rgb.b)
+        if entity.dxf.color in (0, 256):
+            return self.get_layer_color(entity.dxf.layer)
         try:
             aci_rgb = ezdxf_colors.aci2rgb(abs(entity.dxf.color))
         except IndexError:
@@ -261,6 +264,27 @@ class DXFDocument:
 
     def set_entity_color(self, handle: str, rgb: Tuple[int, int, int]) -> None:
         self._apply_color(self._require_entity(handle), rgb)
+
+    def layer_entity_handles(self, name: str) -> List[str]:
+        return [entity.dxf.handle for entity in self.modelspace if entity.dxf.layer == name]
+
+    def entity_color_override(self, handle: str) -> Tuple[int, Optional[Tuple[int, int, int]]]:
+        entity = self._require_entity(handle)
+        rgb = entity.rgb
+        return entity.dxf.color, (rgb.r, rgb.g, rgb.b) if rgb is not None else None
+
+    def set_entity_color_override(
+        self, handle: str, color: int, true_color: Optional[Tuple[int, int, int]]
+    ) -> None:
+        entity = self._require_entity(handle)
+        entity.dxf.color = color
+        if true_color is not None:
+            entity.rgb = true_color
+        else:
+            entity.dxf.discard("true_color")
+
+    def clear_entity_color_override(self, handle: str) -> None:
+        self.set_entity_color_override(handle, 256, None)
 
     def find_similar(self, handle: str) -> List[str]:
         reference = self._require_entity(handle)

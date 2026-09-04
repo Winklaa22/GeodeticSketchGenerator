@@ -119,6 +119,24 @@ def test_table_rect_is_the_complement_of_map_rect() -> None:
     assert abs(table_rect.height() - (printable.height() - map_rect.height())) < 1e-9
 
 
+def test_table_rect_defaults_to_full_width_when_no_cap_is_given() -> None:
+    frame = page_frame_for(A3, (0.0, 0.0), table_height_mm=30.0)
+    assert frame.table_rect().width() == frame.printable_rect().width()
+
+
+def test_table_rect_caps_the_width_and_stays_left_anchored() -> None:
+    frame = page_frame_for(A3, (0.0, 0.0), table_height_mm=30.0, table_width_mm=50.0)
+    printable = frame.printable_rect()
+    table_rect = frame.table_rect()
+    assert table_rect.left() == printable.left()
+    assert table_rect.width() == 50.0 * 0.5  # scaled by units_per_mm (scale_denominator=500)
+
+
+def test_table_rect_width_cap_never_widens_a_narrower_table() -> None:
+    frame = page_frame_for(A3, (0.0, 0.0), table_height_mm=30.0, table_width_mm=100000.0)
+    assert frame.table_rect().width() == frame.printable_rect().width()
+
+
 def test_table_rect_clamps_when_taller_than_the_printable_area() -> None:
     frame = page_frame_for(A3, (0.0, 0.0), table_height_mm=100000.0)
     printable = frame.printable_rect()

@@ -18,6 +18,7 @@ class PageFrame:
     label: str = ""
     rotation: float = 0.0
     table_height: float = 0.0
+    table_width: float = 0.0
 
     def sheet_rect(self) -> qc.QRectF:
         return qc.QRectF(
@@ -42,9 +43,10 @@ class PageFrame:
     def table_rect(self) -> qc.QRectF:
         printable = self.printable_rect()
         map_rect = self.map_rect()
-        return qc.QRectF(
-            printable.left(), printable.top(), printable.width(), map_rect.top() - printable.top()
-        )
+        # table_width <= 0 means "no cap" - keeps callers that never asked for one (tests,
+        # anything not sizing an actual table) at the old full-printable-width behaviour.
+        width = printable.width() if self.table_width <= 0.0 else min(printable.width(), self.table_width)
+        return qc.QRectF(printable.left(), printable.top(), width, map_rect.top() - printable.top())
 
     def moved_to(self, center_x: float, center_y: float) -> "PageFrame":
         return replace(self, center_x=center_x, center_y=center_y)
@@ -59,6 +61,7 @@ def page_frame_for(
     label: str = "",
     rotation: float = 0.0,
     table_height_mm: float = 0.0,
+    table_width_mm: float = 0.0,
 ) -> PageFrame:
     width, height = sheet_size_in_units(options)
     return PageFrame(
@@ -70,4 +73,5 @@ def page_frame_for(
         label=label,
         rotation=normalize_degrees(rotation),
         table_height=table_height_mm * units_per_mm(options),
+        table_width=table_width_mm * units_per_mm(options),
     )

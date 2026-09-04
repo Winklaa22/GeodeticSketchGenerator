@@ -234,15 +234,29 @@ def table_template_state_from_payload(payload: Dict[str, Any]) -> TableTemplateS
     )
 
 
-def save_table_template_file(path: str, template: TableTemplate) -> None:
+def table_template_payload(template: TableTemplate) -> Dict[str, Any]:
     state = state_from_template(template)
-    payload: Dict[str, Any] = {
+    return {
         "version": _TEMPLATE_FORMAT_VERSION,
         "columns": [asdict(c) for c in state.columns],
         "rows": [asdict(r) for r in state.rows],
         "cells": [asdict(c) for c in state.cells],
         "fields": [asdict(f) for f in state.fields],
     }
+
+
+def template_from_payload(payload: Dict[str, Any]) -> TableTemplate:
+    if not isinstance(payload, dict):
+        raise ProjectFileError("Not a valid table template: expected a JSON object.")
+    try:
+        state = table_template_state_from_payload(payload)
+    except (TypeError, ValueError) as exc:
+        raise ProjectFileError(f"Not a valid table template: {exc}") from exc
+    return template_from_state(state)
+
+
+def save_table_template_file(path: str, template: TableTemplate) -> None:
+    payload = table_template_payload(template)
     try:
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)
@@ -258,13 +272,7 @@ def load_table_template_file(path: str) -> TableTemplate:
         raise ProjectFileError(f"Could not read table template file: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ProjectFileError(f"Not a valid table template file: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise ProjectFileError("Not a valid table template file: expected a JSON object.")
-    try:
-        state = table_template_state_from_payload(payload)
-    except (TypeError, ValueError) as exc:
-        raise ProjectFileError(f"Not a valid table template file: {exc}") from exc
-    return template_from_state(state)
+    return template_from_payload(payload)
 
 
 @dataclass
