@@ -5,6 +5,7 @@ from typing import Optional
 
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
+from ui.i18n import tr
 from ui.theme import Color as UiColor
 
 DIAMETER = 68
@@ -24,7 +25,7 @@ class RotationCompass(qw.QWidget):
         super().__init__(parent)
         self.setFixedSize(DIAMETER, DIAMETER)
         self.setCursor(qc.Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("Drag to rotate the view — double-click to reset to 0°")
+        self.setToolTip(tr("compass.tooltip"))
         self._angle = 0.0
         self._drag_origin_angle: Optional[float] = None
         self._drag_start_value: Optional[float] = None
@@ -117,6 +118,6 @@ class RotationCompass(qw.QWidget):
         painter.setPen(qg.QColor(UiColor.TEXT_MUTED))
         shown = round(self._angle)
         painter.drawText(
-            qc.QRectF(cx - 18, cy - 7, 36, 14), qc.Qt.AlignmentFlag.AlignCenter, f"{shown}°"
+            qc.QRectF(cx - 18, cy - 7, 36, 14), qc.Qt.AlignmentFlag.AlignCenter, tr("compass.degrees", value=shown)
         )
         painter.end()

@@ -17,6 +17,7 @@ from core.plot import (
     PlotOptions,
 )
 from ui.editor.tabs.base import SectionWidget
+from ui.i18n import tr
 from ui.widgets import (
     Dropdown,
     SectionColumn,
@@ -33,14 +34,19 @@ DEFAULT_ROTATION = "0"
 CUSTOM_SCALE_KEY = "custom"
 FIT_SCALE_KEY = "fit"
 
-_ORIENTATION_OPTIONS = [("landscape", "Landscape"), ("portrait", "Portrait")]
-_COLOR_OPTIONS = [(COLOR_MODE_COLOR, "Color"), (COLOR_MODE_MONOCHROME, "Monochrome")]
+
+def _orientation_options():
+    return [("landscape", tr("tabs.orientation_landscape")), ("portrait", tr("tabs.orientation_portrait"))]
+
+
+def _color_options():
+    return [(COLOR_MODE_COLOR, tr("tabs.color_mode_color")), (COLOR_MODE_MONOCHROME, tr("tabs.color_mode_monochrome"))]
 
 
 def _scale_items():
-    items = [(str(value), f"1:{value}") for value in SCALE_PRESETS]
-    items.append((CUSTOM_SCALE_KEY, "Custom…"))
-    items.append((FIT_SCALE_KEY, "Fit to page"))
+    items = [(str(value), tr("tabs.scale_ratio", value=value)) for value in SCALE_PRESETS]
+    items.append((CUSTOM_SCALE_KEY, tr("tabs.scale_custom")))
+    items.append((FIT_SCALE_KEY, tr("tabs.scale_fit")))
     return items
 
 
@@ -59,36 +65,36 @@ class PlotTab(SectionWidget):
         self.page_dropdown = Dropdown()
         self.page_dropdown.set_items([(spec.key, spec.label) for spec in PAGE_SIZES])
         self.page_dropdown.set_current_key(self.DEFAULT_OPTIONS.page_key)
-        column.addWidget(make_field("Paper size", self.page_dropdown))
+        column.addWidget(make_field(tr("tabs.paper_size_field"), self.page_dropdown))
 
-        self.orientation_control = SegmentedControl(_ORIENTATION_OPTIONS)
-        column.addWidget(make_field("Orientation", self.orientation_control))
+        self.orientation_control = SegmentedControl(_orientation_options())
+        column.addWidget(make_field(tr("tabs.orientation_field"), self.orientation_control))
 
         self.scale_dropdown = Dropdown()
         self.scale_dropdown.set_items(_scale_items())
         self.scale_dropdown.set_current_key(str(DEFAULT_SCALE_DENOMINATOR))
-        column.addWidget(make_field("Plot scale", self.scale_dropdown))
+        column.addWidget(make_field(tr("tabs.plot_scale_field"), self.scale_dropdown))
 
         self.custom_scale_input = styled_line_edit(str(DEFAULT_SCALE_DENOMINATOR))
         self.custom_scale_input.setValidator(QIntValidator(1, 1000000))
-        self._custom_scale_field = make_field("Custom scale 1:", self.custom_scale_input)
+        self._custom_scale_field = make_field(tr("tabs.custom_scale_field"), self.custom_scale_input)
         self._custom_scale_field.setVisible(False)
         column.addWidget(self._custom_scale_field)
 
         self.margin_input = styled_line_edit(DEFAULT_MARGIN)
         self.margin_input.setValidator(decimal_validator(0.0, 100.0, 1))
-        column.addWidget(make_field("Margins (mm)", self.margin_input))
+        column.addWidget(make_field(tr("tabs.margins_field"), self.margin_input))
 
         self.rotation_input = styled_line_edit(DEFAULT_ROTATION)
         self.rotation_input.setValidator(decimal_validator(-180.0, 180.0, 2))
-        column.addWidget(make_field("Rotation (°)", self.rotation_input))
+        column.addWidget(make_field(tr("tabs.rotation_field"), self.rotation_input))
 
-        self.color_control = SegmentedControl(_COLOR_OPTIONS)
-        column.addWidget(make_field("Plot style", self.color_control))
+        self.color_control = SegmentedControl(_color_options())
+        column.addWidget(make_field(tr("tabs.plot_style_field"), self.color_control))
 
         self.min_lineweight_input = styled_line_edit(DEFAULT_MIN_LINEWEIGHT)
         self.min_lineweight_input.setValidator(decimal_validator(0.0, 5.0, 2))
-        column.addWidget(make_field("Minimum lineweight (mm)", self.min_lineweight_input))
+        column.addWidget(make_field(tr("tabs.min_lineweight_field"), self.min_lineweight_input))
 
         self.coverage_label = QLabel("")
         self.coverage_label.setObjectName("previewMeta")
@@ -104,10 +110,10 @@ class PlotTab(SectionWidget):
         row = QHBoxLayout()
         row.setSpacing(8)
         self.center_button = make_button(
-            "Center on drawing", "secondary", lambda: self.centerRequested.emit()
+            tr("tabs.center_on_drawing"), "secondary", lambda: self.centerRequested.emit()
         )
         self.export_button = make_button(
-            "Export PDF", "primary", lambda: self.exportRequested.emit()
+            tr("common.export_pdf"), "primary", lambda: self.exportRequested.emit()
         )
         row.addWidget(self.center_button)
         row.addStretch(1)

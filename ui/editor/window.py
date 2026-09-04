@@ -36,6 +36,7 @@ from ui.editor.sections_panel import SectionsPanel
 from ui.editor.status_bar import StatusBar
 from ui.editor.table_template_controller import TableTemplateController
 from ui.global_settings import new_project_table_template
+from ui.i18n import tr
 from ui.settings_dialog import SettingsDialog
 from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_XL
 from ui.theme.assets import ICON_PATH
@@ -88,9 +89,9 @@ class MainWindow(QMainWindow):
         self.layout_panel = LayoutPanel()
         self.left_column = LeftColumn(
             [
-                ("point_file", "Point File", self.panel),
-                ("layers", "Layers", self.dxf_viewer.layer_panel),
-                ("layout", "Layout", self.layout_panel),
+                ("point_file", tr("sections.point_file"), self.panel),
+                ("layers", tr("window.tab_layers"), self.dxf_viewer.layer_panel),
+                ("layout", tr("window.tab_layout"), self.layout_panel),
             ]
         )
         self.preview_panel = PreviewPanel(self.dxf_viewer)
@@ -196,7 +197,10 @@ class MainWindow(QMainWindow):
     def _refresh_status_bar(self, state: AppState) -> None:
         self.status_bar.update_state(
             state,
-            file_text=f"{self.session.file_name} · {self.session.point_count} points",
+            file_text=tr(
+                "window.file_points_status",
+                file_name=self.session.file_name, point_count=self.session.point_count,
+            ),
             layer_name=self.panel.layer_tab.default_layer_name(),
             delimiter_name=self.panel.delimiter_tab.display_name,
         )
@@ -247,7 +251,7 @@ class MainWindow(QMainWindow):
         try:
             self.dxf_viewer.execute_command(command)
         except Exception as exc:
-            self.session.fail(f"Could not draw into the DXF file: {exc}")
+            self.session.fail(tr("window.could_not_draw", error=exc))
             self.refresh()
             return
         self.session.mark_applied()
@@ -266,7 +270,10 @@ class MainWindow(QMainWindow):
         self.router.start_screen()
 
     def open_settings(self) -> None:
-        SettingsDialog(self.settings, self).exec()
+        dialog = SettingsDialog(self.settings, self)
+        dialog.exec()
+        if dialog.language_changed():
+            self.router.editor(initial_state=self.project.current_state(), project_path=self.project.path)
 
     def new_project(self) -> None:
         self.router.editor()
@@ -274,9 +281,9 @@ class MainWindow(QMainWindow):
     def open_project_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Open",
+            tr("window.open_dialog_title"),
             "",
-            f"{project_io.PROJECT_FILE_FILTER};;DXF Files (*.dxf);;Text Files (*.txt)",
+            f"{project_io.PROJECT_FILE_FILTER};;{tr('common.dxf_filter')};;{tr('common.txt_filter')}",
         )
         if path:
             self._open_path(path)

@@ -5,14 +5,15 @@ from typing import Optional
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 from core.session import AppState
+from ui.i18n import tr
 from ui.theme import SPACE_LG, SPACE_SM, SPACE_XL
 from ui.widgets import restyle
 
-_STATUS_TEXT = {
-    AppState.EMPTY: "Empty",
-    AppState.READY: "Ready",
-    AppState.APPLIED: "Applied",
-    AppState.ERROR: "Error",
+_STATUS_TEXT_KEYS = {
+    AppState.EMPTY: "status.empty",
+    AppState.READY: "status.ready",
+    AppState.APPLIED: "status.applied",
+    AppState.ERROR: "status.error",
 }
 _PLACEHOLDER = "–"
 
@@ -47,11 +48,13 @@ class StatusBar(QWidget):
         self, state: AppState, *, file_text: str, layer_name: str, delimiter_name: str
     ) -> None:
         empty = state is AppState.EMPTY
-        self._file_label.setText("No file selected" if empty else file_text)
-        self._layer_label.setText(f"Layer: {_PLACEHOLDER if empty else layer_name}")
-        self._delimiter_label.setText(f"Delimiter: {_PLACEHOLDER if empty else delimiter_name}")
+        self._file_label.setText(tr("status.no_file_selected") if empty else file_text)
+        self._layer_label.setText(tr("status.layer_label", value=_PLACEHOLDER if empty else layer_name))
+        self._delimiter_label.setText(
+            tr("status.delimiter_label", value=_PLACEHOLDER if empty else delimiter_name)
+        )
 
-        self._state_label.setText(_STATUS_TEXT[state])
+        self._state_label.setText(tr(_STATUS_TEXT_KEYS[state]))
         self._state_label.setProperty("variant", "error" if state is AppState.ERROR else "normal")
         restyle(self._state_label)
 

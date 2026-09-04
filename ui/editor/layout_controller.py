@@ -21,6 +21,7 @@ from core.sheets import Sheet
 from core.table_template import MAX_TABLE_WIDTH_MM, Rect, table_layout
 from ui.dxf.page_frame import PageFrame, page_frame_for
 from ui.dxf.pdf_export import PlotJob
+from ui.i18n import tr
 
 if TYPE_CHECKING:
     from ui.editor.window import MainWindow
@@ -212,7 +213,7 @@ class LayoutController:
             return
         current = self._sheets.at(index).name
         name, accepted = QInputDialog.getText(
-            self._host, "Rename sheet", "Sheet name:", text=current
+            self._host, tr("layout.rename_sheet_title"), tr("layout.sheet_name_label"), text=current
         )
         if not accepted:
             return
@@ -221,7 +222,7 @@ class LayoutController:
             self._apply_active()
         self.refresh()
         if name.strip() and applied != name.strip():
-            self._host.flash_status(f'"{name.strip()}" was taken, so this sheet is "{applied}".')
+            self._host.flash_status(tr("layout.name_taken", name=name.strip(), applied=applied))
 
     def delete(self, index: Optional[int]) -> None:
         if index is None:
@@ -229,8 +230,8 @@ class LayoutController:
         name = self._sheets.at(index).name
         confirmed = QMessageBox.question(
             self._host,
-            "Delete sheet",
-            f'Delete "{name}"? Its page settings are lost. The drawing itself is not affected.',
+            tr("layout.delete_sheet_title"),
+            tr("layout.delete_sheet_message", name=name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -268,7 +269,7 @@ class LayoutController:
         if not self._viewer.has_document:
             return
         path, _ = QFileDialog.getSaveFileName(
-            self._host, "Export PDF", f"{suggested}.pdf", "PDF Files (*.pdf)"
+            self._host, tr("common.export_pdf"), f"{suggested}.pdf", tr("layout.pdf_filter")
         )
         if not path:
             return
@@ -276,8 +277,10 @@ class LayoutController:
         if not ok:
             self._host.flash_status(message, ms=5000)
             return
-        sheets = "sheet" if len(jobs) == 1 else "sheets"
-        self._host.flash_status(f"Exported {len(jobs)} {sheets} to {os.path.basename(path)}")
+        sheets = tr("layout.sheet_singular") if len(jobs) == 1 else tr("layout.sheet_plural")
+        self._host.flash_status(
+            tr("layout.exported_sheets", count=len(jobs), word=sheets, name=os.path.basename(path))
+        )
 
     def _coverage_text(self) -> str:
         sheet = self._sheets.active
@@ -286,7 +289,7 @@ class LayoutController:
         options = self._resolved(sheet)
         box = self._viewer.content_bbox()
         if box is None:
-            return "The drawing is empty — there is nothing to plot yet."
+            return tr("layout.coverage_empty")
         frame = self.frame_for(sheet)
         printable = frame.map_rect()
         pivot = (frame.center_x, frame.center_y)
@@ -295,13 +298,10 @@ class LayoutController:
         )
         content = QRectF(xmin, ymin, xmax - xmin, ymax - ymin)
         if printable.contains(content):
-            return f"The whole drawing fits on this sheet at {scale_label(options)}."
+            return tr("layout.coverage_fits", scale=scale_label(options))
         area = content.width() * content.height()
         if area <= 0.0:
-            return f"Plotting at {scale_label(options)}."
+            return tr("layout.coverage_plotting", scale=scale_label(options))
         covered = printable.intersected(content)
         ratio = covered.width() * covered.height() / area
-        return (
-            f"About {ratio:.0%} of the drawing fits at {scale_label(options)} — "
-            "pan with the middle mouse button to move it."
-        )
+        return tr("layout.coverage_partial", ratio=f"{ratio:.0%}", scale=scale_label(options))

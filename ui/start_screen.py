@@ -25,6 +25,7 @@ from core.exceptions import ProjectFileError
 from core.formatting import format_byte_size
 from core.project import PROJECT_FILE_FILTER, ProjectState
 from ui.app_identity import APP_TITLE, app_settings
+from ui.i18n import tr
 from ui.recent_projects import list_recent_projects, remove_recent_project
 from ui.settings_dialog import SettingsDialog
 from ui.theme import Color, ICON_SM, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL
@@ -33,8 +34,14 @@ from ui.theme.icons import icon_manager
 from ui.theme.style import APP_STYLESHEET
 from ui.window_router import WindowRouter
 
-_COLUMNS = ("File Type", "Name", "Location", "Last Opened", "Size")
 _PATH_ROLE = Qt.ItemDataRole.UserRole
+
+
+def _columns() -> tuple:
+    return (
+        tr("start.column_file_type"), tr("start.column_name"), tr("start.column_location"),
+        tr("start.column_last_opened"), tr("start.column_size"),
+    )
 
 
 def _format_last_opened(mtime: float) -> str:
@@ -75,18 +82,18 @@ class StartScreen(QMainWindow):
         header = QHBoxLayout()
         header.setSpacing(SPACE_SM)
         header.addWidget(self._build_logo())
-        title = QLabel("Geodetic Sketch\nGenerator")
+        title = QLabel(tr("start.title"))
         title.setObjectName("startTitle")
         header.addWidget(title, 1)
         layout.addLayout(header)
         layout.addSpacing(SPACE_LG)
 
-        new_project_btn = self._make_button("New Project", "primary", self._on_new_project)
+        new_project_btn = self._make_button(tr("start.new_project"), "primary", self._on_new_project)
         new_project_btn.setIcon(icon_manager.get("new_project_icon", size=ICON_SM, color=Color.ACCENT))
         layout.addWidget(new_project_btn)
-        layout.addWidget(self._make_button("Import…", "secondary", self._on_import))
+        layout.addWidget(self._make_button(tr("common.import"), "secondary", self._on_import))
         layout.addStretch(1)
-        layout.addWidget(self._make_button("Settings…", "secondary", self._on_settings))
+        layout.addWidget(self._make_button(tr("common.settings"), "secondary", self._on_settings))
         return sidebar
 
     @staticmethod
@@ -108,13 +115,14 @@ class StartScreen(QMainWindow):
         layout.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
         layout.setSpacing(SPACE_MD)
 
-        heading = QLabel("Recent")
+        heading = QLabel(tr("start.recent"))
         heading.setObjectName("startHeading")
         layout.addWidget(heading)
 
-        self.table = QTableWidget(0, len(_COLUMNS))
+        columns = _columns()
+        self.table = QTableWidget(0, len(columns))
         self.table.setObjectName("startTable")
-        self.table.setHorizontalHeaderLabels(_COLUMNS)
+        self.table.setHorizontalHeaderLabels(columns)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -126,15 +134,15 @@ class StartScreen(QMainWindow):
         self.table.doubleClicked.connect(lambda _index: self._open_selected())
         layout.addWidget(self.table, 1)
 
-        self.empty_label = QLabel("No recent projects yet — start a new one, or import an existing file.")
+        self.empty_label = QLabel(tr("start.empty_hint"))
         self.empty_label.setObjectName("startEmpty")
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.empty_label)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
-        self.remove_btn = self._make_button("Remove from list", "secondary", self._remove_selected)
-        self.open_btn = self._make_button("Open", "primary", self._open_selected)
+        self.remove_btn = self._make_button(tr("start.remove_from_list"), "secondary", self._remove_selected)
+        self.open_btn = self._make_button(tr("start.open"), "primary", self._open_selected)
         button_row.addWidget(self.remove_btn)
         button_row.addWidget(self.open_btn)
         layout.addLayout(button_row)
@@ -173,7 +181,7 @@ class StartScreen(QMainWindow):
         except OSError:
             size_text = ""
             last_opened = ""
-        values = ("Project", name, os.path.dirname(path), last_opened, size_text)
+        values = (tr("start.file_type_project"), name, os.path.dirname(path), last_opened, size_text)
         for col, value in enumerate(values):
             item = QTableWidgetItem(value)
             item.setData(_PATH_ROLE, path)
@@ -190,11 +198,15 @@ class StartScreen(QMainWindow):
         self._launch_editor(initial_state=None, project_path=None)
 
     def _on_settings(self) -> None:
-        SettingsDialog(self.settings, self).exec()
+        dialog = SettingsDialog(self.settings, self)
+        dialog.exec()
+        if dialog.language_changed():
+            self.router.start_screen()
 
     def _on_import(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Import", "", f"{PROJECT_FILE_FILTER};;DXF Files (*.dxf);;Text Files (*.txt)"
+            self, tr("start.import_dialog_title"), "",
+            f"{PROJECT_FILE_FILTER};;{tr('common.dxf_filter')};;{tr('common.txt_filter')}",
         )
         if not path:
             return
@@ -209,7 +221,7 @@ class StartScreen(QMainWindow):
         try:
             self.router.open_path(self.settings, path)
         except ProjectFileError as exc:
-            QMessageBox.warning(self, "Could not open", str(exc))
+            QMessageBox.warning(self, tr("start.could_not_open_title"), str(exc))
 
     def _remove_selected(self) -> None:
         path = self._selected_path()

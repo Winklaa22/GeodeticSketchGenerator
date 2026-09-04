@@ -4,6 +4,7 @@ from typing import Optional, Tuple
 
 from PyQt6 import QtCore as qc, QtWidgets as qw
 
+from ui.i18n import tr
 from ui.theme import SPACE_SM, SPACE_XS
 from ui.widgets import ColorSwatchButton, decimal_validator
 
@@ -31,14 +32,14 @@ class TextOptionsBar(qw.QFrame):
         self._content = qw.QLineEdit()
         self._content.setObjectName("textOptionsContent")
         self._content.setFixedWidth(150)
-        self._content.setToolTip("Text content")
+        self._content.setToolTip(tr("text_options.content_tooltip"))
         self._content.editingFinished.connect(self._emit_content)
         layout.addWidget(self._content)
 
         self._height = qw.QLineEdit()
         self._height.setObjectName("textOptionsField")
         self._height.setFixedWidth(54)
-        self._height.setToolTip("Text height")
+        self._height.setToolTip(tr("text_options.height_tooltip"))
         self._height.setValidator(decimal_validator(0.001, 9999.0, 3))
         self._height.editingFinished.connect(self._emit_height)
         layout.addWidget(self._height)
@@ -46,12 +47,12 @@ class TextOptionsBar(qw.QFrame):
         self._rotation = qw.QLineEdit()
         self._rotation.setObjectName("textOptionsField")
         self._rotation.setFixedWidth(54)
-        self._rotation.setToolTip("Rotation (degrees)")
+        self._rotation.setToolTip(tr("text_options.rotation_tooltip"))
         self._rotation.setValidator(decimal_validator(-360.0, 360.0, 2))
         self._rotation.editingFinished.connect(self._emit_rotation)
         layout.addWidget(self._rotation)
 
-        self._color = ColorSwatchButton((255, 255, 255), "Text color")
+        self._color = ColorSwatchButton((255, 255, 255), tr("text_options.color_tooltip"))
         self._color.colorChanged.connect(self._emit_color)
         layout.addWidget(self._color)
 

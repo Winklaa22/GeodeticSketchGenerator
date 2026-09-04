@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from core.config import CableOptions
 from ui.editor.tabs.base import LayeredOptionsTab
+from ui.i18n import tr
 
 DEFAULT_FONT_SIZE = "0.6"
 DEFAULT_FREQUENCY = "5"
@@ -13,9 +14,9 @@ class CableTab(LayeredOptionsTab):
     DEFAULT_OPTIONS = CableOptions()
 
     def _build_fields(self) -> None:
-        self.font_size_input = self._add_decimal_field("Text size", DEFAULT_FONT_SIZE)
-        self.frequency_input = self._add_int_field("Frequency (every Nth segment)", DEFAULT_FREQUENCY)
-        self.marks_text_input = self._add_text_field("Marks text", DEFAULT_MARKS_TEXT)
+        self.font_size_input = self._add_decimal_field(tr("common.text_size"), DEFAULT_FONT_SIZE)
+        self.frequency_input = self._add_int_field(tr("tabs.cable_frequency"), DEFAULT_FREQUENCY)
+        self.marks_text_input = self._add_text_field(tr("tabs.cable_marks_text"), DEFAULT_MARKS_TEXT)
 
     def get_options(self) -> CableOptions:
         font_size = float(self.font_size_input.text() or DEFAULT_FONT_SIZE)

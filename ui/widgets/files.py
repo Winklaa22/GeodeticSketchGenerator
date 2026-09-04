@@ -6,6 +6,7 @@ from PyQt6 import QtGui
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from ui.i18n import tr
 from ui.theme import Color, ICON_MD, ICON_SM, SPACE_MD, SPACE_SM, SPACE_XS
 from ui.theme.icons import icon_manager
 from ui.widgets.primitives import Tag, restyle
@@ -30,11 +31,11 @@ class DropZone(QWidget):
         icon.setPixmap(icon_manager.get("txt_file_icon", size=26, color=Color.TEXT_FAINT).pixmap(26, 26))
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        hint = QLabel("Drag & drop a .TXT file here")
+        hint = QLabel(tr("widgets.drop_txt_hint"))
         hint.setObjectName("dropZoneHint")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._button = QPushButton("Select input .TXT file")
+        self._button = QPushButton(tr("widgets.select_txt_button"))
         self._button.setObjectName("btn")
         self._button.setProperty("variant", "secondary")
         self._button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -103,19 +104,19 @@ class DxfSourceRow(QWidget):
         self.set_empty()
 
     def set_empty(self) -> None:
-        self._title.setText("DXF preview")
-        self._set_subtitle("Drag & drop, or browse a .dxf file", "muted")
-        self._button.setText("Browse")
+        self._title.setText(tr("common.dxf_preview"))
+        self._set_subtitle(tr("widgets.dxf_drop_hint"), "muted")
+        self._button.setText(tr("widgets.browse"))
         self._clear_button.hide()
 
     def set_file(self, name: str, entity_count: int) -> None:
         self._title.setText(name)
-        self._set_subtitle(f"{entity_count} entities · shown in preview", "muted")
-        self._button.setText("Change")
+        self._set_subtitle(tr("widgets.entities_shown", count=entity_count), "muted")
+        self._button.setText(tr("common.change"))
         self._clear_button.show()
 
     def show_error(self, message: str) -> None:
-        self._title.setText("Couldn't load DXF")
+        self._title.setText(tr("widgets.could_not_load_dxf"))
         self._set_subtitle(message, "error")
 
     def _set_subtitle(self, text: str, variant: str) -> None:
@@ -165,7 +166,7 @@ class FileCard(QWidget):
         meta_row.addWidget(self._size_label)
         meta_row.addStretch(1)
 
-        self._change_button = QPushButton("Change")
+        self._change_button = QPushButton(tr("common.change"))
         self._change_button.setObjectName("linkButton")
         self._change_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._change_button.clicked.connect(self.changeRequested.emit)
@@ -179,7 +180,7 @@ class FileCard(QWidget):
 
     def set_file(self, name: str, points_count: int, size_text: str) -> None:
         self._name.setText(name)
-        self._points_tag.setText(f"{points_count} points")
+        self._points_tag.setText(tr("widgets.points_count", count=points_count))
         self._size_label.setText(size_text)
 
 

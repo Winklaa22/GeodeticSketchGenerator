@@ -50,24 +50,48 @@ from core.table_template import (
     unmerge_cell,
     update_field,
 )
+from ui.i18n import tr, tr_options
 from ui.theme import SPACE_LG, SPACE_MD
 from ui.widgets import CheckField, Dropdown, SectionColumn, make_button, make_field, styled_line_edit
 
-_ALIGN_OPTIONS = [("left", "Left"), ("center", "Center"), ("right", "Right")]
-_VALIGN_OPTIONS = [("top", "Top"), ("middle", "Middle"), ("bottom", "Bottom")]
-_KIND_OPTIONS = [("static", "Static text"), ("field", "Field"), ("image", "Stamp (image/DXF)"), ("blank", "Blank")]
-_SCOPE_OPTIONS = [("sheet", "Per sheet"), ("project", "Per project")]
-_STAMP_FILE_FILTER = "Images and DXF Files (*.png *.jpg *.jpeg *.bmp *.gif *.dxf);;Image Files (*.png *.jpg *.jpeg *.bmp *.gif);;DXF Files (*.dxf)"
+_ALIGN_OPTION_KEYS = [
+    ("left", "table_structure.align_left"),
+    ("center", "table_structure.align_center"),
+    ("right", "table_structure.align_right"),
+]
+_VALIGN_OPTION_KEYS = [
+    ("top", "table_structure.valign_top"),
+    ("middle", "table_structure.valign_middle"),
+    ("bottom", "table_structure.valign_bottom"),
+]
+_KIND_OPTION_KEYS = [
+    ("static", "table_structure.kind_static"),
+    ("field", "table_structure.kind_field"),
+    ("image", "table_structure.kind_image"),
+    ("blank", "table_structure.kind_blank"),
+]
+_SCOPE_OPTION_KEYS = [
+    ("sheet", "table_structure.scope_sheet"),
+    ("project", "table_structure.scope_project"),
+]
 
 _EDITOR_PX_PER_MM = 4.0
 _REFERENCE_EDITOR_WIDTH_PX = 760
+
+
+def _stamp_file_filter() -> str:
+    return ";;".join((
+        tr("table_structure.stamp_filter_all"),
+        tr("table_structure.stamp_filter_images"),
+        tr("common.dxf_filter"),
+    ))
 
 
 class TableStructureDialog(QDialog):
 
     def __init__(self, template: TableTemplate, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Table Structure")
+        self.setWindowTitle(tr("table_structure.title"))
         self.resize(860, 560)
         self._template = template
         self._selected_origin: Optional[Tuple[int, int]] = None
@@ -97,8 +121,8 @@ class TableStructureDialog(QDialog):
         outer.addWidget(splitter, 1)
 
         bottom = QHBoxLayout()
-        bottom.addWidget(make_button("Import…", "secondary", self._on_import))
-        bottom.addWidget(make_button("Export…", "secondary", self._on_export))
+        bottom.addWidget(make_button(tr("common.import"), "secondary", self._on_import))
+        bottom.addWidget(make_button(tr("table_structure.export_button"), "secondary", self._on_export))
         bottom.addStretch(1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -113,19 +137,19 @@ class TableStructureDialog(QDialog):
 
     def _build_toolbar(self) -> QHBoxLayout:
         toolbar = QHBoxLayout()
-        toolbar.addWidget(make_button("Add row", "secondary", self._on_add_row))
-        toolbar.addWidget(make_button("Delete row", "secondary", self._on_delete_row))
-        toolbar.addWidget(make_button("Add column", "secondary", self._on_add_column))
-        toolbar.addWidget(make_button("Delete column", "secondary", self._on_delete_column))
-        self._merge_button = make_button("Merge", "secondary", self._on_merge)
+        toolbar.addWidget(make_button(tr("table_structure.add_row"), "secondary", self._on_add_row))
+        toolbar.addWidget(make_button(tr("table_structure.delete_row"), "secondary", self._on_delete_row))
+        toolbar.addWidget(make_button(tr("table_structure.add_column"), "secondary", self._on_add_column))
+        toolbar.addWidget(make_button(tr("table_structure.delete_column"), "secondary", self._on_delete_column))
+        self._merge_button = make_button(tr("table_structure.merge"), "secondary", self._on_merge)
         self._merge_button.setEnabled(False)
         toolbar.addWidget(self._merge_button)
-        self._unmerge_button = make_button("Unmerge", "secondary", self._on_unmerge)
+        self._unmerge_button = make_button(tr("table_structure.unmerge"), "secondary", self._on_unmerge)
         self._unmerge_button.setEnabled(False)
         toolbar.addWidget(self._unmerge_button)
-        toolbar.addWidget(make_button("Manage fields…", "secondary", self._on_manage_fields))
+        toolbar.addWidget(make_button(tr("table_structure.manage_fields_button"), "secondary", self._on_manage_fields))
         toolbar.addStretch(1)
-        toolbar.addWidget(make_button("Clear", "secondary", self._on_clear))
+        toolbar.addWidget(make_button(tr("table_structure.clear"), "secondary", self._on_clear))
         return toolbar
 
     def _build_property_panel(self) -> QWidget:
@@ -134,58 +158,58 @@ class TableStructureDialog(QDialog):
 
         self._label_input = styled_line_edit("")
         self._label_input.editingFinished.connect(self._on_label_edited)
-        column.addWidget(make_field("Label", self._label_input))
+        column.addWidget(make_field(tr("common.label_field"), self._label_input))
 
         self._kind_dropdown = Dropdown()
-        self._kind_dropdown.set_items(_KIND_OPTIONS)
+        self._kind_dropdown.set_items(tr_options(_KIND_OPTION_KEYS))
         self._kind_dropdown.currentIndexChanged.connect(self._on_kind_changed)
-        column.addWidget(make_field("Kind", self._kind_dropdown))
+        column.addWidget(make_field(tr("table_structure.kind_field_label"), self._kind_dropdown))
 
         self._field_dropdown = Dropdown()
         self._field_dropdown.currentIndexChanged.connect(self._on_field_changed)
-        column.addWidget(make_field("Field", self._field_dropdown))
+        column.addWidget(make_field(tr("table_structure.field_field"), self._field_dropdown))
 
         stamp_row = QWidget()
         stamp_layout = QHBoxLayout(stamp_row)
         stamp_layout.setContentsMargins(0, 0, 0, 0)
         stamp_layout.setSpacing(SPACE_MD)
-        self._stamp_label = QLabel("No file selected")
+        self._stamp_label = QLabel(tr("table_structure.no_file_selected"))
         self._stamp_label.setWordWrap(True)
         stamp_layout.addWidget(self._stamp_label, 1)
-        self._stamp_browse_button = make_button("Browse…", "secondary", self._on_stamp_browse)
+        self._stamp_browse_button = make_button(tr("table_structure.browse"), "secondary", self._on_stamp_browse)
         stamp_layout.addWidget(self._stamp_browse_button)
-        self._stamp_clear_button = make_button("Clear", "secondary", self._on_stamp_clear)
+        self._stamp_clear_button = make_button(tr("table_structure.clear"), "secondary", self._on_stamp_clear)
         stamp_layout.addWidget(self._stamp_clear_button)
-        column.addWidget(make_field("Stamp file", stamp_row))
+        column.addWidget(make_field(tr("table_structure.stamp_file_field"), stamp_row))
 
-        self._show_label_check = CheckField("Show label before value")
+        self._show_label_check = CheckField(tr("table_structure.show_label_checkbox"))
         self._show_label_check.toggled.connect(self._on_show_label_toggled)
         column.addWidget(self._show_label_check)
 
         self._align_dropdown = Dropdown()
-        self._align_dropdown.set_items(_ALIGN_OPTIONS)
+        self._align_dropdown.set_items(tr_options(_ALIGN_OPTION_KEYS))
         self._align_dropdown.currentIndexChanged.connect(self._on_align_changed)
-        column.addWidget(make_field("Horizontal align", self._align_dropdown))
+        column.addWidget(make_field(tr("table_structure.horizontal_align_field"), self._align_dropdown))
 
         self._valign_dropdown = Dropdown()
-        self._valign_dropdown.set_items(_VALIGN_OPTIONS)
+        self._valign_dropdown.set_items(tr_options(_VALIGN_OPTION_KEYS))
         self._valign_dropdown.currentIndexChanged.connect(self._on_valign_changed)
-        column.addWidget(make_field("Vertical align", self._valign_dropdown))
+        column.addWidget(make_field(tr("table_structure.vertical_align_field"), self._valign_dropdown))
 
-        self._bold_check = CheckField("Bold")
+        self._bold_check = CheckField(tr("table_structure.bold"))
         self._bold_check.toggled.connect(self._on_bold_toggled)
         column.addWidget(self._bold_check)
 
-        self._italic_check = CheckField("Italic")
+        self._italic_check = CheckField(tr("table_structure.italic"))
         self._italic_check.toggled.connect(self._on_italic_toggled)
         column.addWidget(self._italic_check)
 
         self._font_size_input = QDoubleSpinBox()
         self._font_size_input.setRange(0.5, 20.0)
         self._font_size_input.setSingleStep(0.1)
-        self._font_size_input.setSuffix(" mm")
+        self._font_size_input.setSuffix(tr("table_structure.mm_suffix"))
         self._font_size_input.valueChanged.connect(self._on_font_size_changed)
-        column.addWidget(make_field("Font size", self._font_size_input))
+        column.addWidget(make_field(tr("table_structure.font_size_field"), self._font_size_input))
 
         column.addStretch(1)
         self._set_property_panel_enabled(False)
@@ -196,9 +220,11 @@ class TableStructureDialog(QDialog):
         if cell.kind == "blank":
             return ""
         if cell.kind == "field":
-            return f"[{cell.field_name}]" if cell.field_name else "[field]"
+            return f"[{cell.field_name}]" if cell.field_name else tr("table_structure.placeholder_field")
         if cell.kind == "image":
-            return f"[stamp: {os.path.basename(cell.image_path)}]" if cell.image_path else "[stamp]"
+            if cell.image_path:
+                return tr("table_structure.placeholder_stamp_named", name=os.path.basename(cell.image_path))
+            return tr("table_structure.placeholder_stamp")
         return cell.label
 
     def _rebuild_grid(self) -> None:
@@ -285,7 +311,7 @@ class TableStructureDialog(QDialog):
         if not self._template.rows and not self._template.columns:
             return
         confirmed = QMessageBox.question(
-            self, "Clear Table", "Remove all rows, columns, and fields from this table?",
+            self, tr("table_structure.clear_table_title"), tr("table_structure.clear_table_message"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
         )
         if confirmed != QMessageBox.StandardButton.Yes:
@@ -336,7 +362,7 @@ class TableStructureDialog(QDialog):
         try:
             if cell is None:
                 self._label_input.setText("")
-                self._stamp_label.setText("No file selected")
+                self._stamp_label.setText(tr("table_structure.no_file_selected"))
                 self._stamp_label.setToolTip("")
                 self._set_property_panel_enabled(False)
                 return
@@ -346,7 +372,8 @@ class TableStructureDialog(QDialog):
             self._refresh_field_dropdown_items()
             self._field_dropdown.set_current_key(cell.field_name)
             self._field_dropdown.setEnabled(cell.kind == "field")
-            self._stamp_label.setText(os.path.basename(cell.image_path) if cell.image_path else "No file selected")
+            stamp_name = os.path.basename(cell.image_path) if cell.image_path else tr("table_structure.no_file_selected")
+            self._stamp_label.setText(stamp_name)
             self._stamp_label.setToolTip(cell.image_path)
             self._stamp_browse_button.setEnabled(cell.kind == "image")
             self._stamp_clear_button.setEnabled(cell.kind == "image" and bool(cell.image_path))
@@ -396,7 +423,7 @@ class TableStructureDialog(QDialog):
             self._apply_property_change(field_name=name)
 
     def _on_stamp_browse(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Choose Stamp File", "", _STAMP_FILE_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, tr("table_structure.choose_stamp_title"), "", _stamp_file_filter())
         if path:
             self._apply_property_change(image_path=path)
 
@@ -426,21 +453,23 @@ class TableStructureDialog(QDialog):
         self._apply_property_change(font_size=value)
 
     def _on_import(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Import Table Template", "", TABLE_TEMPLATE_FILE_FILTER)
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("common.import_table_template_title"), "", TABLE_TEMPLATE_FILE_FILTER
+        )
         if not path:
             return
         try:
             self._template = load_table_template_file(path)
         except ProjectFileError as exc:
-            QMessageBox.warning(self, "Import Table Template", str(exc))
+            QMessageBox.warning(self, tr("common.import_table_template_title"), str(exc))
             return
         self._selected_origin = None
         self._rebuild_grid()
 
     def _on_export(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export Table Template", "table_template" + TABLE_TEMPLATE_FILE_EXTENSION,
-            TABLE_TEMPLATE_FILE_FILTER,
+            self, tr("common.export_table_template_title"),
+            "table_template" + TABLE_TEMPLATE_FILE_EXTENSION, TABLE_TEMPLATE_FILE_FILTER,
         )
         if not path:
             return
@@ -449,14 +478,14 @@ class TableStructureDialog(QDialog):
         try:
             save_table_template_file(path, self._template)
         except ProjectFileError as exc:
-            QMessageBox.warning(self, "Export Table Template", str(exc))
+            QMessageBox.warning(self, tr("common.export_table_template_title"), str(exc))
 
 
 class _ManageFieldsDialog(QDialog):
 
     def __init__(self, template: TableTemplate, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Manage Fields")
+        self.setWindowTitle(tr("common.manage_fields_title"))
         self.resize(420, 420)
         self._template = template
         self._editing_name: Optional[str] = None
@@ -470,18 +499,22 @@ class _ManageFieldsDialog(QDialog):
         self._name_input = styled_line_edit("")
         self._label_input = styled_line_edit("")
         self._scope_dropdown = Dropdown()
-        self._scope_dropdown.set_items(_SCOPE_OPTIONS)
-        form_row.addWidget(make_field("Name", self._name_input))
-        form_row.addWidget(make_field("Label", self._label_input))
-        form_row.addWidget(make_field("Scope", self._scope_dropdown))
+        self._scope_dropdown.set_items(tr_options(_SCOPE_OPTION_KEYS))
+        form_row.addWidget(make_field(tr("table_structure.name_field"), self._name_input))
+        form_row.addWidget(make_field(tr("common.label_field"), self._label_input))
+        form_row.addWidget(make_field(tr("table_structure.scope_field"), self._scope_dropdown))
         column.addLayout(form_row)
 
         buttons_row = QHBoxLayout()
-        buttons_row.addWidget(make_button("Add field", "secondary", self._on_add))
-        self._update_button = make_button("Update selected", "secondary", self._on_update)
+        buttons_row.addWidget(make_button(tr("table_structure.add_field_button"), "secondary", self._on_add))
+        self._update_button = make_button(
+            tr("table_structure.update_selected_button"), "secondary", self._on_update
+        )
         self._update_button.setEnabled(False)
         buttons_row.addWidget(self._update_button)
-        self._delete_button = make_button("Delete selected", "secondary", self._on_delete)
+        self._delete_button = make_button(
+            tr("table_structure.delete_selected_button"), "secondary", self._on_delete
+        )
         self._delete_button.setEnabled(False)
         buttons_row.addWidget(self._delete_button)
         column.addLayout(buttons_row)
@@ -499,8 +532,16 @@ class _ManageFieldsDialog(QDialog):
     def _rebuild_list(self) -> None:
         self._list.clear()
         for field_def in self._template.fields:
-            scope_text = "per sheet" if field_def.scope == "sheet" else "per project"
-            item = QListWidgetItem(f"{field_def.label or field_def.name}  ({field_def.name}, {scope_text})")
+            scope_text = (
+                tr("table_structure.per_sheet_lower") if field_def.scope == "sheet"
+                else tr("table_structure.per_project_lower")
+            )
+            item = QListWidgetItem(
+                tr(
+                    "table_structure.field_list_item",
+                    label=field_def.label or field_def.name, name=field_def.name, scope=scope_text,
+                )
+            )
             item.setData(Qt.ItemDataRole.UserRole, field_def.name)
             self._list.addItem(item)
 
@@ -544,7 +585,7 @@ class _ManageFieldsDialog(QDialog):
         try:
             self._template = add_field(self._template, FieldDef(name=name, label=label, scope=scope))
         except ValueError as exc:
-            QMessageBox.warning(self, "Manage Fields", str(exc))
+            QMessageBox.warning(self, tr("common.manage_fields_title"), str(exc))
             return
         self._rebuild_list()
         self._clear_form()
@@ -562,7 +603,7 @@ class _ManageFieldsDialog(QDialog):
                 self._template = rename_field(self._template, self._editing_name, new_name)
             self._template = update_field(self._template, new_name, label=label, scope=scope)
         except ValueError as exc:
-            QMessageBox.warning(self, "Manage Fields", str(exc))
+            QMessageBox.warning(self, tr("common.manage_fields_title"), str(exc))
             return
         self._editing_name = new_name
         self._rebuild_list()
@@ -574,7 +615,7 @@ class _ManageFieldsDialog(QDialog):
             return
         name = item.data(Qt.ItemDataRole.UserRole)
         confirmed = QMessageBox.question(
-            self, "Delete field", f'Delete field "{name}"? Cells using it become blank.',
+            self, tr("table_structure.delete_field_title"), tr("table_structure.delete_field_message", name=name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
         )
         if confirmed != QMessageBox.StandardButton.Yes:

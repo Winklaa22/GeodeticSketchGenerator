@@ -10,6 +10,16 @@ from core.table_template import TableTemplate, default_template
 
 _DEFAULT_TABLE_ENABLED_KEY = "defaults/newProjectTableEnabled"
 _DEFAULT_TABLE_JSON_KEY = "defaults/newProjectTableJson"
+_LANGUAGE_KEY = "general/language"
+DEFAULT_LANGUAGE = "en"
+
+
+def language(settings: QSettings) -> str:
+    return str(settings.value(_LANGUAGE_KEY, DEFAULT_LANGUAGE))
+
+
+def set_language(settings: QSettings, language_code: str) -> None:
+    settings.setValue(_LANGUAGE_KEY, language_code)
 
 
 def default_table_enabled(settings: QSettings) -> bool:

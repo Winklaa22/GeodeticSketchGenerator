@@ -15,12 +15,13 @@ from ui.dxf.tools.base import (
     point_distance,
     preview_pen,
 )
+from ui.i18n import tr
 
 
 class PointToolSession(ToolSession):
     def __init__(self) -> None:
         super().__init__()
-        self.prompt = "Specify point: "
+        self.prompt = tr("tool.specify_point")
         self._point: Optional[Tuple[float, float]] = None
 
     def on_click(self, point: Tuple[float, float]) -> None:
@@ -29,7 +30,7 @@ class PointToolSession(ToolSession):
     def on_text(self, text: str) -> Optional[str]:
         coord = parse_coordinate(text, last_point=None)
         if coord is None:
-            return f'Point must be given as "x,y": "{text}".'
+            return tr("common.point_xy_format", value=text)
         self._point = coord
         return None
 
@@ -48,7 +49,7 @@ class TextToolSession(ToolSession):
 
     def __init__(self, height: float = _DEFAULT_TEXT_HEIGHT) -> None:
         super().__init__()
-        self.prompt = "Specify text insertion point: "
+        self.prompt = tr("tool.specify_text_point")
         self._insert: Optional[Tuple[float, float]] = None
         self._text: Optional[str] = None
         self._height = height
@@ -56,18 +57,18 @@ class TextToolSession(ToolSession):
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._insert is None:
             self._insert = point
-            self.prompt = "Enter text: "
+            self.prompt = tr("tool.enter_text")
 
     def on_text(self, text: str) -> Optional[str]:
         if self._insert is None:
             coord = parse_coordinate(text, last_point=None)
             if coord is None:
-                return f'Point must be given as "x,y": "{text}".'
+                return tr("common.point_xy_format", value=text)
             self._insert = coord
-            self.prompt = "Enter text: "
+            self.prompt = tr("tool.enter_text")
             return None
         if not text.strip():
-            return "Text cannot be empty."
+            return tr("tool.text_empty")
         self._text = text
         return None
 
@@ -83,7 +84,7 @@ class LineToolSession(ToolSession):
 
     def __init__(self, start: Optional[Tuple[float, float]] = None) -> None:
         super().__init__()
-        self.prompt = "Specify next point: " if start is not None else "Specify first point: "
+        self.prompt = tr("tool.specify_next_point") if start is not None else tr("tool.specify_first_point")
         self._start: Optional[Tuple[float, float]] = start
         self._end: Optional[Tuple[float, float]] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
@@ -91,17 +92,17 @@ class LineToolSession(ToolSession):
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._start is None:
             self._start = point
-            self.prompt = "Specify next point: "
+            self.prompt = tr("tool.specify_next_point")
         else:
             self._end = point
 
     def on_text(self, text: str) -> Optional[str]:
         coord = parse_coordinate(text, last_point=self._start)
         if coord is None:
-            return f'Point must be given as "x,y" or "@dx,dy": "{text}".'
+            return tr("common.point_xy_or_rel_format", value=text)
         if self._start is None:
             self._start = coord
-            self.prompt = "Specify next point: "
+            self.prompt = tr("tool.specify_next_point")
         else:
             self._end = coord
         return None
@@ -135,7 +136,7 @@ class LineToolSession(ToolSession):
 class CircleToolSession(ToolSession):
     def __init__(self) -> None:
         super().__init__()
-        self.prompt = "Specify center point: "
+        self.prompt = tr("tool.specify_center_point")
         self._center: Optional[Tuple[float, float]] = None
         self._radius: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsEllipseItem] = None
@@ -143,7 +144,7 @@ class CircleToolSession(ToolSession):
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._center is None:
             self._center = point
-            self.prompt = "Specify radius (or a point): "
+            self.prompt = tr("tool.specify_radius_or_point")
         else:
             self._radius = point_distance(self._center, point)
 
@@ -151,19 +152,19 @@ class CircleToolSession(ToolSession):
         if self._center is None:
             coord = parse_coordinate(text, last_point=None)
             if coord is None:
-                return f'Point must be given as "x,y": "{text}".'
+                return tr("common.point_xy_format", value=text)
             self._center = coord
-            self.prompt = "Specify radius (or a point): "
+            self.prompt = tr("tool.specify_radius_or_point")
             return None
         try:
             radius = float(text.strip())
         except ValueError:
             coord = parse_coordinate(text, last_point=self._center)
             if coord is None:
-                return f'Requires a numeric radius or a point: "{text}".'
+                return tr("tool.radius_or_point_numeric", value=text)
             radius = point_distance(self._center, coord)
         if radius <= 0:
-            return "Radius must be positive."
+            return tr("common.radius_positive")
         self._radius = radius
         return None
 
@@ -197,7 +198,7 @@ class PipeToolSession(ToolSession):
         self, start: Optional[Tuple[float, float]] = None, width: Optional[float] = None
     ) -> None:
         super().__init__()
-        self.prompt = "Specify next point: " if start is not None else "Specify first point: "
+        self.prompt = tr("tool.specify_next_point") if start is not None else tr("tool.specify_first_point")
         self._start: Optional[Tuple[float, float]] = start
         self._end: Optional[Tuple[float, float]] = None
         self._width: Optional[float] = width
@@ -206,11 +207,11 @@ class PipeToolSession(ToolSession):
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._start is None:
             self._start = point
-            self.prompt = "Specify next point: "
+            self.prompt = tr("tool.specify_next_point")
         elif self._end is None:
             self._end = point
             if self._width is None:
-                self.prompt = "Specify pipe width (or a point): "
+                self.prompt = tr("tool.specify_pipe_width_or_point")
         elif self._width is None:
             width = point_distance(self._end, point)
             if width > 0:
@@ -220,27 +221,27 @@ class PipeToolSession(ToolSession):
         if self._start is None:
             coord = parse_coordinate(text, last_point=None)
             if coord is None:
-                return f'Point must be given as "x,y": "{text}".'
+                return tr("common.point_xy_format", value=text)
             self._start = coord
-            self.prompt = "Specify next point: "
+            self.prompt = tr("tool.specify_next_point")
             return None
         if self._end is None:
             coord = parse_coordinate(text, last_point=self._start)
             if coord is None:
-                return f'Point must be given as "x,y" or "@dx,dy": "{text}".'
+                return tr("common.point_xy_or_rel_format", value=text)
             self._end = coord
             if self._width is None:
-                self.prompt = "Specify pipe width (or a point): "
+                self.prompt = tr("tool.specify_pipe_width_or_point")
             return None
         try:
             width = float(text.strip())
         except ValueError:
             coord = parse_coordinate(text, last_point=self._end)
             if coord is None:
-                return f'Requires a numeric width or a point: "{text}".'
+                return tr("tool.width_or_point_numeric", value=text)
             width = point_distance(self._end, coord)
         if width <= 0:
-            return "Width must be positive."
+            return tr("common.width_positive")
         self._width = width
         return None
 
@@ -299,4 +300,3 @@ class PipeToolSession(ToolSession):
     def continuation(self) -> "PipeToolSession":
         assert self._end is not None and self._width is not None
         return PipeToolSession(start=self._end, width=self._width)
-

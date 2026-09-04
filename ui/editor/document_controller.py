@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, Callable, List
 from PyQt6.QtWidgets import QFileDialog
 
 from core.project import ProjectState
+from ui.i18n import tr
 from ui.widgets import DxfSourceRow
 
 if TYPE_CHECKING:
     from ui.editor.window import MainWindow
 
-UNTITLED_DRAWING = "Untitled drawing"
 DEFAULT_DXF_NAME = "drawing.dxf"
 
 
@@ -32,7 +32,7 @@ class DocumentController:
 
     def select_point_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self._host, "Open TXT File", "", "Text Files (*.txt)"
+            self._host, tr("document.open_txt_title"), "", tr("common.txt_filter")
         )
         if path:
             self.load_point_file(path)
@@ -46,7 +46,7 @@ class DocumentController:
         self._host.refresh()
 
     def select_dxf_file(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self._host, "Open DXF File", "", "DXF Files (*.dxf)")
+        path, _ = QFileDialog.getOpenFileName(self._host, tr("document.open_dxf_title"), "", tr("common.dxf_filter"))
         if path:
             self.load_dxf_file(path)
 
@@ -71,7 +71,7 @@ class DocumentController:
 
     def refresh_dxf_source(self) -> None:
         dxf_path = self._host.session.dxf_path
-        name = os.path.basename(dxf_path) if dxf_path else UNTITLED_DRAWING
+        name = os.path.basename(dxf_path) if dxf_path else tr("document.untitled_drawing")
         self._source_row.set_file(name, self._host.dxf_viewer.entity_count)
 
     def clear_dxf_file(self) -> None:
@@ -86,13 +86,13 @@ class DocumentController:
             return
         session = self._host.session
         suggested = os.path.basename(session.dxf_path) if session.dxf_path else DEFAULT_DXF_NAME
-        path, _ = QFileDialog.getSaveFileName(self._host, "Save DXF", suggested, "DXF Files (*.dxf)")
+        path, _ = QFileDialog.getSaveFileName(self._host, tr("common.save_dxf"), suggested, tr("common.dxf_filter"))
         if not path:
             return
         viewer.save_document(path)
         session.dxf_path = path
         self.refresh_dxf_source()
-        self._host.flash_status(f"Saved to {os.path.basename(path)}")
+        self._host.flash_status(tr("document.saved_to", name=os.path.basename(path)))
 
     def restore_project_files(self, state: ProjectState) -> List[str]:
         missing: List[str] = []

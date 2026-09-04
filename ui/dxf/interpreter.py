@@ -13,6 +13,7 @@ from ui.dxf.tools import (
     offset_segment_perpendicular,
     parse_coordinate,
 )
+from ui.i18n import tr
 
 if TYPE_CHECKING:
     from ui.dxf.viewer import DxfViewer
@@ -76,7 +77,7 @@ class DxfCommandInterpreter:
         name, *args = text.split()
         handler = self._commands.get(name.upper())
         if handler is None:
-            return f'Unknown command "{name}". Press F1 for help.'
+            return tr("interpreter.unknown_command", name=name)
         self._last_command = text
         try:
             return handler(args)
@@ -85,7 +86,7 @@ class DxfCommandInterpreter:
 
     def _cmd_zoom(self, args: List[str]) -> str:
         if not args:
-            return "Specify a scale factor, or [Extents/Window]:"
+            return tr("interpreter.zoom_usage")
         keyword = args[0].upper()
         if keyword in ("E", "EXTENTS", "A", "ALL"):
             self._view.fit_to_page()
@@ -93,30 +94,30 @@ class DxfCommandInterpreter:
         if keyword in ("W", "WINDOW"):
             p1, p2 = self._parse_points(args[1:], count=2)
             if not self._view.zoom_window(p1, p2):
-                raise _CommandError("Invalid zoom window.")
+                raise _CommandError(tr("interpreter.invalid_zoom_window"))
             return ""
         if keyword == "IN":
-            return "" if self._view.zoom_by(1.25) else "Zoom limit reached."
+            return "" if self._view.zoom_by(1.25) else tr("interpreter.zoom_limit_reached")
         if keyword == "OUT":
-            return "" if self._view.zoom_by(0.8) else "Zoom limit reached."
+            return "" if self._view.zoom_by(0.8) else tr("interpreter.zoom_limit_reached")
         factor = self._parse_factor(args[0])
-        return "" if self._view.zoom_by(factor) else "Zoom limit reached."
+        return "" if self._view.zoom_by(factor) else tr("interpreter.zoom_limit_reached")
 
     def _cmd_pan(self, args: List[str]) -> str:
         if not args:
-            return "Click and drag with the left mouse button to pan, or use PAN dx,dy."
+            return tr("interpreter.pan_usage")
         dx, dy = self._parse_point(args[0])
         self._view.pan_by(dx, dy)
         return ""
 
     def _cmd_regen(self, args: List[str]) -> str:
-        return "Regenerating model."
+        return tr("interpreter.regenerating")
 
     def _cmd_point(self, args: List[str]) -> str:
         if args:
             coord = parse_coordinate(args[0], last_point=None)
             if coord is None:
-                raise _CommandError(f'Point must be given as "x,y": "{args[0]}".')
+                raise _CommandError(tr("common.point_xy_format", value=args[0]))
             doc = self._viewer.ensure_document()
             self._viewer.execute_command(AddPointCommand(coord, doc.active_layer))
             return ""
@@ -132,7 +133,7 @@ class DxfCommandInterpreter:
             start = parse_coordinate(args[0], last_point=None)
             end = parse_coordinate(args[1], last_point=start)
             if start is None or end is None:
-                raise _CommandError(f'Points must be given as "x,y": "{args[0]} {args[1]}".')
+                raise _CommandError(tr("interpreter.points_xy_format", p1=args[0], p2=args[1]))
             doc = self._viewer.ensure_document()
             self._viewer.execute_command(AddLineCommand(start, end, doc.active_layer))
             return ""
@@ -143,13 +144,13 @@ class DxfCommandInterpreter:
         if len(args) >= 2:
             center = parse_coordinate(args[0], last_point=None)
             if center is None:
-                raise _CommandError(f'Point must be given as "x,y": "{args[0]}".')
+                raise _CommandError(tr("common.point_xy_format", value=args[0]))
             try:
                 radius = float(args[1])
             except ValueError:
-                raise _CommandError(f'Requires a numeric radius: "{args[1]}".') from None
+                raise _CommandError(tr("interpreter.numeric_radius_required", value=args[1])) from None
             if radius <= 0:
-                raise _CommandError("Radius must be positive.")
+                raise _CommandError(tr("common.radius_positive"))
             doc = self._viewer.ensure_document()
             self._viewer.execute_command(AddCircleCommand(center, radius, doc.active_layer))
             return ""
@@ -161,13 +162,13 @@ class DxfCommandInterpreter:
             start = parse_coordinate(args[0], last_point=None)
             end = parse_coordinate(args[1], last_point=start)
             if start is None or end is None:
-                raise _CommandError(f'Points must be given as "x,y": "{args[0]} {args[1]}".')
+                raise _CommandError(tr("interpreter.points_xy_format", p1=args[0], p2=args[1]))
             try:
                 width = float(args[2])
             except ValueError:
-                raise _CommandError(f'Requires a numeric width: "{args[2]}".') from None
+                raise _CommandError(tr("interpreter.numeric_width_required", value=args[2])) from None
             if width <= 0:
-                raise _CommandError("Width must be positive.")
+                raise _CommandError(tr("common.width_positive"))
             doc = self._viewer.ensure_document()
             half = width / 2.0
             line_a = offset_segment_perpendicular(start, end, half)
@@ -221,9 +222,9 @@ class DxfCommandInterpreter:
         try:
             factor = float(token.upper().rstrip("X"))
         except ValueError:
-            raise _CommandError(f'Requires a numeric value: "{token}".') from None
+            raise _CommandError(tr("interpreter.numeric_value_required", value=token)) from None
         if factor <= 0:
-            raise _CommandError("Scale factor must be positive.")
+            raise _CommandError(tr("common.scale_positive"))
         return factor
 
     @staticmethod
@@ -232,11 +233,10 @@ class DxfCommandInterpreter:
         try:
             return float(x_str), float(y_str)
         except ValueError:
-            raise _CommandError(f'Point must be given as "x,y": "{token}".') from None
+            raise _CommandError(tr("common.point_xy_format", value=token)) from None
 
     @classmethod
     def _parse_points(cls, tokens: List[str], count: int) -> List[Tuple[float, float]]:
         if len(tokens) < count:
-            raise _CommandError("Point not specified.")
+            raise _CommandError(tr("interpreter.point_not_specified"))
         return [cls._parse_point(t) for t in tokens[:count]]
-

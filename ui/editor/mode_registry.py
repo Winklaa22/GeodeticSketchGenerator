@@ -26,6 +26,7 @@ from ui.editor.tabs.layer_only_tab import LayerOnlyTab
 from ui.editor.tabs.measurements_tab import MeasurementsTab
 from ui.editor.tabs.pipe_tab import PipeTab
 from ui.editor.tabs.points_tab import PointsTab
+from ui.i18n import tr
 
 
 @dataclass(frozen=True)
@@ -33,13 +34,21 @@ class ModeSpec:
     key: str
     draw_mode: DrawMode
     icon: str
-    title: str
-    mode_label: str
+    title_key: str
+    mode_label_key: str
     state_field: str
     state_cls: Type[Any]
     options_cls: Type[Any]
     config_field: Optional[str]
     tab_factory: Callable[[], LayeredOptionsTab]
+
+    @property
+    def title(self) -> str:
+        return tr(self.title_key)
+
+    @property
+    def mode_label(self) -> str:
+        return tr(self.mode_label_key)
 
 
 MODE_SPECS: Tuple[ModeSpec, ...] = (
@@ -47,8 +56,8 @@ MODE_SPECS: Tuple[ModeSpec, ...] = (
         key="points",
         draw_mode=DrawMode.POINTS,
         icon="points_section",
-        title="Points",
-        mode_label="Points",
+        title_key="mode.points_title",
+        mode_label_key="mode.points_label",
         state_field="points",
         state_cls=PointsState,
         options_cls=PointsOptions,
@@ -59,8 +68,8 @@ MODE_SPECS: Tuple[ModeSpec, ...] = (
         key="lines",
         draw_mode=DrawMode.LINES,
         icon="lines_section",
-        title="Lines",
-        mode_label="Lines",
+        title_key="mode.lines_title",
+        mode_label_key="mode.lines_label",
         state_field="lines",
         state_cls=LayerOnlyState,
         options_cls=NoOptions,
@@ -71,8 +80,8 @@ MODE_SPECS: Tuple[ModeSpec, ...] = (
         key="plines",
         draw_mode=DrawMode.PLINES,
         icon="plines_section",
-        title="PLines",
-        mode_label="PLines",
+        title_key="mode.plines_title",
+        mode_label_key="mode.plines_label",
         state_field="plines",
         state_cls=LayerOnlyState,
         options_cls=NoOptions,
@@ -83,8 +92,8 @@ MODE_SPECS: Tuple[ModeSpec, ...] = (
         key="3dpoly",
         draw_mode=DrawMode.POLY3D,
         icon="poly3d_section",
-        title="3DPOLY",
-        mode_label="3DPOLY",
+        title_key="mode.poly3d_title",
+        mode_label_key="mode.poly3d_label",
         state_field="poly3d",
         state_cls=LayerOnlyState,
         options_cls=NoOptions,
@@ -95,8 +104,8 @@ MODE_SPECS: Tuple[ModeSpec, ...] = (
         key="heights",
         draw_mode=DrawMode.HEIGHTS,
         icon="heights_section",
-        title="Heights",
-        mode_label="Heights marks",
+        title_key="mode.heights_title",
+        mode_label_key="mode.heights_label",
         state_field="heights",
         state_cls=HeightsState,
         options_cls=HeightsOptions,
@@ -107,8 +116,8 @@ MODE_SPECS: Tuple[ModeSpec, ...] = (
         key="cable",
         draw_mode=DrawMode.CABLE_MARKS,
         icon="cable_marks_section",
-        title="Cable Marks",
-        mode_label="Cable marks",
+        title_key="mode.cable_title",
+        mode_label_key="mode.cable_label",
         state_field="cable",
         state_cls=CableState,
         options_cls=CableOptions,
@@ -119,8 +128,8 @@ MODE_SPECS: Tuple[ModeSpec, ...] = (
         key="pipe",
         draw_mode=DrawMode.PIPE,
         icon="pipe_section",
-        title="Pipe",
-        mode_label="Pipe",
+        title_key="mode.pipe_title",
+        mode_label_key="mode.pipe_label",
         state_field="pipe",
         state_cls=PipeState,
         options_cls=PipeOptions,
@@ -131,8 +140,8 @@ MODE_SPECS: Tuple[ModeSpec, ...] = (
         key="measurements",
         draw_mode=DrawMode.MEASUREMENTS,
         icon="measurements_section",
-        title="Measurements",
-        mode_label="Measurements",
+        title_key="mode.measurements_title",
+        mode_label_key="mode.measurements_label",
         state_field="measurements",
         state_cls=MeasurementsState,
         options_cls=MeasurementsOptions,

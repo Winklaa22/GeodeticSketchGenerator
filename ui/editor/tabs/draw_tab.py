@@ -10,7 +10,6 @@ from ui.editor.mode_registry import MODE_SPECS, SPEC_BY_KEY
 from ui.editor.tabs.base import SectionWidget
 from ui.widgets import RadioCardGroup, SectionColumn
 
-_MODE_OPTIONS = [(spec.key, spec.mode_label) for spec in MODE_SPECS]
 _DEFAULT_KEYS = ["plines"]
 
 
@@ -22,7 +21,8 @@ class DrawTab(SectionWidget):
         super().__init__(parent)
         layout = SectionColumn(self)
 
-        self.mode_group = RadioCardGroup(_MODE_OPTIONS, columns=2, multi_select=True)
+        mode_options = [(spec.key, spec.mode_label) for spec in MODE_SPECS]
+        self.mode_group = RadioCardGroup(mode_options, columns=2, multi_select=True)
         self.mode_group.set_current_keys(_DEFAULT_KEYS)
         self.mode_group.selectionChanged.connect(lambda _keys: self.modes_changed.emit())
         layout.addWidget(self.mode_group)

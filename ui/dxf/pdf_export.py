@@ -36,6 +36,7 @@ from core.table_template import (
 from ui.dxf.backend import qcolor_from, qcolor_on_paper, to_qpainter_path
 from ui.dxf.page_frame import PageFrame
 from ui.dxf.stamp_cache import stamp_cache
+from ui.i18n import tr
 
 RESOLUTION_DPI = 1200
 MM_PER_INCH = 25.4
@@ -292,7 +293,7 @@ def export_sheets(
     title: str = "",
 ) -> Tuple[bool, str]:
     if not jobs:
-        return False, "There are no sheets to export."
+        return False, tr("pdf_export.no_sheets")
 
     try:
         recorders: Dict[Configuration, recorder.Recorder] = {}
@@ -301,10 +302,10 @@ def export_sheets(
             if config not in recorders:
                 recorders[config] = _record(document, config)
     except Exception as exc:
-        return False, f"Could not render the drawing: {exc}"
+        return False, tr("pdf_export.could_not_render", error=exc)
 
     if not any(rec.player().bbox().has_data for rec in recorders.values()):
-        return False, "The drawing is empty, there is nothing to export."
+        return False, tr("pdf_export.empty_drawing")
 
     painter = None
     writer = None
@@ -314,13 +315,13 @@ def export_sheets(
             render_box = job_render_box(job)
             page = _final_page(job, settings, render_box)
             if page.width_in_mm <= 0.0 or page.height_in_mm <= 0.0:
-                return False, f"{job.name or 'The sheet'} has an invalid page size."
+                return False, tr("pdf_export.invalid_page_size", name=job.name or tr("pdf_export.the_sheet_fallback"))
 
             if writer is None:
                 writer = _make_writer(path, page, title)
                 painter = qg.QPainter(writer)
                 if not painter.isActive():
-                    return False, f"Could not write to {path}."
+                    return False, tr("pdf_export.could_not_write_path", path=path)
                 painter.setRenderHint(qg.QPainter.RenderHint.Antialiasing)
             else:
                 _apply_page(writer, page)
@@ -337,7 +338,7 @@ def export_sheets(
             _draw_title_block_chrome(painter, page, job)
             painter.restore()
     except Exception as exc:
-        return False, f"Could not write the PDF file: {exc}"
+        return False, tr("pdf_export.could_not_write_pdf", error=exc)
     finally:
         if painter is not None and painter.isActive():
             painter.end()

@@ -7,6 +7,7 @@ from PyQt6.QtCore import QSettings, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QInputDialog, QToolButton, QVBoxLayout, QWidget
 
 from ui.editor.tabs.base import SectionWidget
+from ui.i18n import tr
 from ui.theme import Color, ICON_SM, SPACE_XS
 from ui.theme.icons import icon_manager
 from ui.widgets import ColorSwatchButton, SectionColumn
@@ -45,7 +46,7 @@ class _LayerDefRow(QFrame):
         active_icon = "layer_active" if is_default else "layer_inactive"
         default_btn.setIcon(icon_manager.get(active_icon, size=ICON_SM, color=Color.ACCENT))
         default_btn.setIconSize(QSize(ICON_SM, ICON_SM))
-        default_btn.setToolTip("Set as default — used by modes with no layer picker of their own")
+        default_btn.setToolTip(tr("tabs.layer_default_tooltip"))
         default_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         default_btn.clicked.connect(lambda: self.defaultRequested.emit(name))
         layout.addWidget(default_btn)
@@ -55,7 +56,7 @@ class _LayerDefRow(QFrame):
         label.setText(name)
         layout.addWidget(label, 1)
 
-        swatch = ColorSwatchButton(rgb, "Change color")
+        swatch = ColorSwatchButton(rgb, tr("common.change_color"))
         swatch.colorChanged.connect(lambda new_rgb: self.colorRequested.emit(name, new_rgb))
         layout.addWidget(swatch)
 
@@ -64,7 +65,7 @@ class _LayerDefRow(QFrame):
         delete_btn.setIcon(icon_manager.get("layer_row_delete", size=ICON_SM, color=Color.TEXT_FAINT))
         delete_btn.setIconSize(QSize(ICON_SM, ICON_SM))
         delete_btn.setEnabled(deletable)
-        delete_btn.setToolTip("Delete layer" if deletable else 'Layer "0" cannot be deleted')
+        delete_btn.setToolTip(tr("common.delete_layer_tooltip") if deletable else tr("common.layer_zero_protected_tooltip"))
         delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         delete_btn.clicked.connect(lambda: self.deleteRequested.emit(name))
         layout.addWidget(delete_btn)
@@ -91,7 +92,7 @@ class LayerTab(SectionWidget):
         add_btn.setIcon(icon_manager.get("layer_add", size=ICON_SM, color=Color.TEXT_MUTED))
         add_btn.setIconSize(QSize(ICON_SM, ICON_SM))
         add_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        add_btn.setText("Add layer")
+        add_btn.setText(tr("common.add_layer"))
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self._on_add_clicked)
         layout.addWidget(add_btn)
@@ -114,7 +115,7 @@ class LayerTab(SectionWidget):
 
     # -- editing ------------------------------------------------------------
     def _on_add_clicked(self) -> None:
-        name, ok = QInputDialog.getText(self, "New Layer", "Layer name:")
+        name, ok = QInputDialog.getText(self, tr("common.new_layer_title"), tr("common.layer_name_label"))
         name = name.strip()
         if not ok or not name or name in self.layer_names():
             return
