@@ -29,6 +29,7 @@ class MenuBar(QWidget):
     importTableTemplateRequested = pyqtSignal()
     exportTableTemplateRequested = pyqtSignal()
     closeProjectRequested = pyqtSignal()
+    settingsRequested = pyqtSignal()
     undoRequested = pyqtSignal()
     redoRequested = pyqtSignal()
     editMenuAboutToShow = pyqtSignal()
@@ -88,6 +89,8 @@ class MenuBar(QWidget):
         menu.addAction("Table Structure…", self.tableStructureRequested.emit)
         menu.addAction("Import Table Template…", self.importTableTemplateRequested.emit)
         menu.addAction("Export Table Template…", self.exportTableTemplateRequested.emit)
+        menu.addSeparator()
+        menu.addAction("Settings…", self.settingsRequested.emit)
         menu.addSeparator()
         menu.addAction("Close Project", self.closeProjectRequested.emit)
         return button

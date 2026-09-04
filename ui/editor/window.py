@@ -35,6 +35,8 @@ from ui.editor.project_controller import ProjectController
 from ui.editor.sections_panel import SectionsPanel
 from ui.editor.status_bar import StatusBar
 from ui.editor.table_template_controller import TableTemplateController
+from ui.global_settings import new_project_table_template
+from ui.settings_dialog import SettingsDialog
 from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_XL
 from ui.theme.assets import ICON_PATH
 from ui.theme.style import APP_STYLESHEET
@@ -57,7 +59,9 @@ class MainWindow(QMainWindow):
 
         self.session = EditorSession()
         self.sheets = SheetSet()
-        self.table_template = default_template()
+        self.table_template = (
+            new_project_table_template(self.settings) if initial_state is None else default_template()
+        )
         self.survey_draw_service = SurveyDrawService()
         self.router = WindowRouter(self)
         self.documents = DocumentController(self)
@@ -135,6 +139,7 @@ class MainWindow(QMainWindow):
         self.menu_bar.importTableTemplateRequested.connect(self.table_template_controller.import_template)
         self.menu_bar.exportTableTemplateRequested.connect(self.table_template_controller.export_template)
         self.menu_bar.closeProjectRequested.connect(self.open_start_screen)
+        self.menu_bar.settingsRequested.connect(self.open_settings)
         self.menu_bar.undoRequested.connect(lambda: self.dxf_viewer.echo(self.dxf_viewer.undo()))
         self.menu_bar.redoRequested.connect(lambda: self.dxf_viewer.echo(self.dxf_viewer.redo()))
         self.menu_bar.editMenuAboutToShow.connect(self._sync_edit_menu)
@@ -259,6 +264,9 @@ class MainWindow(QMainWindow):
 
     def open_start_screen(self) -> None:
         self.router.start_screen()
+
+    def open_settings(self) -> None:
+        SettingsDialog(self.settings, self).exec()
 
     def new_project(self) -> None:
         self.router.editor()

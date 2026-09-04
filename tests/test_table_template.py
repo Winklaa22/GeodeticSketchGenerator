@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from core.table_template import (
+    MAX_TABLE_WIDTH_MM,
     CellDef,
     ColumnDef,
     FieldDef,
@@ -10,6 +11,7 @@ from core.table_template import (
     add_column,
     add_field,
     add_row,
+    capped_table_width,
     cell_layout,
     default_template,
     delete_column,
@@ -172,6 +174,22 @@ def test_table_layout_offsets_cells_into_the_table_rect() -> None:
     assert min(c.rect.x for c in resolved) == 50.0
     assert min(c.rect.y for c in resolved) == 60.0
     assert max(c.rect.right() for c in resolved) == 250.0
+
+
+def test_table_layout_caps_the_width_on_an_oversized_sheet_and_stays_left_anchored() -> None:
+    template = _simple_template()
+    table_rect = Rect(50.0, 60.0, 900.0, 15.0)
+    resolved = table_layout(template, table_rect, {}, {})
+    assert min(c.rect.x for c in resolved) == 50.0
+    assert max(c.rect.right() for c in resolved) == 50.0 + MAX_TABLE_WIDTH_MM
+
+
+def test_capped_table_width_leaves_a_narrower_table_untouched() -> None:
+    assert capped_table_width(150.0) == 150.0
+
+
+def test_capped_table_width_scales_the_cap_by_the_scale_factor() -> None:
+    assert capped_table_width(900.0, scale=0.5) == MAX_TABLE_WIDTH_MM * 0.5
 
 
 def test_add_row_shifts_cells_below_the_insertion_point() -> None:

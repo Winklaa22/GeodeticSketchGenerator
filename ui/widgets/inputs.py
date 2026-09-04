@@ -12,10 +12,11 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
-from ui.theme import Color, ICON_SM, SPACE_SM
+from ui.theme import Color, ICON_MD, ICON_SM, SPACE_SM
 from ui.theme.icons import icon_manager
 
 
@@ -155,6 +156,54 @@ class SegmentedControl(QWidget):
         btn = self._buttons.get(key)
         if btn is not None:
             btn.setEnabled(enabled)
+
+
+class SidebarNav(QWidget):
+
+    currentChanged = pyqtSignal(str)
+
+    def __init__(self, items: Sequence[Tuple[str, str, str]], parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("sidebarNav")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        self._buttons: Dict[str, QPushButton] = {}
+        self._icons: Dict[str, str] = {}
+        for key, label, icon_name in items:
+            btn = QPushButton(label)
+            btn.setObjectName("settingsNavBtn")
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setIconSize(QSize(ICON_MD, ICON_MD))
+            btn.clicked.connect(lambda _checked, k=key: self.currentChanged.emit(k))
+            btn.toggled.connect(lambda checked, k=key: self._paint(k, checked))
+            self._group.addButton(btn)
+            layout.addWidget(btn)
+            self._buttons[key] = btn
+            self._icons[key] = icon_name
+        for key in self._buttons:
+            self._paint(key, False)
+        if items:
+            self._buttons[items[0][0]].setChecked(True)
+
+    def _paint(self, key: str, checked: bool) -> None:
+        color = Color.ACCENT if checked else Color.TEXT_MUTED
+        self._buttons[key].setIcon(icon_manager.get(self._icons[key], size=ICON_MD, color=color))
+
+    def setCurrent(self, key: str) -> None:
+        btn = self._buttons.get(key)
+        if btn is not None and not btn.isChecked():
+            btn.setChecked(True)
+
+    def current(self) -> Optional[str]:
+        for key, btn in self._buttons.items():
+            if btn.isChecked():
+                return key
+        return None
 
 
 class RadioCardGroup(QWidget):

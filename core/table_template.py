@@ -6,6 +6,12 @@ from typing import Dict, Iterable, List, Optional
 BORDER_WIDTH_MM = 0.35
 CELL_PADDING_MM = 1.5
 
+# Columns are fractions of whatever width they're laid out in, so without a cap the table
+# just keeps stretching wider on a bigger sheet. This caps it at the A4 landscape printable
+# width (297 - 2x10mm margin), the size it always had on the app's default page - it stays
+# that size and sits at the left edge on bigger sheets instead of growing to fill them.
+MAX_TABLE_WIDTH_MM = 277.0
+
 HEADER_FONT_MM = 2.0
 BODY_FONT_MM = 2.4
 
@@ -168,6 +174,10 @@ def resolve_cells(
     return resolved
 
 
+def capped_table_width(available_mm: float, scale: float = 1.0) -> float:
+    return min(available_mm, MAX_TABLE_WIDTH_MM * scale)
+
+
 def table_layout(
     template: TableTemplate,
     table_rect: Rect,
@@ -175,7 +185,8 @@ def table_layout(
     project_values: Dict[str, str],
     scale: float = 1.0,
 ) -> List[ResolvedCell]:
-    placed = cell_layout(template, table_rect.w, scale)
+    width = capped_table_width(table_rect.w, scale)
+    placed = cell_layout(template, width, scale)
     resolved = resolve_cells(template, placed, sheet_values, project_values)
     return [
         replace(cell, rect=Rect(cell.rect.x + table_rect.x, cell.rect.y + table_rect.y, cell.rect.w, cell.rect.h))

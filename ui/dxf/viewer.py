@@ -112,6 +112,7 @@ class DxfViewer(qw.QWidget):
         self._layout_label = ""
         self._layout_rotation = 0.0
         self._layout_table_height_mm = 0.0
+        self._layout_table_width_mm = 0.0
 
     def _build_ui(self) -> None:
         outer = qw.QHBoxLayout(self)
@@ -292,6 +293,7 @@ class DxfViewer(qw.QWidget):
         label: str = "",
         rotation: float = 0.0,
         table_height_mm: float = 0.0,
+        table_width_mm: float = 0.0,
     ) -> None:
         if options is None:
             if self._layout_options is None:
@@ -301,6 +303,7 @@ class DxfViewer(qw.QWidget):
             self._layout_label = ""
             self._layout_rotation = 0.0
             self._layout_table_height_mm = 0.0
+            self._layout_table_width_mm = 0.0
             self._view.set_page_frame(None)
             self._view.set_title_block([])
             self._compass.set_angle(0.0)
@@ -313,6 +316,7 @@ class DxfViewer(qw.QWidget):
             self._layout_label = label or sheet_label(options)
             self._layout_rotation = rotation
             self._layout_table_height_mm = table_height_mm
+            self._layout_table_width_mm = table_width_mm
             self._install_page_frame()
             self._compass.set_angle(rotation)
         if self._doc is not None:
@@ -329,7 +333,7 @@ class DxfViewer(qw.QWidget):
         self._view.set_page_frame(
             page_frame_for(
                 self._layout_options, self._layout_center, self._layout_label, self._layout_rotation,
-                table_height_mm=self._layout_table_height_mm,
+                table_height_mm=self._layout_table_height_mm, table_width_mm=self._layout_table_width_mm,
             )
         )
 

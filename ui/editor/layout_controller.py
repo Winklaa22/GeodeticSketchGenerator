@@ -18,7 +18,7 @@ from core.plot import (
     units_per_mm,
 )
 from core.sheets import Sheet
-from core.table_template import Rect, table_layout
+from core.table_template import MAX_TABLE_WIDTH_MM, Rect, table_layout
 from ui.dxf.page_frame import PageFrame, page_frame_for
 from ui.dxf.pdf_export import PlotJob
 
@@ -112,6 +112,7 @@ class LayoutController:
         self._viewer.set_layout_mode(
             options, self._center(sheet), self._label(sheet, options), sheet.rotation,
             table_height_mm=self._host.table_template.total_height_mm(),
+            table_width_mm=MAX_TABLE_WIDTH_MM,
         )
         self._apply_table(sheet, options)
 
@@ -119,7 +120,7 @@ class LayoutController:
         template = self._host.table_template
         frame = page_frame_for(
             options, self._center(sheet), rotation=sheet.rotation,
-            table_height_mm=template.total_height_mm(),
+            table_height_mm=template.total_height_mm(), table_width_mm=MAX_TABLE_WIDTH_MM,
         )
         table = frame.table_rect()
         scale = units_per_mm(options)
@@ -148,6 +149,7 @@ class LayoutController:
         return page_frame_for(
             options, self._center(sheet), self._label(sheet, options), sheet.rotation,
             table_height_mm=self._host.table_template.total_height_mm(),
+            table_width_mm=MAX_TABLE_WIDTH_MM,
         )
 
     def on_options_changed(self) -> None:

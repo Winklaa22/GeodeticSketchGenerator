@@ -47,6 +47,23 @@ def test_set_layer_color_command_execute_and_undo(doc: DXFDocument) -> None:
     assert doc.get_layer_color("SURVEY") == (1, 1, 1)
 
 
+def test_set_layer_color_command_overrides_entities_with_their_own_explicit_color(
+    doc: DXFDocument,
+) -> None:
+    doc.add_layer("IMPORTED", rgb=(9, 9, 9))
+    handle = doc.add_point((0.0, 0.0), layer="IMPORTED")
+    doc.set_entity_color(handle, (255, 0, 0))
+    assert doc.get_entity_color(handle) == (255, 0, 0)
+
+    command = SetLayerColorCommand("IMPORTED", (10, 200, 30))
+    command.execute(doc)
+    assert doc.get_entity_color(handle) == (10, 200, 30)
+
+    command.undo(doc)
+    assert doc.get_layer_color("IMPORTED") == (9, 9, 9)
+    assert doc.get_entity_color(handle) == (255, 0, 0)
+
+
 def test_set_layer_visible_command_execute_and_undo(doc: DXFDocument) -> None:
     doc.add_layer("SURVEY")
     command = SetLayerVisibleCommand("SURVEY", False)

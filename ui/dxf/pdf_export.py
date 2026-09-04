@@ -29,10 +29,11 @@ from core.table_template import (
     Rect,
     ResolvedCell,
     TableTemplate,
+    capped_table_width,
     default_template,
     table_layout,
 )
-from ui.dxf.backend import qcolor_from, to_qpainter_path
+from ui.dxf.backend import qcolor_from, qcolor_on_paper, to_qpainter_path
 from ui.dxf.page_frame import PageFrame
 from ui.dxf.stamp_cache import stamp_cache
 
@@ -63,14 +64,14 @@ class QtPainterBackend(Backend):
         self._no_brush = qg.QBrush(qc.Qt.BrushStyle.NoBrush)
 
     def _pen(self, properties: BackendProperties) -> qg.QPen:
-        pen = qg.QPen(qcolor_from(properties.color), self._stroke.pen_width(properties.lineweight))
+        pen = qg.QPen(qcolor_on_paper(properties.color), self._stroke.pen_width(properties.lineweight))
         pen.setCapStyle(qc.Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(qc.Qt.PenJoinStyle.RoundJoin)
         return pen
 
     @staticmethod
     def _brush(color: Color) -> qg.QBrush:
-        return qg.QBrush(qcolor_from(color), qc.Qt.BrushStyle.SolidPattern)
+        return qg.QBrush(qcolor_on_paper(color), qc.Qt.BrushStyle.SolidPattern)
 
     def set_background(self, color: Color) -> None:
         rect = qc.QRectF(0.0, 0.0, self._page.width_in_mm, self._page.height_in_mm)
@@ -268,11 +269,12 @@ def _draw_title_block_chrome(painter: qg.QPainter, page: Page, job: PlotJob) -> 
         painter.drawRect(qc.QRectF(p1.x, p1.y, map_w, map_h))
     if table_h <= 0.0:
         return
-    table_rect = qc.QRectF(p1.x, table_top, map_w, table_h)
+    table_w = capped_table_width(map_w)
+    table_rect = qc.QRectF(p1.x, table_top, table_w, table_h)
     painter.drawRect(table_rect)
 
     cells = table_layout(
-        job.template, Rect(p1.x, table_top, map_w, table_h),
+        job.template, Rect(p1.x, table_top, table_w, table_h),
         job.sheet_field_values, job.template.project_field_values, scale=1.0,
     )
     thin_pen = qg.QPen(qg.QColor(0, 0, 0), BORDER_WIDTH_MM * 0.6)

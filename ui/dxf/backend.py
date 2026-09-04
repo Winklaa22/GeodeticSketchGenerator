@@ -25,6 +25,17 @@ def qcolor_from(color: Color) -> qg.QColor:
     raise ValueError(f"unsupported color format: {color!r}")
 
 
+@lru_cache(maxsize=512)
+def qcolor_on_paper(color: Color) -> qg.QColor:
+    # White entities are only visible against the app's dark canvas background - on paper
+    # (white PDF/print preview background) they'd be invisible, so print white as black
+    # instead. Other colors, including black, are left untouched.
+    qcolor = qcolor_from(color)
+    if qcolor.red() == 255 and qcolor.green() == 255 and qcolor.blue() == 255:
+        return qg.QColor(0, 0, 0, qcolor.alpha())
+    return qcolor
+
+
 def to_qpainter_path(paths: Iterable[BkPath2d]) -> qg.QPainterPath:
     qpath = qg.QPainterPath()
     for path in paths:
@@ -67,8 +78,11 @@ class QtSceneBackend(Backend):
         item.setData(HANDLE_ROLE, handle)
         self._scene.addItem(item)
 
+    def _entity_color(self, color: Color) -> qg.QColor:
+        return qcolor_on_paper(color) if self._stroke is not None else qcolor_from(color)
+
     def _pen(self, properties: BackendProperties) -> qg.QPen:
-        pen = qg.QPen(qcolor_from(properties.color))
+        pen = qg.QPen(self._entity_color(properties.color))
         pen.setJoinStyle(qc.Qt.PenJoinStyle.RoundJoin)
         if self._stroke is None:
             pen.setWidthF(properties.lineweight / 0.3527 * self.config.lineweight_scaling)
@@ -79,7 +93,7 @@ class QtSceneBackend(Backend):
         return pen
 
     def _fill_brush(self, color: Color) -> qg.QBrush:
-        return qg.QBrush(qcolor_from(color), qc.Qt.BrushStyle.SolidPattern)
+        return qg.QBrush(self._entity_color(color), qc.Qt.BrushStyle.SolidPattern)
 
     def set_background(self, color: Color) -> None:
         if self._stroke is not None:

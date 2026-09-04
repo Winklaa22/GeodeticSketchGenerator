@@ -125,6 +125,7 @@ class TableStructureDialog(QDialog):
         toolbar.addWidget(self._unmerge_button)
         toolbar.addWidget(make_button("Manage fields…", "secondary", self._on_manage_fields))
         toolbar.addStretch(1)
+        toolbar.addWidget(make_button("Clear", "secondary", self._on_clear))
         return toolbar
 
     def _build_property_panel(self) -> QWidget:
@@ -278,6 +279,19 @@ class TableStructureDialog(QDialog):
         dialog = _ManageFieldsDialog(self._template, self)
         dialog.exec()
         self._template = dialog.result_template()
+        self._rebuild_grid()
+
+    def _on_clear(self) -> None:
+        if not self._template.rows and not self._template.columns:
+            return
+        confirmed = QMessageBox.question(
+            self, "Clear Table", "Remove all rows, columns, and fields from this table?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        )
+        if confirmed != QMessageBox.StandardButton.Yes:
+            return
+        self._template = TableTemplate(columns=[], rows=[], cells=[])
+        self._selected_origin = None
         self._rebuild_grid()
 
     def _on_item_changed(self, item: QTableWidgetItem) -> None:

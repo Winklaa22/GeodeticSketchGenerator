@@ -26,6 +26,7 @@ from core.formatting import format_byte_size
 from core.project import PROJECT_FILE_FILTER, ProjectState
 from ui.app_identity import APP_TITLE, app_settings
 from ui.recent_projects import list_recent_projects, remove_recent_project
+from ui.settings_dialog import SettingsDialog
 from ui.theme import Color, ICON_SM, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL
 from ui.theme.assets import ICON_PATH
 from ui.theme.icons import icon_manager
@@ -85,6 +86,7 @@ class StartScreen(QMainWindow):
         layout.addWidget(new_project_btn)
         layout.addWidget(self._make_button("Import…", "secondary", self._on_import))
         layout.addStretch(1)
+        layout.addWidget(self._make_button("Settings…", "secondary", self._on_settings))
         return sidebar
 
     @staticmethod
@@ -186,6 +188,9 @@ class StartScreen(QMainWindow):
 
     def _on_new_project(self) -> None:
         self._launch_editor(initial_state=None, project_path=None)
+
+    def _on_settings(self) -> None:
+        SettingsDialog(self.settings, self).exec()
 
     def _on_import(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

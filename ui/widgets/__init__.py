@@ -8,6 +8,7 @@ from ui.widgets.inputs import (
     LayerDropdown,
     RadioCardGroup,
     SegmentedControl,
+    SidebarNav,
 )
 from ui.widgets.primitives import (
     CheckField,
@@ -36,6 +37,7 @@ __all__ = [
     "RadioCardGroup",
     "SectionColumn",
     "SegmentedControl",
+    "SidebarNav",
     "Tag",
     "decimal_validator",
     "field_label",
