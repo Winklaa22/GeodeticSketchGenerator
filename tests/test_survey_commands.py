@@ -166,44 +166,118 @@ def points_with_box() -> dict[int, Point]:
     }
 
 
-def test_pline_mode_draws_skrzynka_as_a_separate_closed_polyline(
-    service: SurveyDrawService, points_with_box, doc: DXFDocument
+@pytest.fixture
+def points_with_enclosure() -> dict[int, Point]:
+    return {
+        1: Point(x=0.0, y=0.0, h=0.0),
+        2: Point(x=10.0, y=0.0, h=0.0),
+        3: Point(x=11.0, y=0.0, h=0.0),
+        4: Point(x=11.0, y=1.0, h=0.0),
+        5: Point(x=10.0, y=1.0, h=0.0),
+        6: Point(x=20.0, y=0.0, h=0.0),
+        7: Point(x=10.4, y=0.6, h=0.0),
+    }
+
+
+def test_pline_mode_draws_the_enclosure_as_a_separate_closed_polyline(
+    service: SurveyDrawService, points_with_enclosure, doc: DXFDocument
 ) -> None:
-    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.PLINES)
-    service.build_command(points_with_box, [1, 2, 3, 4, 5, 6], config).execute(doc)
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.PLINES, quantum=0.01)
+    service.build_command(points_with_enclosure, [1, 2, 3, 4, 5, 6, 7], config).execute(doc)
     polylines = _entities_of_type(doc, "LWPOLYLINE")
     assert len(polylines) == 2
-    cable, box = polylines
-    assert [pt[:2] for pt in cable.get_points("xy")] == [(0.0, 0.0), (20.0, 0.0)]
-    assert [pt[:2] for pt in box.get_points("xy")] == [(10.0, 0.0), (11.0, 0.0), (11.0, 1.0), (10.0, 1.0)]
-    assert box.closed
+    cable, outline = polylines
+    assert [pt[:2] for pt in cable.get_points("xy")] == [(20.0, 0.0), (10.4, 0.6), (0.0, 0.0)]
+    assert [pt[:2] for pt in outline.get_points("xy")] == [(10.0, 0.0), (11.0, 0.0), (11.0, 1.0), (10.0, 1.0)]
+    assert outline.closed
 
 
-def test_poly3d_mode_draws_skrzynka_as_a_separate_closed_polyline(
-    service: SurveyDrawService, points_with_box, doc: DXFDocument
+def test_poly3d_mode_draws_the_enclosure_as_a_separate_closed_polyline(
+    service: SurveyDrawService, points_with_enclosure, doc: DXFDocument
 ) -> None:
-    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.POLY3D)
-    service.build_command(points_with_box, [1, 2, 3, 4, 5, 6], config).execute(doc)
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.POLY3D, quantum=0.01)
+    service.build_command(points_with_enclosure, [1, 2, 3, 4, 5, 6, 7], config).execute(doc)
     polylines = _entities_of_type(doc, "POLYLINE")
     assert len(polylines) == 2
-    cable, box = polylines
-    assert [tuple(v) for v in cable.points()] == [(0.0, 0.0, 0.0), (20.0, 0.0, 0.0)]
-    assert [tuple(v) for v in box.points()] == [
+    cable, outline = polylines
+    assert [tuple(v) for v in cable.points()] == [(20.0, 0.0, 0.0), (10.4, 0.6, 0.0), (0.0, 0.0, 0.0)]
+    assert [tuple(v) for v in outline.points()] == [
         (10.0, 0.0, 0.0), (11.0, 0.0, 0.0), (11.0, 1.0, 0.0), (10.0, 1.0, 0.0),
     ]
-    assert box.is_closed
+    assert outline.is_closed
 
 
-def test_lines_mode_draws_skrzynka_sides_alongside_the_cable_segments(
-    service: SurveyDrawService, points_with_box, doc: DXFDocument
+def test_lines_mode_draws_enclosure_sides_alongside_the_cable_edges(
+    service: SurveyDrawService, points_with_enclosure, doc: DXFDocument
 ) -> None:
-    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.LINES)
-    service.build_command(points_with_box, [1, 2, 3, 4, 5, 6], config).execute(doc)
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.LINES, quantum=0.01)
+    service.build_command(points_with_enclosure, [1, 2, 3, 4, 5, 6, 7], config).execute(doc)
     lines = _entities_of_type(doc, "LINE")
-    assert len(lines) == 5
-    cable_line = lines[0]
-    assert tuple(cable_line.dxf.start) == (0.0, 0.0, 0.0)
-    assert tuple(cable_line.dxf.end) == (20.0, 0.0, 0.0)
+    assert len(lines) == 6
+    cable_lines = [
+        line for line in lines if 0.0 in (line.dxf.start[0], line.dxf.end[0]) or 20.0 in (line.dxf.start[0], line.dxf.end[0])
+    ]
+    assert len(cable_lines) == 2
+    endpoints = {tuple(line.dxf.start)[:2] for line in cable_lines} | {tuple(line.dxf.end)[:2] for line in cable_lines}
+    assert endpoints == {(0.0, 0.0), (10.4, 0.6), (20.0, 0.0)}
+
+
+@pytest.fixture
+def points_with_tap() -> dict[int, Point]:
+    return {
+        1: Point(x=-20.5, y=-0.5, h=0.0),
+        2: Point(x=-19.5, y=-0.5, h=0.0),
+        3: Point(x=-19.5, y=0.5, h=0.0),
+        4: Point(x=-20.5, y=0.5, h=0.0),
+        5: Point(x=-20.0, y=0.0, h=0.0),
+        6: Point(x=19.5, y=-0.5, h=0.0),
+        7: Point(x=20.5, y=-0.5, h=0.0),
+        8: Point(x=20.5, y=0.5, h=0.0),
+        9: Point(x=19.5, y=0.5, h=0.0),
+        10: Point(x=20.0, y=0.0, h=0.0),
+        11: Point(x=0.0, y=0.0, h=0.0),
+        12: Point(x=0.0, y=10.0, h=0.0),
+    }
+
+
+def test_lines_mode_draws_one_line_per_edge_at_a_tap_junction(
+    service: SurveyDrawService, points_with_tap, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.LINES, quantum=0.01)
+    service.build_command(points_with_tap, list(points_with_tap), config).execute(doc)
+    lines = _entities_of_type(doc, "LINE")
+    # 3 tree edges (5-11, 10-11, 11-12) plus 2 x 4 enclosure sides.
+    assert len(lines) == 11
+
+
+def test_pline_mode_merges_the_through_run_at_a_tap_into_one_continuous_polyline(
+    service: SurveyDrawService, points_with_tap, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.PLINES, quantum=0.01)
+    service.build_command(points_with_tap, list(points_with_tap), config).execute(doc)
+    polylines = _entities_of_type(doc, "LWPOLYLINE")
+    open_polylines = [p for p in polylines if not p.closed]
+    assert len(open_polylines) == 2
+    through_run = next(p for p in open_polylines if len(p) == 3)
+    branch = next(p for p in open_polylines if len(p) == 2)
+    assert [pt[:2] for pt in through_run.get_points("xy")] == [(-20.0, 0.0), (0.0, 0.0), (20.0, 0.0)]
+    assert [pt[:2] for pt in branch.get_points("xy")] == [(0.0, 0.0), (0.0, 10.0)]
+    assert sum(1 for p in polylines if p.closed) == 2
+
+
+def test_poly3d_mode_merges_the_through_run_at_a_tap_into_one_continuous_polyline(
+    service: SurveyDrawService, points_with_tap, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.POLY3D, quantum=0.01)
+    service.build_command(points_with_tap, list(points_with_tap), config).execute(doc)
+    polylines = _entities_of_type(doc, "POLYLINE")
+    open_polylines = [p for p in polylines if not p.is_closed]
+    assert len(open_polylines) == 2
+    through_run = next(p for p in open_polylines if len(list(p.points())) == 3)
+    branch = next(p for p in open_polylines if len(list(p.points())) == 2)
+    assert [tuple(v) for v in through_run.points()] == [(-20.0, 0.0, 0.0), (0.0, 0.0, 0.0), (20.0, 0.0, 0.0)]
+    assert [tuple(v) for v in branch.points()] == [(0.0, 0.0, 0.0), (0.0, 10.0, 0.0)]
+    assert sum(1 for p in polylines if p.is_closed) == 2
 
 
 def test_pipe_mode_draws_two_parallel_lines_straddling_each_segment(
@@ -243,20 +317,21 @@ def points_with_wcinka() -> dict[int, Point]:
     }
 
 
-def test_pline_mode_draws_wcinka_as_open_stubs_off_its_entry_point(
+def test_pline_mode_does_not_merge_an_unclassified_junction_with_no_enclosures(
     service: SurveyDrawService, points_with_wcinka, doc: DXFDocument
 ) -> None:
-    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.PLINES)
+    config = GenerationConfig(layer_name="0", draw_mode=DrawMode.PLINES, quantum=0.01)
     service.build_command(points_with_wcinka, [1, 2, 3, 4], config).execute(doc)
     polylines = _entities_of_type(doc, "LWPOLYLINE")
-    assert len(polylines) == 1
-    assert [pt[:2] for pt in polylines[0].get_points("xy")] == [(0.0, 0.0), (-20.0, 0.0)]
-    lines = _entities_of_type(doc, "LINE")
-    assert len(lines) == 2
-    stub_endpoints = {(tuple(l.dxf.start), tuple(l.dxf.end)) for l in lines}
-    assert stub_endpoints == {
-        ((0.0, 0.0, 0.0), (2.0, -3.0, 0.0)),
-        ((0.0, 0.0, 0.0), (2.0, 3.0, 0.0)),
+    # No enclosure means no TAP classification, so only-through-run merging
+    # never applies here: the junction at (0, 0) stays a hard break between
+    # all three of its arms, same as a plain degree-2-chain split.
+    assert len(polylines) == 3
+    endpoint_pairs = {tuple(pt[:2] for pt in p.get_points("xy")) for p in polylines}
+    assert endpoint_pairs == {
+        ((2.0, -3.0), (0.0, 0.0)),
+        ((2.0, 3.0), (0.0, 0.0)),
+        ((0.0, 0.0), (-20.0, 0.0)),
     }
 
 

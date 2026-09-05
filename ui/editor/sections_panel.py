@@ -144,7 +144,7 @@ class SectionsPanel(QWidget):
         tab = self.tab_for_mode(draw_mode)
         return tab.get_layer_name() if tab is not None else self.layer_tab.default_layer_name()
 
-    def build_generation_config(self, draw_mode: DrawMode) -> GenerationConfig:
+    def build_generation_config(self, draw_mode: DrawMode, quantum: float = 1.0) -> GenerationConfig:
         layer_name = self.layer_name_for_mode(draw_mode)
         options = {
             spec.config_field: self.mode_tabs[spec.key].get_options()
@@ -155,5 +155,6 @@ class SectionsPanel(QWidget):
             layer_name=layer_name,
             draw_mode=draw_mode,
             layer_rgb=self.layer_tab.get_rgb(layer_name),
+            quantum=quantum,
             **options,
         )
