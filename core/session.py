@@ -25,6 +25,7 @@ class EditorSession:
         self.file_path: str = ""
         self.file_size_text: str = ""
         self.data: Dict[int, Point] = {}
+        self.quantum: float = 1.0
         self.dxf_path: str = ""
         self.has_applied: bool = False
         self.last_error: Optional[str] = None
@@ -59,10 +60,11 @@ class EditorSession:
     def reparse_points(self, delimiter_mode: DelimiterMode) -> None:
         self.invalidate()
         try:
-            self.data = self.parser.parse_file(self.file_path, delimiter_mode)
+            self.data, self.quantum = self.parser.parse_file_with_quantum(self.file_path, delimiter_mode)
             self.last_error = None
         except AppError as exc:
             self.data = {}
+            self.quantum = 1.0
             self.last_error = str(exc)
 
     def set_dxf_path(self, path: str) -> None:

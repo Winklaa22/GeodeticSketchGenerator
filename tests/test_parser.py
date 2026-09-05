@@ -67,3 +67,43 @@ def test_missing_height_defaults_to_zero(parser: PointFileParser) -> None:
 def test_row_with_too_few_fields_falls_back_to_whitespace_split(parser: PointFileParser) -> None:
     data = parser.parse_lines(["1 100 200 5"], DelimiterMode.TAB)
     assert data[1].x == 200 and data[1].y == 100 and data[1].h == 5
+
+
+def test_estimate_quantum_picks_the_finest_decimal_places_seen_across_x_and_y(parser: PointFileParser) -> None:
+    q = parser.estimate_quantum(["Numer X Y H", "1 100.5 200.25 5", "2 110.1 210.1 6"], DelimiterMode.SPACE)
+    assert q == pytest.approx(0.01)
+
+
+def test_estimate_quantum_ignores_the_height_column(parser: PointFileParser) -> None:
+    q = parser.estimate_quantum(["Numer X Y H", "1 100.5 200.5 5.12345"], DelimiterMode.SPACE)
+    assert q == pytest.approx(0.1)
+
+
+def test_estimate_quantum_handles_comma_decimal_separator(parser: PointFileParser) -> None:
+    q = parser.estimate_quantum(["Numer X Y", "3 100,5 200,25"], DelimiterMode.SPACE)
+    assert q == pytest.approx(0.01)
+
+
+def test_estimate_quantum_falls_back_to_one_for_all_integer_coordinates(parser: PointFileParser) -> None:
+    q = parser.estimate_quantum(["1 100 200 5", "2 110 210 6"], DelimiterMode.SPACE)
+    assert q == pytest.approx(1.0)
+
+
+def test_estimate_quantum_skips_the_header_row_like_parse_lines_does(parser: PointFileParser) -> None:
+    q = parser.estimate_quantum(["Numer X Y H", "1 100.123 200 5"], DelimiterMode.SPACE)
+    assert q == pytest.approx(0.001)
+
+
+def test_estimate_quantum_respects_an_explicit_delimiter_mode(parser: PointFileParser) -> None:
+    q = parser.estimate_quantum(["Numer\tX\tY\tH", "1\t100.25\t200\t5"], DelimiterMode.TAB)
+    assert q == pytest.approx(0.01)
+
+
+def test_estimate_quantum_raises_empty_file_error_on_no_lines(parser: PointFileParser) -> None:
+    with pytest.raises(EmptyFileError):
+        parser.estimate_quantum([], DelimiterMode.AUTO)
+
+
+def test_estimate_quantum_raises_no_valid_points_error_when_no_row_parses(parser: PointFileParser) -> None:
+    with pytest.raises(NoValidPointsError):
+        parser.estimate_quantum(["Numer X Y", "bad row"], DelimiterMode.SPACE)

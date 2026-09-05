@@ -23,6 +23,7 @@ from core.geometry import (
     snap_small_rotation,
 )
 from core.patterns import route_selected_points
+from core.route_graph import build_cable_chains, build_route_graph
 from models.point import Point
 
 def build_points_command(
@@ -195,38 +196,50 @@ def _points_label_offset(angle_deg: float, font_size: float) -> Tuple[float, flo
     return offsets[classify_quadrant(angle_deg)]
 
 
+def _selected_points(points: Dict[int, Point], selected_numbers: List[int]) -> Dict[int, Point]:
+    return {n: points[n] for n in selected_numbers if n in points}
+
+
+def _outline_line_commands(outlines: List[Tuple[int, ...]], points: Dict[int, Point], layer: str) -> List[AddLineCommand]:
+    commands = []
+    for outline in outlines:
+        size = len(outline)
+        for k in range(size):
+            a, b = points[outline[k]], points[outline[(k + 1) % size]]
+            commands.append(AddLineCommand((a.x, a.y, a.h), (b.x, b.y, b.h), layer))
+    return commands
+
+
+def _outline_polyline2d_commands(
+    outlines: List[Tuple[int, ...]], points: Dict[int, Point], layer: str
+) -> List[AddPolyline2DCommand]:
+    return [
+        AddPolyline2DCommand([(points[n].x, points[n].y) for n in outline], layer, closed=True) for outline in outlines
+    ]
+
+
+def _outline_polyline3d_commands(
+    outlines: List[Tuple[int, ...]], points: Dict[int, Point], layer: str
+) -> List[AddPolyline3DCommand]:
+    return [
+        AddPolyline3DCommand([(points[n].x, points[n].y, points[n].h) for n in outline], layer, closed=True)
+        for outline in outlines
+    ]
+
+
 def build_lines_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    routed = route_selected_points(points, selected_numbers)
+    selected = _selected_points(points, selected_numbers)
+    graph = build_route_graph(selected, config.quantum)
     commands = [
-        AddLineCommand((a.x, a.y, a.h), (b.x, b.y, b.h), layer) for a, b in zip(routed.main, routed.main[1:])
-    ]
-    commands.extend(_box_line_commands(routed.boxes, layer))
-    commands.extend(_wedge_line_commands(routed.wedges, layer))
-    return CompositeCommand(commands)
-
-
-def _box_line_commands(boxes: List[List[Point]], layer: str) -> List[AddLineCommand]:
-    commands = []
-    for box in boxes:
-        commands.extend(
-            AddLineCommand(
-                (box[k].x, box[k].y, box[k].h),
-                (box[(k + 1) % len(box)].x, box[(k + 1) % len(box)].y, box[(k + 1) % len(box)].h),
-                layer,
-            )
-            for k in range(len(box))
+        AddLineCommand(
+            (selected[a].x, selected[a].y, selected[a].h), (selected[b].x, selected[b].y, selected[b].h), layer
         )
-    return commands
-
-
-def _wedge_line_commands(wedges: List[Tuple[Point, Point, Point]], layer: str) -> List[AddLineCommand]:
-    commands = []
-    for entry, wing_1, wing_2 in wedges:
-        commands.append(AddLineCommand((entry.x, entry.y, entry.h), (wing_1.x, wing_1.y, wing_1.h), layer))
-        commands.append(AddLineCommand((entry.x, entry.y, entry.h), (wing_2.x, wing_2.y, wing_2.h), layer))
-    return commands
+        for a, b in graph.edges
+    ]
+    commands.extend(_outline_line_commands(graph.outlines, selected, layer))
+    return CompositeCommand(commands)
 
 
 def build_pipe_command(
@@ -245,24 +258,27 @@ def build_pipe_command(
 def build_plines_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    routed = route_selected_points(points, selected_numbers)
-    commands = [AddPolyline2DCommand([(p.x, p.y) for p in routed.main], layer)]
-    commands.extend(
-        AddPolyline2DCommand([(p.x, p.y) for p in box], layer, closed=True) for box in routed.boxes
-    )
-    commands.extend(_wedge_line_commands(routed.wedges, layer))
+    selected = _selected_points(points, selected_numbers)
+    graph = build_route_graph(selected, config.quantum)
+    chains = build_cable_chains(graph.edges, graph.junctions)
+    commands = [
+        AddPolyline2DCommand([(selected[n].x, selected[n].y) for n in chain], layer) for chain in chains
+    ]
+    commands.extend(_outline_polyline2d_commands(graph.outlines, selected, layer))
     return CompositeCommand(commands)
 
 
 def build_poly3d_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    routed = route_selected_points(points, selected_numbers)
-    commands = [AddPolyline3DCommand([(p.x, p.y, p.h) for p in routed.main], layer)]
-    commands.extend(
-        AddPolyline3DCommand([(p.x, p.y, p.h) for p in box], layer, closed=True) for box in routed.boxes
-    )
-    commands.extend(_wedge_line_commands(routed.wedges, layer))
+    selected = _selected_points(points, selected_numbers)
+    graph = build_route_graph(selected, config.quantum)
+    chains = build_cable_chains(graph.edges, graph.junctions)
+    commands = [
+        AddPolyline3DCommand([(selected[n].x, selected[n].y, selected[n].h) for n in chain], layer)
+        for chain in chains
+    ]
+    commands.extend(_outline_polyline3d_commands(graph.outlines, selected, layer))
     return CompositeCommand(commands)
 
 

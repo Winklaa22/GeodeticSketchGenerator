@@ -52,3 +52,4 @@ class GenerationConfig:
     pipe: PipeOptions = field(default_factory=PipeOptions)
     measurements: MeasurementsOptions = field(default_factory=MeasurementsOptions)
     layer_rgb: Optional[Tuple[int, int, int]] = None
+    quantum: float = 1.0
