@@ -1,0 +1,39 @@
+name: Build Windows executable
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Generate .ico from icon.png
+        run: |
+          python -c "from PIL import Image; img = Image.open('assets/icon.png'); img.save('assets/icon.ico', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+
+      - name: Build with PyInstaller
+        run: pyinstaller packaging/pyinstaller.spec --distpath dist --workpath build --noconfirm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeodeticSketchGenerator-windows
+          path: dist/GeodeticSketchGenerator.exe
+          if-no-files-found: error
