@@ -33,7 +33,7 @@ class TableTemplateController:
     def apply(self, template: TableTemplate) -> None:
         self._host.table_template = template
         self._host.refresh_table_template_bindings()
-        self._host.layouts.reapply()
+        self._host.layouts.reapply(preserve_view=True)
 
     def import_template(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

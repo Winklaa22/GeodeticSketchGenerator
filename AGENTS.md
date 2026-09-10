@@ -42,11 +42,21 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
   step. Concrete commands: `draw.py` (add point/line/circle/text/polyline), `edit.py`
   (move/rotate/scale/delete/duplicate), `layers.py`, `text.py` (entity text/color edits),
   `survey.py` (a registry of point-set-to-drawing builders keyed by `DrawMode`, looked up via
-  `get_survey_builder`).
-- `survey_draw_service.py` — `SurveyDrawService.build_command()` is the entry point from parsed
-  points + a `GenerationConfig` to a `Command`, dispatching through `commands/survey.py`.
+  `get_survey_builder`; the four label-bearing builders — points/heights/cable-marks/measurements
+  — stage `LabelRequest`s instead of computing their own offsets, see `label_placement.py` below).
+- `survey_draw_service.py` — `SurveyDrawService.build_command()` (single mode) and
+  `build_commands()` (several modes at once, needed so label classes get solved together) are the
+  entry points from parsed points + `GenerationConfig`(s) to `Command`(s), dispatching through
+  `commands/survey.py::build_survey_commands`.
+- `label_placement.py` — `solve_label_positions(labels, obstacles, marker_radius)` is the label
+  coordinate solver: given every pending `LabelRequest` (across all label classes) plus
+  `Obstacles` (marker circles, route segments) it returns a centre point and a hard-collision
+  count per label. Ring/direction candidates around each anchor, an iterated-conditional-modes
+  sweep, and a Voronoi-cell constraint (never closer to another label's anchor than to your own)
+  keep it from just drifting outward to "solve" collisions. Pure geometry — no `ezdxf`, no
+  `DXFDocument`, no `DrawMode` awareness. `commands/survey.py` is the only caller.
 - `geometry.py` / `patterns.py` — direction/angle math between consecutive survey points and
-  routed-path/cabinet-cluster layout used by the survey builders.
+  routed-path recognition (boxes/wedges) used by the survey builders.
 - `draw_modes.py` / `config.py` — the `DrawMode` enum and the per-mode `*Options` dataclasses
   (`PointsOptions`, `HeightsOptions`, `CableOptions`, ...) that feed the survey builders.
 - `session.py` — `EditorSession` holds the loaded point file and its parse result; `AppState`

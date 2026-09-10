@@ -31,6 +31,8 @@ class DelimiterState:
 class PointsState:
     numbers_enabled: bool = False
     font_size: float = 0.6
+    cabinet_font_size_enabled: bool = False
+    cabinet_font_size: float = 0.6
     diameter: float = 0.05
     layer_name: str = ""
 

@@ -3,8 +3,6 @@ from __future__ import annotations
 import math
 
 from core.geometry import (
-    AngleQuadrant,
-    classify_quadrant,
     compute_direction_angle,
     get_next_point,
     offset_segment_perpendicular,
@@ -24,13 +22,6 @@ def test_compute_direction_angle_returns_zero_for_coincident_points() -> None:
 def test_compute_direction_angle_flips_leftward_angles() -> None:
     angle = compute_direction_angle(Point(0, 0, 0), Point(-1, 0, 0))
     assert angle == 0.0
-
-
-def test_classify_quadrant_bands() -> None:
-    assert classify_quadrant(90) == AngleQuadrant.NORTH_EAST
-    assert classify_quadrant(180) == AngleQuadrant.NORTH_WEST
-    assert classify_quadrant(270) == AngleQuadrant.SOUTH_WEST
-    assert classify_quadrant(0) == AngleQuadrant.SOUTH_EAST
 
 
 def test_snap_small_rotation_zeroes_near_flat_angles() -> None:

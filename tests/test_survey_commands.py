@@ -7,9 +7,9 @@ import random
 import pytest
 from ezdxf import bbox as ezdxf_bbox
 
+from core.commands.composite import CompositeCommand
 from core.config import CableOptions, GenerationConfig, HeightsOptions, PipeOptions, PointsOptions
 from core.draw_modes import DrawMode
-from core.commands import survey
 from core.dxf_document import DXFDocument
 from core.exceptions import InvalidLayerNameError, NoDataError, NoSelectionError
 from core.survey_draw_service import SurveyDrawService
@@ -46,6 +46,16 @@ def _bboxes_overlap(a, b) -> bool:
         or a.extmax.y <= b.extmin.y
         or b.extmax.y <= a.extmin.y
     )
+
+
+def _label_rect(cx: float, cy: float, font_size: float, text: str) -> tuple[float, float, float, float]:
+    width = 0.62 * font_size * len(text) + 0.30 * font_size
+    height = 1.30 * font_size
+    return cx - width / 2.0, cy - height / 2.0, cx + width / 2.0, cy + height / 2.0
+
+
+def _rects_overlap(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> bool:
+    return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
 
 
 def test_build_command_raises_when_no_points(service: SurveyDrawService) -> None:
@@ -442,8 +452,14 @@ def test_points_mode_cabinet_label_offset_magnitude_matches_font_size(
     service.build_command(points, [1, 2, 3, 4], config).execute(doc)
     insert = {t.dxf.text: tuple(t.dxf.insert) for t in _entities_of_type(doc, "TEXT")}
     labels = {t.dxf.text: t for t in _entities_of_type(doc, "TEXT")}
-    assert insert["1"][0] == pytest.approx(-0.5)
-    assert insert["3"][0] == pytest.approx(1.5)
+
+    width = 0.62 * 1.0 * 1 + 0.30 * 1.0
+    height = 1.30 * 1.0
+    expected_radius = 0.1 / 2.0 + math.hypot(width, height) / 2.0
+    for number, point in points.items():
+        dx = insert[str(number)][0] - point.x
+        dy = insert[str(number)][1] - point.y
+        assert math.hypot(dx, dy) == pytest.approx(expected_radius, rel=1e-6)
     for n in ("1", "2", "3", "4"):
         assert labels[n].dxf.height == 1.0
 
@@ -476,6 +492,78 @@ def test_points_mode_cabinet_separates_a_center_point_from_the_four_corners(
     assert insert["7"][0] > points[7].x and insert["7"][1] > points[7].y
     assert insert["9"][0] < points[9].x and insert["9"][1] < points[9].y
     assert insert["10"][0] > points[10].x and insert["10"][1] < points[10].y
+
+
+def test_points_mode_uses_a_separate_font_size_for_cabinet_numbers(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = {
+        1: Point(x=0.0, y=100.0, h=1.0),
+        2: Point(x=0.0, y=1.0, h=1.0),
+        3: Point(x=1.0, y=1.0, h=1.0),
+        4: Point(x=1.0, y=0.0, h=1.0),
+        5: Point(x=0.0, y=0.0, h=1.0),
+    }
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.POINTS,
+        points=PointsOptions(
+            numbers_enabled=True, font_size=0.6, cabinet_font_size_enabled=True, cabinet_font_size=1.2,
+            diameter=0.05,
+        ),
+    )
+    service.build_command(points, [1, 2, 3, 4, 5], config).execute(doc)
+    heights = {t.dxf.text: t.dxf.height for t in _entities_of_type(doc, "TEXT")}
+
+    assert heights["1"] == pytest.approx(0.6)
+    for n in ("2", "3", "4", "5"):
+        assert heights[n] == pytest.approx(1.2)
+
+
+def test_points_mode_cabinet_font_size_is_ignored_unless_enabled(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = {
+        1: Point(x=0.0, y=100.0, h=1.0),
+        2: Point(x=0.0, y=1.0, h=1.0),
+        3: Point(x=1.0, y=1.0, h=1.0),
+        4: Point(x=1.0, y=0.0, h=1.0),
+        5: Point(x=0.0, y=0.0, h=1.0),
+    }
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.POINTS,
+        points=PointsOptions(
+            numbers_enabled=True, font_size=0.6, cabinet_font_size_enabled=False, cabinet_font_size=1.2,
+            diameter=0.05,
+        ),
+    )
+    service.build_command(points, [1, 2, 3, 4, 5], config).execute(doc)
+    heights = {t.dxf.text: t.dxf.height for t in _entities_of_type(doc, "TEXT")}
+    assert all(height == pytest.approx(0.6) for height in heights.values())
+
+
+def test_points_options_cabinet_font_size_defaults_to_the_same_value_as_font_size() -> None:
+    options = PointsOptions()
+    assert options.cabinet_font_size == options.font_size
+    assert options.cabinet_font_size_enabled is False
+
+
+def test_points_mode_wcinka_wedge_numbers_keep_the_regular_font_size(
+    service: SurveyDrawService, points_with_wcinka, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.POINTS,
+        points=PointsOptions(
+            numbers_enabled=True, font_size=0.6, cabinet_font_size_enabled=True, cabinet_font_size=1.5,
+            diameter=0.05,
+        ),
+    )
+    service.build_command(points_with_wcinka, [1, 2, 3, 4], config).execute(doc)
+    heights = {t.dxf.text: t.dxf.height for t in _entities_of_type(doc, "TEXT")}
+
+    assert all(height == pytest.approx(0.6) for height in heights.values())
 
 
 @pytest.mark.parametrize(
@@ -544,29 +632,19 @@ def test_points_mode_cabinet_label_never_covers_its_own_point_across_random_rout
             draw_mode=DrawMode.POINTS,
             points=PointsOptions(numbers_enabled=True, font_size=font_size, diameter=0.1),
         )
-        cabinet_numbers = set()
-        for cluster in survey._cabinet_clusters(points, numbers):
-            cabinet_numbers.update(cluster)
         doc = DXFDocument.new()
         service.build_command(points, numbers, config).execute(doc)
-        cabinet_labels = {}
-        for label in _entities_of_type(doc, "TEXT"):
-            number = int(label.dxf.text)
-            if number not in cabinet_numbers:
-                continue
-            cabinet_labels[number] = label
+        labels = {int(label.dxf.text): label for label in _entities_of_type(doc, "TEXT")}
+        rects = {
+            number: _label_rect(label.dxf.insert[0], label.dxf.insert[1], font_size, label.dxf.text)
+            for number, label in labels.items()
+        }
+        for number, rect in rects.items():
             point = points[number]
-            extents = ezdxf_bbox.extents([label])
-            covered = (
-                extents.extmin.x < point.x < extents.extmax.x
-                and extents.extmin.y < point.y < extents.extmax.y
-            )
+            covered = rect[0] < point.x < rect[2] and rect[1] < point.y < rect[3]
             assert not covered, f"trial {_trial}: label {number} covers its own point"
-        for a, b in itertools.combinations(cabinet_labels, 2):
-            overlap = _bboxes_overlap(
-                ezdxf_bbox.extents([cabinet_labels[a]]), ezdxf_bbox.extents([cabinet_labels[b]])
-            )
-            assert not overlap, f"trial {_trial}: labels {a} and {b} overlap each other"
+        for a, b in itertools.combinations(rects, 2):
+            assert not _rects_overlap(rects[a], rects[b]), f"trial {_trial}: labels {a} and {b} overlap each other"
 
 
 def test_heights_mode_respects_frequency_and_rounds_height_up(
@@ -659,6 +737,52 @@ def test_measurements_mode_labels_wcinka_wing_stubs_too(
     labels = _entities_of_type(doc, "TEXT")
     # The main segment (3 -> 4) plus both wedge wings (3 -> 1, 3 -> 2).
     assert sorted(t.dxf.text for t in labels) == ["-20.00-", "-3.61-", "-3.61-"]
+
+
+def test_build_commands_solves_every_label_class_together_unlike_separate_build_command_calls(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = {
+        1: Point(x=0.0, y=0.0, h=10.0),
+        2: Point(x=10.0, y=0.0, h=11.0),
+    }
+    points_config = GenerationConfig(
+        layer_name="Numbers",
+        draw_mode=DrawMode.POINTS,
+        points=PointsOptions(numbers_enabled=True, font_size=0.6, diameter=0.1),
+    )
+    heights_config = GenerationConfig(
+        layer_name="Heights",
+        draw_mode=DrawMode.HEIGHTS,
+        heights=HeightsOptions(font_size=0.6, frequency=1),
+    )
+
+    separate = CompositeCommand(
+        [
+            service.build_command(points, [1, 2], points_config),
+            service.build_command(points, [1, 2], heights_config),
+        ]
+    )
+    separate.execute(doc)
+    separate_labels = _entities_of_type(doc, "TEXT")
+    separate_overlaps = sum(
+        1
+        for a, b in itertools.combinations(separate_labels, 2)
+        if _bboxes_overlap(ezdxf_bbox.extents([a]), ezdxf_bbox.extents([b]))
+    )
+
+    combined_doc = DXFDocument.new()
+    for command in service.build_commands(points, [1, 2], [points_config, heights_config]):
+        command.execute(combined_doc)
+    combined_labels = _entities_of_type(combined_doc, "TEXT")
+    combined_overlaps = sum(
+        1
+        for a, b in itertools.combinations(combined_labels, 2)
+        if _bboxes_overlap(ezdxf_bbox.extents([a]), ezdxf_bbox.extents([b]))
+    )
+
+    assert separate_overlaps > 0
+    assert combined_overlaps == 0
 
 
 def test_whole_batch_undoes_as_one_step(service: SurveyDrawService, points, doc: DXFDocument) -> None:

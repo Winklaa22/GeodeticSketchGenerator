@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from enum import IntEnum
 from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 from models.point import Point
@@ -24,24 +23,6 @@ def compute_direction_angle(current: Point, next_point: Optional[Point]) -> floa
         if angle_deg >= 360:
             angle_deg -= 360
     return angle_deg
-
-
-class AngleQuadrant(IntEnum):
-
-    NORTH_EAST = 0
-    NORTH_WEST = 1
-    SOUTH_WEST = 2
-    SOUTH_EAST = 3
-
-
-def classify_quadrant(angle_deg: float) -> AngleQuadrant:
-    if 45 <= angle_deg < 135:
-        return AngleQuadrant.NORTH_EAST
-    if 135 <= angle_deg < 225:
-        return AngleQuadrant.NORTH_WEST
-    if 225 <= angle_deg < 315:
-        return AngleQuadrant.SOUTH_WEST
-    return AngleQuadrant.SOUTH_EAST
 
 
 def snap_small_rotation(angle_deg: float, rotation: float, threshold: float = 20.0) -> Union[int, float]:

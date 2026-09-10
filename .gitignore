@@ -34,3 +34,7 @@ Thumbs.db
 # App output / local artifacts
 *.scr
 *.log
+
+# Local docs / scratch
+docs/
+scratchpad/

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import replace
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import QRectF
 from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
@@ -33,6 +33,7 @@ class LayoutController:
         self._host = host
         self._syncing = False
         self._tab_signature: Optional[Tuple[Tuple[str, ...], Optional[int]]] = None
+        self._view_states: Dict[Any, Tuple] = {}
 
     @property
     def _sheets(self):
@@ -72,8 +73,8 @@ class LayoutController:
         self._viewer.pageFrameRotated.connect(self.on_page_frame_rotated)
         panel.projectFieldsChanged.connect(self.on_project_fields_changed)
 
-    def reapply(self) -> None:
-        self._apply_active()
+    def reapply(self, *, preserve_view: bool = False) -> None:
+        self._apply_active(preserve_view=preserve_view)
         self.refresh()
 
     def refresh(self) -> None:
@@ -99,21 +100,37 @@ class LayoutController:
         finally:
             self._syncing = False
 
+    def _view_key(self) -> Any:
+        sheet = self._sheets.active
+        return sheet.name if sheet is not None else None
+
     def activate(self, index: Optional[int]) -> None:
+        # Switching between the Model tab and a sheet tab (or between two sheet
+        # tabs) used to always re-fit the view, discarding whatever zoom/pan the
+        # user had set on the tab they're leaving. Remember it here, keyed by the
+        # tab being left, and restore the matching state - if any - for the tab
+        # being entered once it's rendered, so each tab keeps its own framing
+        # across switches instead of resetting to fit-to-page every time.
+        if self._viewer.has_document:
+            self._view_states[self._view_key()] = self._viewer.view.save_view()
         self._sheets.activate(index)
         self._apply_active()
+        remembered = self._view_states.get(self._view_key())
+        if remembered is not None:
+            self._viewer.view.restore_view(remembered)
         self.refresh()
 
-    def _apply_active(self) -> None:
+    def _apply_active(self, *, preserve_view: bool = False) -> None:
         sheet = self._sheets.active
         if sheet is None:
-            self._viewer.set_layout_mode(None)
+            self._viewer.set_layout_mode(None, preserve_view=preserve_view)
             return
         options = self._resolved(sheet)
         self._viewer.set_layout_mode(
             options, self._center(sheet), self._label(sheet, options), sheet.rotation,
             table_height_mm=self._host.table_template.total_height_mm(),
             table_width_mm=MAX_TABLE_WIDTH_MM,
+            preserve_view=preserve_view,
         )
         self._apply_table(sheet, options)
 
@@ -162,7 +179,7 @@ class LayoutController:
         self._sheets.set_options(index, self._panel.plot_tab.get_options())
         self._sheets.set_rotation(index, self._panel.plot_tab.get_rotation())
         self._sheets.set_field_values(index, self._panel.sheet_fields_tab.get_values())
-        self._apply_active()
+        self._apply_active(preserve_view=True)
         self.refresh()
 
     def on_project_fields_changed(self) -> None:
@@ -170,7 +187,7 @@ class LayoutController:
             return
         values = self._panel.project_fields_tab.get_values()
         self._host.table_template = replace(self._host.table_template, project_field_values=values)
-        self._apply_active()
+        self._apply_active(preserve_view=True)
 
     def on_page_frame_moved(self, center_x: float, center_y: float) -> None:
         index = self._sheets.active_index
@@ -219,7 +236,12 @@ class LayoutController:
             return
         applied = self._sheets.rename(index, name)
         if self._sheets.active_index == index:
-            self._apply_active()
+            # The remembered view state is keyed by sheet name (see activate());
+            # carry it over to the new name so the rename itself doesn't look like
+            # a tab switch and lose the current zoom.
+            if current in self._view_states:
+                self._view_states[applied] = self._view_states.pop(current)
+            self._apply_active(preserve_view=True)
         self.refresh()
         if name.strip() and applied != name.strip():
             self._host.flash_status(tr("layout.name_taken", name=name.strip(), applied=applied))
@@ -238,6 +260,7 @@ class LayoutController:
         if confirmed != QMessageBox.StandardButton.Yes:
             return
         self._sheets.delete(index)
+        self._view_states.pop(name, None)
         self._apply_active()
         self.refresh()
 

@@ -231,12 +231,8 @@ class MainWindow(QMainWindow):
         ensure_selection(selected_numbers)
         draw_modes = self.panel.draw_tab.draw_modes
         ensure_draw_modes(draw_modes)
-        commands = [
-            self.survey_draw_service.build_command(
-                self.session.data, selected_numbers, self.panel.build_generation_config(mode, self.session.quantum)
-            )
-            for mode in draw_modes
-        ]
+        configs = [self.panel.build_generation_config(mode, self.session.quantum) for mode in draw_modes]
+        commands = self.survey_draw_service.build_commands(self.session.data, selected_numbers, configs)
         return commands[0] if len(commands) == 1 else CompositeCommand(commands)
 
     def apply_to_dxf(self) -> None:
