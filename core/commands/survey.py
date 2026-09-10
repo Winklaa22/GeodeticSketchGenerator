@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
-from typing import Callable, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Set, Tuple
 
+from core.commands.base import Command
 from core.commands.composite import CompositeCommand
 from core.commands.draw import (
     AddCircleCommand,
@@ -11,189 +13,130 @@ from core.commands.draw import (
     AddPolyline3DCommand,
     AddTextCommand,
 )
-from core.config import CableOptions, GenerationConfig, MeasurementsOptions
+from core.config import GenerationConfig
 from core.draw_modes import DrawMode
 from core.geometry import (
-    AngleQuadrant,
-    PointDirection,
-    classify_quadrant,
     compute_direction_angle,
     iter_point_directions,
     offset_segment_perpendicular,
     snap_small_rotation,
 )
+from core.label_placement import LabelRequest, Obstacles, solve_label_positions
 from core.patterns import route_selected_points
 from core.route_graph import build_cable_chains, build_route_graph
 from models.point import Point
 
-def build_points_command(
-    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+Point2D = Tuple[float, float]
+
+
+@dataclass(frozen=True)
+class _PendingLabel:
+    request: LabelRequest
+    render: Callable[[Point2D], AddTextCommand]
+
+
+def _route_segments(
+    points: Dict[int, Point], selected_numbers: List[int]
+) -> List[Tuple[Point2D, Point2D]]:
+    routed = route_selected_points(points, selected_numbers)
+    segments = [((a.x, a.y), (b.x, b.y)) for a, b in zip(routed.main, routed.main[1:])]
+    for box in routed.boxes:
+        size = len(box)
+        for k in range(size):
+            a, b = box[k], box[(k + 1) % size]
+            segments.append(((a.x, a.y), (b.x, b.y)))
+    for entry, wing_1, wing_2 in routed.wedges:
+        segments.append(((entry.x, entry.y), (wing_1.x, wing_1.y)))
+        segments.append(((entry.x, entry.y), (wing_2.x, wing_2.y)))
+    return segments
+
+
+def _build_obstacles(points: Dict[int, Point], selected_numbers: List[int], marker_radius: float) -> Obstacles:
+    markers = [(points[n].x, points[n].y, marker_radius) for n in selected_numbers if n in points]
+    return Obstacles(markers=markers, segments=_route_segments(points, selected_numbers))
+
+
+def _cabinet_numbers(points: Dict[int, Point], selected_numbers: List[int]) -> Set[int]:
+    routed = route_selected_points(points, selected_numbers)
+    number_by_id = {id(p): n for n, p in points.items()}
+    clusters = [list(box) for box in routed.boxes]
+
+    numbers: Set[int] = set()
+    for cluster in clusters:
+        cluster_numbers = {number_by_id[id(p)] for p in cluster}
+        centroid_x = sum(p.x for p in cluster) / len(cluster)
+        centroid_y = sum(p.y for p in cluster) / len(cluster)
+        cluster_radius = max(math.hypot(p.x - centroid_x, p.y - centroid_y) for p in cluster)
+        for point in routed.main:
+            number = number_by_id[id(point)]
+            if number in cluster_numbers:
+                continue
+            if math.hypot(point.x - centroid_x, point.y - centroid_y) <= cluster_radius:
+                cluster_numbers.add(number)
+        numbers.update(cluster_numbers)
+    return numbers
+
+
+def _perpendicular_prefer(start: Point, end: Point, flip: bool) -> float:
+    dx, dy = end.x - start.x, end.y - start.y
+    if dx == 0.0 and dy == 0.0:
+        return 0.0
+    angle = math.atan2(dx, -dy)
+    return angle + math.pi if flip else angle
+
+
+def _finalize(
+    points: Dict[int, Point],
+    selected_numbers: List[int],
+    config: GenerationConfig,
+    structural: List[Command],
+    pending: List[_PendingLabel],
 ) -> CompositeCommand:
+    marker_radius = max(config.points.diameter / 2.0, 0.0)
+    obstacles = _build_obstacles(points, selected_numbers, marker_radius)
+    positions, _collisions = solve_label_positions([p.request for p in pending], obstacles, marker_radius)
+    labels = [p.render(positions[p.request.key]) for p in pending]
+    return CompositeCommand(structural + labels)
+
+
+def _stage_points(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+) -> Tuple[List[Command], List[_PendingLabel]]:
     options = config.points
     radius = max(options.diameter / 2.0, 0.0)
     directions = list(iter_point_directions(points, selected_numbers))
-    cabinet_offsets: Dict[int, Tuple[float, float]] = {}
+    structural: List[Command] = [
+        AddCircleCommand((d.point.x, d.point.y, d.point.h), radius, layer) for d in directions
+    ]
+    pending: List[_PendingLabel] = []
     if options.numbers_enabled:
-        for cluster in _cabinet_clusters(points, selected_numbers):
-            cabinet_offsets.update(_cabinet_label_offsets(cluster, options.font_size))
-
-    commands = []
-    for direction in directions:
-        point = direction.point
-        commands.append(AddCircleCommand((point.x, point.y, point.h), radius, layer))
-        if options.numbers_enabled:
-            commands.append(
-                _points_label_command(direction, options.font_size, cabinet_offsets, layer)
+        cabinet_numbers = (
+            _cabinet_numbers(points, selected_numbers) if options.cabinet_font_size_enabled else set()
+        )
+        for direction in directions:
+            point = direction.point
+            number = direction.number
+            size = options.cabinet_font_size if number in cabinet_numbers else options.font_size
+            key = ("points", number)
+            request = LabelRequest(
+                key=key, anchor=(point.x, point.y), text=str(number), font_size=size, prefer=None
             )
-    return CompositeCommand(commands)
+
+            def render(
+                pos: Point2D, point: Point = point, number: int = number, size: float = size, layer: str = layer
+            ) -> AddTextCommand:
+                insert = (pos[0], pos[1], point.h)
+                return AddTextCommand(str(number), insert, size, layer, halign="center", valign="middle")
+
+            pending.append(_PendingLabel(request, render))
+    return structural, pending
 
 
-def _cabinet_clusters(points: Dict[int, Point], selected_numbers: List[int]) -> List[Dict[int, Point]]:
-    routed = route_selected_points(points, selected_numbers)
-    number_by_id = {id(p): n for n, p in points.items()}
-
-    clusters = [{number_by_id[id(p)]: p for p in box} for box in routed.boxes]
-    clusters.extend({number_by_id[id(p)]: p for p in wedge} for wedge in routed.wedges)
-
-    for cluster in clusters:
-        centroid = _centroid(list(cluster.values()))
-        if centroid is None:
-            continue
-        cluster_radius = max(math.hypot(p.x - centroid[0], p.y - centroid[1]) for p in cluster.values())
-        for point in routed.main:
-            number = number_by_id[id(point)]
-            if number in cluster:
-                continue
-            if math.hypot(point.x - centroid[0], point.y - centroid[1]) <= cluster_radius:
-                cluster[number] = point
-
-    return clusters
-
-
-def _centroid(points: List[Point]) -> Optional[Tuple[float, float]]:
-    if not points:
-        return None
-    return sum(p.x for p in points) / len(points), sum(p.y for p in points) / len(points)
-
-
-_CABINET_OFFSET_SCALES = (1.0, 1.5, 2.0, 2.5, 3.0)
-_GLYPH_WIDTH_FACTOR = 0.9
-_GLYPH_HEIGHT_FACTOR = 1.3
-
-
-def _cabinet_label_offsets(cabinet_points: Dict[int, Point], font_size: float) -> Dict[int, Tuple[float, float]]:
-    centroid = _centroid(list(cabinet_points.values()))
-    if centroid is None:
-        return {}
-    half = font_size / 2.0
-    centroid_x, centroid_y = centroid
-    distances = {
-        n: math.hypot(p.x - centroid_x, p.y - centroid_y) for n, p in cabinet_points.items()
-    }
-    ordering = sorted(cabinet_points, key=lambda n: distances[n], reverse=True)
-
-    offsets: Dict[int, Tuple[float, float]] = {}
-    placed_boxes: List[Tuple[float, float, float, float]] = []
-    for number in ordering:
-        point = cabinet_points[number]
-        footprint = _label_footprint(str(number), font_size)
-        x_sign = 1.0 if point.x >= centroid_x else -1.0
-        y_sign = 1.0 if point.y >= centroid_y else -1.0
-
-        best_offset = (half * x_sign, half * y_sign)
-        best_overlaps = None
-        for scale in _CABINET_OFFSET_SCALES:
-            magnitude = half * scale
-            candidates = [
-                (magnitude * x_sign, magnitude * y_sign),
-                (-magnitude * x_sign, magnitude * y_sign),
-                (magnitude * x_sign, -magnitude * y_sign),
-                (-magnitude * x_sign, -magnitude * y_sign),
-                (magnitude, 0.0), (-magnitude, 0.0), (0.0, magnitude), (0.0, -magnitude),
-            ]
-            for candidate in candidates:
-                box = _offset_bbox(point.x, point.y, candidate, footprint)
-                overlaps = sum(1 for placed_box in placed_boxes if _boxes_overlap(box, placed_box))
-                if best_overlaps is None or overlaps < best_overlaps:
-                    best_offset, best_overlaps = candidate, overlaps
-            if best_overlaps == 0:
-                break
-
-        offsets[number] = best_offset
-        placed_boxes.append(_offset_bbox(point.x, point.y, best_offset, footprint))
-
-    return offsets
-
-
-def _label_footprint(text: str, size: float) -> Tuple[float, float]:
-    return _GLYPH_WIDTH_FACTOR * size * len(text), _GLYPH_HEIGHT_FACTOR * size
-
-
-def _offset_bbox(
-    x: float, y: float, offset: Tuple[float, float], footprint: Tuple[float, float]
-) -> Tuple[float, float, float, float]:
-    x_offset, y_offset = offset
-    width, height = footprint
-    if x_offset > 0:
-        x0, x1 = x + x_offset, x + x_offset + width
-    elif x_offset < 0:
-        x0, x1 = x + x_offset - width, x + x_offset
-    else:
-        x0, x1 = x - width, x + width
-    if y_offset > 0:
-        y0, y1 = y + y_offset, y + y_offset + height
-    elif y_offset < 0:
-        y0, y1 = y + y_offset - height, y + y_offset
-    else:
-        y0, y1 = y - height, y + height
-    return x0, y0, x1, y1
-
-
-def _boxes_overlap(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> bool:
-    return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
-
-
-def _points_label_command(
-    direction: PointDirection, font_size: float, cabinet_offsets: Dict[int, Tuple[float, float]], layer: str
-) -> AddTextCommand:
-    point = direction.point
-    size = font_size
-    cabinet_offset = cabinet_offsets.get(direction.number)
-    if cabinet_offset is not None:
-        x_offset, y_offset = cabinet_offset
-        halign, valign = _text_anchor(x_offset, y_offset)
-    else:
-        x_offset, y_offset = _points_label_offset(direction.angle_deg, size)
-        halign, valign = "left", "bottom"
-    insert = (point.x + x_offset, point.y + y_offset, point.h)
-    return AddTextCommand(str(direction.number), insert, size, layer, halign=halign, valign=valign)
-
-
-def _text_anchor(x_offset: float, y_offset: float) -> Tuple[str, str]:
-    if x_offset > 0:
-        halign = "left"
-    elif x_offset < 0:
-        halign = "right"
-    else:
-        halign = "center"
-    if y_offset > 0:
-        valign = "bottom"
-    elif y_offset < 0:
-        valign = "top"
-    else:
-        valign = "middle"
-    return halign, valign
-
-
-def _points_label_offset(angle_deg: float, font_size: float) -> Tuple[float, float]:
-    half = font_size / 2.0
-    offsets = {
-        AngleQuadrant.NORTH_EAST: (half, -half),
-        AngleQuadrant.NORTH_WEST: (-half, half),
-        AngleQuadrant.SOUTH_WEST: (-half, -half),
-        AngleQuadrant.SOUTH_EAST: (-half, half),
-    }
-    return offsets[classify_quadrant(angle_deg)]
+def build_points_command(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+) -> CompositeCommand:
+    structural, pending = _stage_points(points, selected_numbers, config, layer)
+    return _finalize(points, selected_numbers, config, structural, pending)
 
 
 def _selected_points(points: Dict[int, Point], selected_numbers: List[int]) -> Dict[int, Point]:
@@ -282,42 +225,39 @@ def build_poly3d_command(
     return CompositeCommand(commands)
 
 
-def build_heights_command(
+def _stage_heights(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
-) -> CompositeCommand:
+) -> Tuple[List[Command], List[_PendingLabel]]:
     options = config.heights
-    commands = []
+    pending: List[_PendingLabel] = []
     for direction in iter_point_directions(points, selected_numbers):
         if direction.number % options.frequency != 0:
             continue
         point = direction.point
-        x_offset, y_offset = _direction_label_offset(direction.angle_deg, options.font_size)
         rotation = snap_small_rotation(direction.angle_deg, direction.rotation)
         rounded_height = math.ceil(point.h * 10) / 10
-        insert = (point.x + x_offset, point.y + y_offset, point.h)
-        commands.append(AddTextCommand(str(rounded_height), insert, options.font_size, layer, rotation))
-    return CompositeCommand(commands)
+        text = str(rounded_height)
+        key = ("heights", direction.number)
+        request = LabelRequest(
+            key=key, anchor=(point.x, point.y), text=text, font_size=options.font_size, prefer=None
+        )
+
+        def render(
+            pos: Point2D, point: Point = point, text: str = text, size: float = options.font_size,
+            layer: str = layer, rotation: float = rotation,
+        ) -> AddTextCommand:
+            insert = (pos[0], pos[1], point.h)
+            return AddTextCommand(text, insert, size, layer, rotation, halign="center", valign="middle")
+
+        pending.append(_PendingLabel(request, render))
+    return [], pending
 
 
-def _direction_label_offset(angle_deg: float, font_size: float) -> Tuple[float, float]:
-    half = font_size / 2.0
-    offsets = {
-        AngleQuadrant.NORTH_EAST: (half, 0.5),
-        AngleQuadrant.NORTH_WEST: (-0.5, half),
-        AngleQuadrant.SOUTH_WEST: (-half, -0.5),
-        AngleQuadrant.SOUTH_EAST: (0.5, -half),
-    }
-    return offsets[classify_quadrant(angle_deg)]
-
-
-def build_cable_marks_command(
+def build_heights_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    options = config.cable
-    routed = route_selected_points(points, selected_numbers)
-    segments = list(zip(routed.main, routed.main[1:]))
-    mark_indices = _cable_mark_indices(len(segments), options.frequency) if segments else []
-    return CompositeCommand([_cable_mark_command(segments[index], options, layer) for index in mark_indices])
+    structural, pending = _stage_heights(points, selected_numbers, config, layer)
+    return _finalize(points, selected_numbers, config, structural, pending)
 
 
 def _cable_mark_indices(segment_count: int, frequency: int) -> List[int]:
@@ -339,66 +279,86 @@ def _cable_mark_indices(segment_count: int, frequency: int) -> List[int]:
     return sorted(indices)
 
 
-def _cable_mark_command(segment: Tuple[Point, Point], options: CableOptions, layer: str) -> AddTextCommand:
-    start, end = segment
-    angle_deg = compute_direction_angle(start, end)
-    mid_x = (start.x + end.x) / 2.0
-    mid_y = (start.y + end.y) / 2.0
-    x_offset, y_offset = _cable_label_offset(angle_deg, options.font_size)
-    rotation = snap_small_rotation(angle_deg, round(angle_deg, 1))
-    insert = (mid_x + x_offset, mid_y + y_offset, start.h)
-    return AddTextCommand(options.marks_text, insert, options.font_size, layer, rotation)
+def _stage_cable_marks(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+) -> Tuple[List[Command], List[_PendingLabel]]:
+    options = config.cable
+    routed = route_selected_points(points, selected_numbers)
+    segments = list(zip(routed.main, routed.main[1:]))
+    mark_indices = _cable_mark_indices(len(segments), options.frequency) if segments else []
+    pending: List[_PendingLabel] = []
+    for index in mark_indices:
+        start, end = segments[index]
+        angle_deg = compute_direction_angle(start, end)
+        mid_x, mid_y = (start.x + end.x) / 2.0, (start.y + end.y) / 2.0
+        rotation = snap_small_rotation(angle_deg, round(angle_deg, 1))
+        text = options.marks_text
+        z = start.h
+        key = ("cable_marks", index)
+        request = LabelRequest(
+            key=key, anchor=(mid_x, mid_y), text=text, font_size=options.font_size, prefer=None
+        )
+
+        def render(
+            pos: Point2D, text: str = text, size: float = options.font_size, layer: str = layer,
+            rotation: float = rotation, z: float = z,
+        ) -> AddTextCommand:
+            insert = (pos[0], pos[1], z)
+            return AddTextCommand(text, insert, size, layer, rotation, halign="center", valign="middle")
+
+        pending.append(_PendingLabel(request, render))
+    return [], pending
 
 
-def _cable_label_offset(angle_deg: float, font_size: float) -> Tuple[float, float]:
-    half = font_size / 2.0
-    offsets = {
-        AngleQuadrant.NORTH_EAST: (half, 0.0),
-        AngleQuadrant.NORTH_WEST: (0.0, half),
-        AngleQuadrant.SOUTH_WEST: (-half, 0.0),
-        AngleQuadrant.SOUTH_EAST: (0.0, -half),
-    }
-    return offsets[classify_quadrant(angle_deg)]
-
-
-def build_measurements_command(
+def build_cable_marks_command(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> CompositeCommand:
-    """A "-D.DD-" length label along the midpoint of every segment on the
-    routed path, including wcinka wing stubs — skrzynka sides are skipped
-    entirely, same as route_selected_points already keeps them as their own
-    separate shape rather than part of the cable run."""
+    structural, pending = _stage_cable_marks(points, selected_numbers, config, layer)
+    return _finalize(points, selected_numbers, config, structural, pending)
+
+
+def _stage_measurements(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+) -> Tuple[List[Command], List[_PendingLabel]]:
     options = config.measurements
     routed = route_selected_points(points, selected_numbers)
     segments = list(zip(routed.main, routed.main[1:]))
     for entry, wing_1, wing_2 in routed.wedges:
         segments.append((entry, wing_1))
         segments.append((entry, wing_2))
-    commands = []
-    for start, end in segments:
-        command = _measurement_command(start, end, options, layer)
-        if command is not None:
-            commands.append(command)
-    return CompositeCommand(commands)
+
+    pending: List[_PendingLabel] = []
+    for index, (start, end) in enumerate(segments):
+        distance = math.hypot(end.x - start.x, end.y - start.y)
+        if distance <= 0:
+            continue
+        angle_deg = compute_direction_angle(start, end)
+        rotation = snap_small_rotation(angle_deg, round(angle_deg, 1))
+        mid_x, mid_y = (start.x + end.x) / 2.0, (start.y + end.y) / 2.0
+        prefer = _perpendicular_prefer(start, end, flip=True)
+        text = f"-{distance:.2f}-"
+        z = (start.h + end.h) / 2.0
+        key = ("measurements", index)
+        request = LabelRequest(
+            key=key, anchor=(mid_x, mid_y), text=text, font_size=options.font_size, prefer=prefer
+        )
+
+        def render(
+            pos: Point2D, text: str = text, size: float = options.font_size, layer: str = layer,
+            rotation: float = rotation, z: float = z,
+        ) -> AddTextCommand:
+            insert = (pos[0], pos[1], z)
+            return AddTextCommand(text, insert, size, layer, rotation, halign="center", valign="middle")
+
+        pending.append(_PendingLabel(request, render))
+    return [], pending
 
 
-def _measurement_command(
-    start: Point, end: Point, options: MeasurementsOptions, layer: str
-) -> Optional[AddTextCommand]:
-    distance = math.hypot(end.x - start.x, end.y - start.y)
-    if distance <= 0:
-        return None
-    angle_deg = compute_direction_angle(start, end)
-    rotation = snap_small_rotation(angle_deg, round(angle_deg, 1))
-    offset_start, offset_end = offset_segment_perpendicular(start, end, options.offset)
-    insert = (
-        (offset_start.x + offset_end.x) / 2.0,
-        (offset_start.y + offset_end.y) / 2.0,
-        (start.h + end.h) / 2.0,
-    )
-    return AddTextCommand(
-        f"-{distance:.2f}-", insert, options.font_size, layer, rotation, halign="center", valign="middle"
-    )
+def build_measurements_command(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+) -> CompositeCommand:
+    structural, pending = _stage_measurements(points, selected_numbers, config, layer)
+    return _finalize(points, selected_numbers, config, structural, pending)
 
 
 SurveyBuilder = Callable[[Dict[int, Point], List[int], GenerationConfig, str], CompositeCommand]
@@ -414,9 +374,50 @@ _BUILDERS: Dict[DrawMode, SurveyBuilder] = {
     DrawMode.MEASUREMENTS: build_measurements_command,
 }
 
+_LabelStageBuilder = Callable[
+    [Dict[int, Point], List[int], GenerationConfig, str], Tuple[List[Command], List[_PendingLabel]]
+]
+
+_LABEL_STAGE_BUILDERS: Dict[DrawMode, _LabelStageBuilder] = {
+    DrawMode.POINTS: _stage_points,
+    DrawMode.HEIGHTS: _stage_heights,
+    DrawMode.CABLE_MARKS: _stage_cable_marks,
+    DrawMode.MEASUREMENTS: _stage_measurements,
+}
+
 
 def get_survey_builder(draw_mode: DrawMode) -> SurveyBuilder:
     try:
         return _BUILDERS[draw_mode]
     except KeyError as exc:
         raise ValueError(f"Unsupported draw mode: {draw_mode!r}") from exc
+
+
+def build_survey_commands(
+    points: Dict[int, Point],
+    selected_numbers: List[int],
+    configs: List[GenerationConfig],
+    layer_names: List[str],
+) -> List[CompositeCommand]:
+    if not configs:
+        return []
+    marker_radius = max(configs[0].points.diameter / 2.0, 0.0)
+    obstacles = _build_obstacles(points, selected_numbers, marker_radius)
+
+    per_config: List[Tuple[List[Command], List[_PendingLabel]]] = []
+    for config, layer in zip(configs, layer_names):
+        stage = _LABEL_STAGE_BUILDERS.get(config.draw_mode)
+        if stage is not None:
+            per_config.append(stage(points, selected_numbers, config, layer))
+        else:
+            command = get_survey_builder(config.draw_mode)(points, selected_numbers, config, layer)
+            per_config.append(([command], []))
+
+    all_requests = [pending.request for _structural, pending_list in per_config for pending in pending_list]
+    positions, _collisions = solve_label_positions(all_requests, obstacles, marker_radius)
+
+    results: List[CompositeCommand] = []
+    for structural, pending_list in per_config:
+        labels = [pending.render(positions[pending.request.key]) for pending in pending_list]
+        results.append(CompositeCommand(structural + labels))
+    return results

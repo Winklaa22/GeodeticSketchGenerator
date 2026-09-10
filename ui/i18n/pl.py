@@ -267,6 +267,8 @@ TRANSLATIONS: Dict[str, str] = {
     "tabs.center_on_drawing": "Wyśrodkuj na rysunku",
     "tabs.add_numbers_checkbox": "Dodaj numery do punktów",
     "tabs.circle_diameter": "Średnica okręgu",
+    "tabs.cabinet_font_size_enabled": "Użyj osobnego rozmiaru czcionki dla numerów szafki",
+    "tabs.cabinet_font_size": "Rozmiar numerów szafki",
     "tabs.selection_all": "Wszystkie",
     "tabs.selection_separately": "Osobno…",
     "tabs.selection_range": "W zakresie…",

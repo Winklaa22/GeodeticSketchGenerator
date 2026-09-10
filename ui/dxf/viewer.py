@@ -295,6 +295,7 @@ class DxfViewer(qw.QWidget):
         rotation: float = 0.0,
         table_height_mm: float = 0.0,
         table_width_mm: float = 0.0,
+        preserve_view: bool = False,
     ) -> None:
         if options is None:
             if self._layout_options is None:
@@ -321,7 +322,7 @@ class DxfViewer(qw.QWidget):
             self._install_page_frame()
             self._compass.set_angle(rotation)
         if self._doc is not None:
-            self._render(preserve_view=False)
+            self._render(preserve_view=preserve_view)
 
     def move_page_frame(self, center_x: float, center_y: float) -> None:
         if self._layout_options is None:
