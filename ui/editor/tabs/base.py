@@ -58,8 +58,9 @@ class LayeredOptionsTab(SectionWidget):
         self._column.addWidget(make_field(label, widget))
         return widget
 
-    def _add_check_field(self, label: str) -> CheckField:
+    def _add_check_field(self, label: str, checked: bool = False) -> CheckField:
         checkbox = CheckField(label)
+        checkbox.setChecked(checked)
         checkbox.toggled.connect(lambda _checked: self.option_changed.emit())
         self._add_widget(checkbox)
         return checkbox

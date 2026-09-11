@@ -71,6 +71,9 @@ class CadGraphicsView(qw.QGraphicsView):
     itemsDragMoved = qc.pyqtSignal(list, float, float)
     viewportChanged = qc.pyqtSignal()
     pageFrameMoved = qc.pyqtSignal(float, float)
+    # factor > 1 means "make the drawing bigger on the paper"; the anchor is the world
+    # point under the cursor, which the new sheet scale has to keep in place.
+    pageScaleZoomRequested = qc.pyqtSignal(float, float, float)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -78,7 +81,6 @@ class CadGraphicsView(qw.QGraphicsView):
         self._min_zoom = 0.02
         self._max_zoom = 200.0
         self._zoom_step = 0.2
-        self._frame_transform: Optional[qg.QTransform] = None
         self._tool: Optional["ToolSession"] = None
         self._press_pos: Optional[qc.QPoint] = None
         self._selected_items: List[qw.QGraphicsItem] = []
@@ -150,12 +152,6 @@ class CadGraphicsView(qw.QGraphicsView):
         self.setSceneRect(sheet)
         self.fitInView(sheet, qc.Qt.AspectRatioMode.KeepAspectRatio)
         self._base_scale = x_scale(self.transform())
-        # Freeze THIS 1x fit as the frame's own transform, before any zoom/recenter is
-        # reapplied below. The live view transform is free to change afterwards (scrolling
-        # zooms into the drawing, same as the model view), but the paper/table chrome is
-        # always drawn with this frozen transform, so it stays put on screen no matter how
-        # far the content underneath is zoomed or panned.
-        self._frame_transform = qg.QTransform(self.viewportTransform())
         if abs(zoom_factor - 1.0) > 1e-9:
             # Reapplying the preserved zoom must not re-anchor on the mouse cursor (the
             # view's transformationAnchor is AnchorUnderMouse, needed for wheel-zoom) since
@@ -232,7 +228,38 @@ class CadGraphicsView(qw.QGraphicsView):
         if notches == 0:
             return
         factor = (1.0 + self._zoom_step) ** notches
-        self.zoom_by(factor)
+        ctrl = bool(event.modifiers() & qc.Qt.KeyboardModifier.ControlModifier)
+        # On a sheet, the plain wheel is a sheet edit rather than a view change: it
+        # rescales the drawing on the paper (the page and its title block keep their
+        # size), which is what gets exported. Ctrl+wheel stays a pure view zoom of the
+        # whole preview. On the model tab there is no sheet to rescale, so the wheel
+        # keeps its plain view-zoom meaning.
+        if ctrl or self._page_frame is None:
+            self.zoom_by(factor)
+            return
+        anchor = self._world_point(event.position())
+        self.pageScaleZoomRequested.emit(factor, anchor.x(), anchor.y())
+
+    def _world_point(self, view_pos: qc.QPointF) -> qc.QPointF:
+        """Cursor position as a DXF/world point, undoing the scene's content rotation."""
+        scene_point = self.mapToScene(view_pos.toPoint())
+        rotation, pivot = self._content_rotation()
+        if pivot is None:
+            return scene_point
+        return _rotate_point(scene_point, pivot, -rotation)
+
+    def current_zoom_factor(self) -> float:
+        return self._current_zoom()
+
+    def apply_zoom_factor(self, factor: float) -> None:
+        """Re-apply a zoom level relative to the page fit, without moving the centre."""
+        if factor <= 0 or abs(factor - 1.0) < 1e-9:
+            return
+        anchor = self.transformationAnchor()
+        self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.scale(factor, factor)
+        self.setTransformationAnchor(anchor)
+        self.viewportChanged.emit()
 
     def set_tool(self, tool: Optional["ToolSession"]) -> None:
         self._tool = tool
@@ -518,7 +545,6 @@ class CadGraphicsView(qw.QGraphicsView):
         super().drawBackground(painter, rect)
         if self._page_frame is not None:
             painter.save()
-            painter.setTransform(self._frame_transform or painter.transform())
             painter.fillRect(self._page_frame.sheet_rect(), qg.QColor(PAPER_COLOR))
             painter.restore()
 
@@ -528,9 +554,7 @@ class CadGraphicsView(qw.QGraphicsView):
 
         if self._page_frame is not None:
             painter.save()
-            frame_transform = self._frame_transform or painter.transform()
-            painter.setTransform(frame_transform)
-            self._paint_page_frame(painter, x_scale(frame_transform) or 1.0)
+            self._paint_page_frame(painter, scale, rect)
             painter.restore()
 
         if self._snap_indicator is not None:
@@ -571,17 +595,17 @@ class CadGraphicsView(qw.QGraphicsView):
         path.setFillRule(qc.Qt.FillRule.OddEvenFill)
         return path
 
-    def _paint_page_frame(self, painter: qg.QPainter, scale: float) -> None:
+    def _paint_page_frame(self, painter: qg.QPainter, scale: float, exposed: qc.QRectF) -> None:
         assert self._page_frame is not None
         sheet = self._page_frame.sheet_rect()
         map_rect = self._page_frame.map_rect()
         table_rect = self._page_frame.table_rect()
 
-        # Painted with the frozen frame transform (see fit_to_page), so the live exposed
-        # scene rect no longer means "the viewport" here. A generous fixed margin around
-        # the sheet covers the canvas background regardless of how far content is zoomed.
-        margin = max(sheet.width(), sheet.height()) * 4.0
-        outer = sheet.adjusted(-margin, -margin, margin, margin)
+        # The chrome shares the view's live transform with the drawing, so the exposed
+        # scene rect really is what the viewport shows: mask everything outside the sheet
+        # with it, and the canvas stays covered at any zoom. United with the sheet so the
+        # ring is never empty when the page is larger than the visible area.
+        outer = exposed.united(sheet)
         painter.fillPath(self._ring_path(outer, sheet), qg.QColor(UiColor.SURFACE_SUNKEN))
         painter.fillPath(self._ring_path(sheet, map_rect), qg.QColor(PAPER_COLOR))
 

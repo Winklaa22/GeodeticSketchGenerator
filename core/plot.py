@@ -62,6 +62,10 @@ DEFAULT_PAGE_KEY = "a4"
 
 SCALE_PRESETS: Tuple[int, ...] = (100, 250, 500, 1000, 2000)
 DEFAULT_SCALE_DENOMINATOR = 500
+# Bounds for scales reached by dragging/scrolling rather than typing, kept well inside
+# the custom-scale field's own validator range (1 - 1000000 in ui/editor/tabs/plot_tab.py).
+MIN_SCALE_DENOMINATOR = 10
+MAX_SCALE_DENOMINATOR = 100_000
 
 
 @dataclass(frozen=True)

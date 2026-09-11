@@ -60,6 +60,7 @@ class MainWindow(QMainWindow):
 
         self.session = EditorSession()
         self.sheets = SheetSet()
+        self._reapplying_layout = False
         self.table_template = (
             new_project_table_template(self.settings) if initial_state is None else default_template()
         )
@@ -159,7 +160,7 @@ class MainWindow(QMainWindow):
         self.preview_panel.saveRequested.connect(self.documents.save_dxf)
         self.preview_panel.applyRequested.connect(self.apply_to_dxf)
 
-        self.dxf_viewer.documentChanged.connect(self.refresh)
+        self.dxf_viewer.documentChanged.connect(self._on_document_changed)
         self.layouts.wire()
 
     def _sync_edit_menu(self) -> None:
@@ -171,6 +172,24 @@ class MainWindow(QMainWindow):
     def _on_config_changed(self, *_args) -> None:
         self.session.invalidate()
         self.refresh()
+
+    def _on_document_changed(self) -> None:
+        # The active sheet's resolved scale/frame (e.g. "fit to content") depends
+        # on the document's extents, so any edit that changes those extents -
+        # running a draw command, undo/redo, loading a file - can leave the sheet
+        # showing a stale frame that no longer matches what actually gets
+        # exported (which always resolves fresh at export time). Re-resolving it
+        # here keeps the preview in sync; the reentrancy guard is needed because
+        # that re-resolve itself re-renders the viewer, which re-emits this same
+        # signal - without it this would recurse forever.
+        self.refresh()
+        if self._reapplying_layout:
+            return
+        self._reapplying_layout = True
+        try:
+            self.layouts.reapply(preserve_view=True)
+        finally:
+            self._reapplying_layout = False
 
     def _on_delimiter_changed(self) -> None:
         if self.session.has_file:

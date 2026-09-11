@@ -12,16 +12,28 @@ EMPTY_DIAMETER_FALLBACK = "0.1"
 
 class PointsTab(LayeredOptionsTab):
 
-    DEFAULT_OPTIONS = PointsOptions()
+    DEFAULT_OPTIONS = PointsOptions(numbers_enabled=True)
 
     def _build_fields(self) -> None:
-        self.numbers_checkbox = self._add_check_field(tr("tabs.add_numbers_checkbox"))
+        self.numbers_checkbox = self._add_check_field(tr("tabs.add_numbers_checkbox"), checked=True)
         self.font_size_input = self._add_decimal_field(tr("common.text_size"), DEFAULT_FONT_SIZE)
         self.cabinet_font_size_checkbox = self._add_check_field(tr("tabs.cabinet_font_size_enabled"))
         self.cabinet_font_size_input = self._add_decimal_field(
             tr("tabs.cabinet_font_size"), DEFAULT_CABINET_FONT_SIZE
         )
         self.diameter_input = self._add_decimal_field(tr("tabs.circle_diameter"), DEFAULT_DIAMETER)
+
+        self.numbers_checkbox.toggled.connect(self._update_font_field_visibility)
+        self.cabinet_font_size_checkbox.toggled.connect(self._update_font_field_visibility)
+        self._update_font_field_visibility()
+
+    def _update_font_field_visibility(self) -> None:
+        numbers_enabled = self.numbers_checkbox.isChecked()
+        self.font_size_input.parentWidget().setVisible(numbers_enabled)
+        self.cabinet_font_size_checkbox.setVisible(numbers_enabled)
+        self.cabinet_font_size_input.parentWidget().setVisible(
+            numbers_enabled and self.cabinet_font_size_checkbox.isChecked()
+        )
 
     def get_options(self) -> PointsOptions:
         font_size = float(self.font_size_input.text() or DEFAULT_FONT_SIZE)

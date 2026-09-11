@@ -10,7 +10,11 @@ from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 from ezdxf.math import Vec2
 
 from core.plot import (
+    MAX_SCALE_DENOMINATOR,
+    MIN_SCALE_DENOMINATOR,
+    SCALE_MODE_FIXED,
     PlotOptions,
+    denominator,
     resolved_options,
     rotated_bbox_extents,
     scale_label,
@@ -71,6 +75,7 @@ class LayoutController:
 
         self._viewer.pageFrameMoved.connect(self.on_page_frame_moved)
         self._viewer.pageFrameRotated.connect(self.on_page_frame_rotated)
+        self._viewer.pageScaleZoomRequested.connect(self.on_page_scale_zoom)
         panel.projectFieldsChanged.connect(self.on_project_fields_changed)
 
     def reapply(self, *, preserve_view: bool = False) -> None:
@@ -104,6 +109,27 @@ class LayoutController:
         sheet = self._sheets.active
         return sheet.name if sheet is not None else None
 
+    def _frame_footprint(self, sheet: Sheet) -> Tuple[float, float, float, float]:
+        frame = self.frame_for(sheet)
+        return (frame.width, frame.height, frame.center_x, frame.center_y)
+
+    def _restore_remembered_view(self) -> None:
+        cached = self._view_states.get(self._view_key())
+        if cached is None:
+            return
+        view_state, footprint = cached
+        incoming = self._sheets.active
+        # A saved view is only still meaningful if this sheet's page frame has
+        # the same size/position it had when the view was saved (footprint is
+        # None for the Model tab, which has no page frame and is always safe to
+        # restore). If the scale, page size or position changed while we were on
+        # another tab, restoring that old zoom would just show a stale crop that
+        # no longer lines up with the sheet - matching what actually gets
+        # exported matters more here than preserving the old framing - so leave
+        # the fresh fit-to-page from _apply_active() in place instead.
+        if footprint is None or (incoming is not None and footprint == self._frame_footprint(incoming)):
+            self._viewer.view.restore_view(view_state)
+
     def activate(self, index: Optional[int]) -> None:
         # Switching between the Model tab and a sheet tab (or between two sheet
         # tabs) used to always re-fit the view, discarding whatever zoom/pan the
@@ -112,12 +138,12 @@ class LayoutController:
         # being entered once it's rendered, so each tab keeps its own framing
         # across switches instead of resetting to fit-to-page every time.
         if self._viewer.has_document:
-            self._view_states[self._view_key()] = self._viewer.view.save_view()
+            outgoing = self._sheets.active
+            footprint = self._frame_footprint(outgoing) if outgoing is not None else None
+            self._view_states[self._view_key()] = (self._viewer.view.save_view(), footprint)
         self._sheets.activate(index)
         self._apply_active()
-        remembered = self._view_states.get(self._view_key())
-        if remembered is not None:
-            self._viewer.view.restore_view(remembered)
+        self._restore_remembered_view()
         self.refresh()
 
     def _apply_active(self, *, preserve_view: bool = False) -> None:
@@ -189,6 +215,45 @@ class LayoutController:
         self._host.table_template = replace(self._host.table_template, project_field_values=values)
         self._apply_active(preserve_view=True)
 
+    def on_page_scale_zoom(self, factor: float, anchor_x: float, anchor_y: float) -> None:
+        # The plain wheel over a sheet rescales the drawing on the paper, i.e. it edits
+        # the sheet's plot scale - the page, its margins and the title block are all
+        # sized in paper mm and stay exactly as they are, and the export follows because
+        # job_for()/frame_for() read back this very scale.
+        index = self._sheets.active_index
+        if index is None or factor <= 0.0:
+            return
+        sheet = self._sheets.at(index)
+        old = denominator(self._resolved(sheet))
+        new = self._clamped_denominator(round(old / factor))
+        if new == old:
+            # Rounding swallowed the step (small scales, small wheel notch) - move by the
+            # smallest amount that still registers, so scrolling never feels dead.
+            new = self._clamped_denominator(old - 1 if factor > 1.0 else old + 1)
+            if new == old:
+                return
+        # Keep the point under the cursor pinned on the paper: with the frame centre C,
+        # the anchor Q and the scale going d -> d', the centre has to move to
+        # C' = Q + (d'/d)(C - Q).
+        center_x, center_y = self._center(sheet)
+        ratio = new / old
+        # Preserve any Ctrl+wheel zoom of the whole preview across the re-fit below.
+        zoom = self._viewer.current_zoom_factor()
+        self._sheets.set_options(
+            index, replace(sheet.options, scale_mode=SCALE_MODE_FIXED, scale_denominator=new)
+        )
+        self._sheets.set_center(
+            index,
+            (anchor_x + (center_x - anchor_x) * ratio, anchor_y + (center_y - anchor_y) * ratio),
+        )
+        self._apply_active(preserve_view=True)
+        self._viewer.apply_zoom_factor(zoom)
+        self.refresh()
+
+    @staticmethod
+    def _clamped_denominator(value: int) -> int:
+        return max(MIN_SCALE_DENOMINATOR, min(MAX_SCALE_DENOMINATOR, int(value)))
+
     def on_page_frame_moved(self, center_x: float, center_y: float) -> None:
         index = self._sheets.active_index
         if index is None:
@@ -259,9 +324,18 @@ class LayoutController:
         )
         if confirmed != QMessageBox.StandardButton.Yes:
             return
+        # Deleting a sheet other than the one on screen shouldn't touch what's
+        # currently displayed at all - previously this always re-fit the active
+        # view, so removing an unrelated sheet made the one you were actually
+        # looking at zoom back out to fit-to-page. Only the sheet that was
+        # actually deleted needs a fresh view (falling back to its remembered
+        # state, same as switching tabs, if it has one).
+        was_active = self._sheets.active_index == index
         self._sheets.delete(index)
         self._view_states.pop(name, None)
-        self._apply_active()
+        self._apply_active(preserve_view=not was_active)
+        if was_active:
+            self._restore_remembered_view()
         self.refresh()
 
     def move(self, delta: int) -> None:

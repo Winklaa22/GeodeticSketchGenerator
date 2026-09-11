@@ -8,7 +8,7 @@ from PyQt6 import QtCore as qc, QtGui as qg
 from ezdxf.addons.drawing import Frontend, RenderContext, layout, recorder
 from ezdxf.addons.drawing.backend import Backend, BkPath2d, BkPoints2d, ImageData
 from ezdxf.addons.drawing.config import Configuration
-from ezdxf.addons.drawing.layout import Page, Settings
+from ezdxf.addons.drawing.layout import Margins, Page, Settings
 from ezdxf.addons.drawing.properties import BackendProperties
 from ezdxf.addons.drawing.type_hints import Color
 from ezdxf.math import BoundingBox2d, Vec2
@@ -41,6 +41,7 @@ from ui.i18n import tr
 RESOLUTION_DPI = 1200
 MM_PER_INCH = 25.4
 CROP_PRECISION_MM = 0.1
+TEXT_RASTER_SCALE = 32.0
 
 _ALIGN_H = {
     "left": qc.Qt.AlignmentFlag.AlignLeft,
@@ -181,7 +182,14 @@ def _replay(
     stroke: StrokeStyle,
 ) -> None:
     output = layout.Layout(render_box, flip_y=True)
-    matrix = output.get_placement_matrix(page, settings=settings, top_origin=True)
+    # render_box is the whole sheet, so it has to land on the whole page. Placing it
+    # against the real page would instead centre it inside the *margin* box, and since
+    # the bottom margin carries the title block that pushes the drawing up by half the
+    # table height. The preview draws the sheet edge to edge, so that offset is exactly
+    # how the export drifts away from it. A zero-margin copy of the page maps the sheet
+    # 1:1; the real page still drives the crop and the backend below.
+    full_page = Page(page.width, page.height, page.units, Margins.all(0.0))
+    matrix = output.get_placement_matrix(full_page, settings=settings, top_origin=True)
     player.transform(matrix)
     if settings.crop_at_margins:
         p1, p2 = page.get_margin_rect(top_origin=True)
@@ -219,9 +227,9 @@ def _cell_flags(cell: ResolvedCell) -> qc.Qt.AlignmentFlag:
     )
 
 
-def _cell_font(cell: ResolvedCell) -> qg.QFont:
+def _cell_font(cell: ResolvedCell, scale: float = 1.0) -> qg.QFont:
     font = qg.QFont()
-    font.setPixelSize(max(1, round(cell.font_size)))
+    font.setPixelSize(max(1, round(cell.font_size * scale)))
     font.setBold(cell.bold)
     font.setItalic(cell.italic)
     return font
@@ -249,9 +257,26 @@ def _draw_cell(painter: qg.QPainter, cell: ResolvedCell) -> None:
         return
     if not cell.text:
         return
-    painter.setFont(_cell_font(cell))
+    # The painter is in mm-space (1 unit = 1mm), so a 2mm header font asks Qt for
+    # a ~2px nominal font size, which then gets stretched ~47x by the painter's
+    # mm-to-device-pixel transform for the 1200 DPI page. Qt hints/embolds glyphs
+    # at that tiny nominal size before the stretch, which is what turns "bold"
+    # into the heavy, doubled-looking strokes seen in the exported PDF. Scaling
+    # the font up (and the painter down by the same factor) around this call
+    # makes Qt rasterize at a realistic pixel size while leaving the actual
+    # printed size on the page unchanged.
+    painter.save()
+    painter.scale(1.0 / TEXT_RASTER_SCALE, 1.0 / TEXT_RASTER_SCALE)
+    painter.setFont(_cell_font(cell, TEXT_RASTER_SCALE))
     painter.setPen(qg.QColor(0, 0, 0))
-    painter.drawText(padded, int(_cell_flags(cell)) | qc.Qt.TextFlag.TextWordWrap, cell.text)
+    scaled_rect = qc.QRectF(
+        padded.x() * TEXT_RASTER_SCALE,
+        padded.y() * TEXT_RASTER_SCALE,
+        padded.width() * TEXT_RASTER_SCALE,
+        padded.height() * TEXT_RASTER_SCALE,
+    )
+    painter.drawText(scaled_rect, int(_cell_flags(cell)) | qc.Qt.TextFlag.TextWordWrap, cell.text)
+    painter.restore()
 
 
 def _draw_title_block_chrome(painter: qg.QPainter, page: Page, job: PlotJob) -> None:
