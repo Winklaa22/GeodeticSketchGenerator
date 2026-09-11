@@ -35,6 +35,7 @@ from core.plot import (
     model_stroke_style,
     render_configuration,
     sheet_label,
+    sheet_size_in_units,
     units_per_mm,
 )
 from core.table_template import ResolvedCell
@@ -87,6 +88,7 @@ class DxfViewer(qw.QWidget):
     documentChanged = qc.pyqtSignal()
     pageFrameMoved = qc.pyqtSignal(float, float)
     pageFrameRotated = qc.pyqtSignal(float)
+    pageScaleZoomRequested = qc.pyqtSignal(float, float, float)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -178,6 +180,7 @@ class DxfViewer(qw.QWidget):
         self._view.itemsDragMoved.connect(self._on_items_drag_moved)
         self._view.viewportChanged.connect(self._reposition_text_options_bar)
         self._view.pageFrameMoved.connect(self._on_page_frame_moved)
+        self._view.pageScaleZoomRequested.connect(self.pageScaleZoomRequested)
         self._view.viewportChanged.connect(self._reposition_compass)
 
         self._compass.rotationChanged.connect(self._on_compass_rotation_changed)
@@ -310,11 +313,26 @@ class DxfViewer(qw.QWidget):
             self._view.set_title_block([])
             self._compass.set_angle(0.0)
         else:
+            new_center = center or self._layout_center or self.content_center() or (0.0, 0.0)
+            # A preserved zoom/pan only stays meaningful if the sheet's physical
+            # footprint - both its size and where it's centered - hasn't
+            # changed. Paper size/scale changing is one way that breaks; a
+            # sheet with no manually dragged center (the common case) also
+            # re-centers on the document's content bbox on every render, so
+            # restoring an old view once that centroid has moved (e.g. after
+            # "Apply to DXF" adds more entities) would leave the preview
+            # looking at a stale location that no longer matches the frame -
+            # or what actually gets exported, which always resolves the
+            # center fresh - so fall back to a fresh fit-to-page whenever
+            # either part of that footprint is different.
+            if preserve_view and self._layout_options is not None:
+                preserve_view = (
+                    sheet_size_in_units(self._layout_options) == sheet_size_in_units(options)
+                    and self._layout_center == new_center
+                )
             self._view.reset_view_rotation()
             self._layout_options = options
-            self._layout_center = (
-                center or self._layout_center or self.content_center() or (0.0, 0.0)
-            )
+            self._layout_center = new_center
             self._layout_label = label or sheet_label(options)
             self._layout_rotation = rotation
             self._layout_table_height_mm = table_height_mm
@@ -345,6 +363,12 @@ class DxfViewer(qw.QWidget):
     def _on_page_frame_moved(self, center_x: float, center_y: float) -> None:
         self.move_page_frame(center_x, center_y)
         self.pageFrameMoved.emit(center_x, center_y)
+
+    def current_zoom_factor(self) -> float:
+        return self._view.current_zoom_factor()
+
+    def apply_zoom_factor(self, factor: float) -> None:
+        self._view.apply_zoom_factor(factor)
 
     def _reposition_compass(self) -> None:
         viewport = self._view.viewport()
