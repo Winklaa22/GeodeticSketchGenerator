@@ -162,4 +162,3 @@ class QtSceneBackend(Backend):
     def finalize(self) -> None:
         super().finalize()
         self._scene.setSceneRect(self._scene.itemsBoundingRect())
-

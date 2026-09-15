@@ -7,6 +7,7 @@ from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 from core.commands.base import Command as EditCommand
 from core.dxf_document import DXFDocument
+from ui.dxf.items import CONTENT_PIVOT_PROPERTY, CONTENT_ROTATION_PROPERTY
 from ui.theme import Color as UiColor
 
 
@@ -88,6 +89,16 @@ class ToolSession:
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
         pass
+
+
+def add_preview_item(scene: qw.QGraphicsScene, item: qw.QGraphicsItem) -> qw.QGraphicsItem:
+    scene.addItem(item)
+    rotation = scene.property(CONTENT_ROTATION_PROPERTY)
+    pivot = scene.property(CONTENT_PIVOT_PROPERTY)
+    if rotation and pivot is not None:
+        item.setTransformOriginPoint(pivot)
+        item.setRotation(float(rotation))
+    return item
 
 
 def preview_pen() -> qg.QPen:

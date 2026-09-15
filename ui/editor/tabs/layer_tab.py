@@ -149,7 +149,8 @@ class LayerTab(SectionWidget):
             item = self._rows_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)
+                widget.hide()
+                widget.deleteLater()
         deletable = len(self._layers) > 1
         for name, rgb in self._layers:
             row = _LayerDefRow(name, rgb, name == self._default_name, name != DEFAULT_LAYER_NAME and deletable)

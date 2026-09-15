@@ -8,7 +8,7 @@ from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 from core.dxf_document import DXFDocument
 from core.plot import PAPER_COLOR
 from core.table_template import BORDER_WIDTH_MM, CELL_PADDING_MM, ResolvedCell
-from ui.dxf.items import HANDLE_ROLE, PointItem, x_scale
+from ui.dxf.items import CONTENT_PIVOT_PROPERTY, CONTENT_ROTATION_PROPERTY, HANDLE_ROLE, PointItem, x_scale
 from ui.dxf.page_frame import PageFrame
 from ui.dxf.stamp_cache import stamp_cache
 from ui.theme import Color as UiColor
@@ -84,6 +84,7 @@ class CadGraphicsView(qw.QGraphicsView):
         self._tool: Optional["ToolSession"] = None
         self._press_pos: Optional[qc.QPoint] = None
         self._selected_items: List[qw.QGraphicsItem] = []
+        self._annotation_grips: List[qc.QPointF] = []
         self._pan_last_pos: Optional[qc.QPoint] = None
         self._rubber_band: Optional[qw.QRubberBand] = None
         self._snap_indicator: Optional[qc.QPointF] = None
@@ -242,7 +243,10 @@ class CadGraphicsView(qw.QGraphicsView):
 
     def _world_point(self, view_pos: qc.QPointF) -> qc.QPointF:
         """Cursor position as a DXF/world point, undoing the scene's content rotation."""
-        scene_point = self.mapToScene(view_pos.toPoint())
+        return self._to_world(self.mapToScene(view_pos.toPoint()))
+
+    def _to_world(self, scene_point: qc.QPointF) -> qc.QPointF:
+        """A scene point as a DXF/world point, undoing the scene's content rotation."""
         rotation, pivot = self._content_rotation()
         if pivot is None:
             return scene_point
@@ -269,6 +273,10 @@ class CadGraphicsView(qw.QGraphicsView):
 
     def set_document(self, doc: Optional[DXFDocument]) -> None:
         self._doc = doc
+
+    def set_annotation_grips(self, grips: List[Tuple[float, float]]) -> None:
+        self._annotation_grips = [qc.QPointF(*grip) for grip in grips]
+        self.viewport().update()
 
     def _snap_candidates_for(
         self, item: qw.QGraphicsItem, raw_scene_point: qc.QPointF
@@ -341,7 +349,10 @@ class CadGraphicsView(qw.QGraphicsView):
         self, rotation_degrees: float, pivot: Optional[Tuple[float, float]]
     ) -> None:
         origin = qc.QPointF(*pivot) if pivot is not None else qc.QPointF(0.0, 0.0)
-        for item in self.scene().items():
+        scene = self.scene()
+        scene.setProperty(CONTENT_ROTATION_PROPERTY, rotation_degrees)
+        scene.setProperty(CONTENT_PIVOT_PROPERTY, origin)
+        for item in scene.items():
             if item.data(HANDLE_ROLE) is None:
                 continue
             item.setTransformOriginPoint(origin)
@@ -424,7 +435,8 @@ class CadGraphicsView(qw.QGraphicsView):
             raw_point = self.mapToScene(view_pos)
             point, snapped = self._snap_point(view_pos, raw_point)
             self._set_snap_indicator(point if snapped else None)
-            self._tool.update_preview((point.x(), point.y()), self.scene())
+            world = self._to_world(point)
+            self._tool.update_preview((world.x(), world.y()), self.scene())
         elif self._press_pos is not None:
             view_pos = event.position().toPoint()
             moved = (view_pos - self._press_pos).manhattanLength()
@@ -466,7 +478,8 @@ class CadGraphicsView(qw.QGraphicsView):
         if self._tool is not None:
             raw_point = self.mapToScene(release_pos)
             scene_point, _ = self._snap_point(release_pos, raw_point)
-            self._tool.on_click((scene_point.x(), scene_point.y()))
+            world_point = self._to_world(scene_point)
+            self._tool.on_click((world_point.x(), world_point.y()))
             self.toolPointPlaced.emit()
             return
         if self._dragging_items:
@@ -586,6 +599,14 @@ class CadGraphicsView(qw.QGraphicsView):
                 fill_color.setAlpha(90)
                 painter.fillRect(item.boundingRect(), fill_color)
             painter.restore()
+        if self._annotation_grips:
+            grip_pen = qg.QPen(color, 1.5)
+            grip_pen.setCosmetic(True)
+            painter.setPen(grip_pen)
+            painter.setBrush(qg.QBrush(qg.QColor(UiColor.SURFACE), qc.Qt.BrushStyle.SolidPattern))
+            radius = 4 / scale
+            for grip in self._annotation_grips:
+                painter.drawRect(qc.QRectF(grip.x() - radius, grip.y() - radius, radius * 2, radius * 2))
 
     @staticmethod
     def _ring_path(outer: qc.QRectF, inner: qc.QRectF) -> qg.QPainterPath:
@@ -750,4 +771,3 @@ class CadGraphicsView(qw.QGraphicsView):
         painter.setBrush(qc.Qt.BrushStyle.NoBrush)
         half = 4.5 / scale
         painter.drawRect(qc.QRectF(point.x() - half, point.y() - half, half * 2, half * 2))
-

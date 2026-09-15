@@ -120,4 +120,3 @@ class Accordion(QWidget):
     def expand(self, index: int) -> None:
         if 0 <= index < len(self._sections):
             self._on_toggle(self._sections[index])
-

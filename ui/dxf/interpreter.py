@@ -7,6 +7,7 @@ from core.commands.draw import AddCircleCommand, AddLineCommand, AddPointCommand
 from ui.dxf.tools import (
     CircleToolSession,
     LineToolSession,
+    MultileaderToolSession,
     PipeToolSession,
     PointToolSession,
     TextToolSession,
@@ -48,6 +49,8 @@ class DxfCommandInterpreter:
             "PIPE": self._cmd_pipe,
             "RURA": self._cmd_pipe,
             "RU": self._cmd_pipe,
+            "MLEADER": self._cmd_multileader,
+            "ML": self._cmd_multileader,
             "MOVE": self._cmd_move,
             "M": self._cmd_move,
             "ROTATE": self._cmd_rotate,
@@ -183,6 +186,21 @@ class DxfCommandInterpreter:
             )
             return ""
         self._viewer.start_tool(PipeToolSession())
+        return ""
+
+    def _cmd_multileader(self, args: List[str]) -> str:
+        options = {option.upper() for option in args}
+        unsupported = options - {"SPLINE", "STRAIGHT", "OPEN", "CLOSED", "DOT", "N", "NO", "NOLANDING", "LEFT", "RIGHT"}
+        if unsupported:
+            raise _CommandError(tr("interpreter.multileader_options"))
+        self._viewer.start_tool(
+            MultileaderToolSession(
+                line_type="spline" if "SPLINE" in options else "straight",
+                arrowhead="open" if "OPEN" in options else "dot" if "DOT" in options else "closed",
+                landing_enabled=not bool(options & {"N", "NO", "NOLANDING"}),
+                attachment="left" if "LEFT" in options else "right" if "RIGHT" in options else None,
+            )
+        )
         return ""
 
     def _cmd_move(self, args: List[str]) -> str:

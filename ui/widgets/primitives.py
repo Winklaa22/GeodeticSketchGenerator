@@ -93,5 +93,3 @@ class CheckField(QPushButton):
         self.setIcon(icon_manager.get(icon_name, size=ICON_SM, color=color))
         self.setIconSize(QSize(ICON_SM, ICON_SM))
         self.setText(self._label)
-
-

@@ -27,12 +27,16 @@ class DynamicFieldsTab(SectionWidget):
         while self._column.count():
             item = self._column.takeAt(0)
             widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
+            if widget is None:
+                continue
+            widget.hide()
+            if widget is not self._placeholder:
+                widget.deleteLater()
 
     def _show_placeholder(self) -> None:
         self._clear_column()
         self._column.addWidget(self._placeholder)
+        self._placeholder.show()
         self._column.addStretch(1)
 
     def rebuild(self, field_defs: List[FieldDef]) -> None:

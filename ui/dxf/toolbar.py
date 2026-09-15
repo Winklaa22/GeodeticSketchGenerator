@@ -16,6 +16,7 @@ class DxfToolbar(qw.QWidget):
     lineRequested = qc.pyqtSignal()
     circleRequested = qc.pyqtSignal()
     pipeRequested = qc.pyqtSignal()
+    multileaderRequested = qc.pyqtSignal()
     selectRequested = qc.pyqtSignal()
     moveRequested = qc.pyqtSignal()
     rotateRequested = qc.pyqtSignal()
@@ -42,6 +43,7 @@ class DxfToolbar(qw.QWidget):
             "line": self.lineRequested,
             "circle": self.circleRequested,
             "pipe": self.pipeRequested,
+            "multileader": self.multileaderRequested,
             "move": self.moveRequested,
             "rotate": self.rotateRequested,
             "scale": self.scaleRequested,
@@ -55,6 +57,7 @@ class DxfToolbar(qw.QWidget):
             "line": "line_tool",
             "circle": "circle_tool",
             "pipe": "pipe_tool",
+            "multileader": "multileader_tool",
             "move": "move_tool",
             "rotate": "rotate_tool",
             "scale": "scale_tool",
@@ -72,6 +75,7 @@ class DxfToolbar(qw.QWidget):
         self._add_tool_button(layout, "line", "line_tool", tr("toolbar.line_tooltip"))
         self._add_tool_button(layout, "circle", "circle_tool", tr("toolbar.circle_tooltip"))
         self._add_tool_button(layout, "pipe", "pipe_tool", tr("toolbar.pipe_tooltip"))
+        self._add_tool_button(layout, "multileader", "multileader_tool", tr("toolbar.multileader_tooltip"))
         layout.addWidget(self._separator())
         self._add_tool_button(layout, "move", "move_tool", tr("toolbar.move_tooltip"))
         self._add_tool_button(layout, "rotate", "rotate_tool", tr("toolbar.rotate_tooltip"))
@@ -143,4 +147,3 @@ class DxfToolbar(qw.QWidget):
 
     def set_erase_enabled(self, enabled: bool) -> None:
         self._erase_btn.setEnabled(enabled)
-

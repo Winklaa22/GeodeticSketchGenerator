@@ -33,7 +33,8 @@ class SheetTabBar(qw.QWidget):
             item = self._layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)
+                widget.hide()
+                widget.deleteLater()
 
         model_tab = self._make_tab(tr("sheet_tabs.model"), active is None)
         model_tab.setToolTip(tr("sheet_tabs.model_tooltip"))
@@ -94,7 +95,8 @@ class SheetList(qw.QWidget):
             item = self._layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)
+                widget.hide()
+                widget.deleteLater()
         self._rows = []
 
         if not names:

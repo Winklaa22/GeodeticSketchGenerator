@@ -7,6 +7,8 @@ from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 
 HANDLE_ROLE = qc.Qt.ItemDataRole.UserRole
+CONTENT_ROTATION_PROPERTY = "gsgContentRotation"
+CONTENT_PIVOT_PROPERTY = "gsgContentPivot"
 
 
 def x_scale(transform: qg.QTransform) -> float:
@@ -46,4 +48,3 @@ class PointItem(qw.QAbstractGraphicsShapeItem):
     def boundingRect(self) -> qc.QRectF:
         r = self._radius_units if self._radius_units is not None else 0.01
         return qc.QRectF(self._pos.x() - r, self._pos.y() - r, r * 2, r * 2)
-

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QGridLayout,
     QHBoxLayout,
+    QLineEdit,
     QPushButton,
     QToolButton,
     QVBoxLayout,
@@ -276,3 +277,142 @@ class RadioCardGroup(QWidget):
         for key, btn in self._buttons.items():
             btn.setChecked(key in checked)
 
+
+
+class NumericScrubField(QLineEdit):
+
+    valueEdited = pyqtSignal(float)
+
+    def __init__(
+        self,
+        minimum: float,
+        maximum: float,
+        decimals: int = 2,
+        step: float = 1.0,
+        suffix: str = "",
+        wrap: bool = False,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._min, self._max = minimum, maximum
+        self._decimals, self._step, self._suffix, self._wrap = decimals, step, suffix, wrap
+        self._value = self._coerce(0.0)
+        self._committed = self._value
+        self._press_pos: Optional[QPoint] = None
+        self._press_value = 0.0
+        self._scrubbing = False
+        self._commit_timer = QTimer(self)
+        self._commit_timer.setSingleShot(True)
+        self._commit_timer.setInterval(400)
+        self._commit_timer.timeout.connect(self._commit)
+        self._render()
+        self.editingFinished.connect(self._on_editing_finished)
+
+    def value(self) -> float:
+        return self._value
+
+    def set_value(self, value: float) -> None:
+        self._commit_timer.stop()
+        self._value = self._coerce(value)
+        self._committed = self._value
+        self._render()
+
+    def _coerce(self, value: float) -> float:
+        if self._wrap:
+            span = self._max - self._min
+            if span > 0:
+                value = self._min + (value - self._min) % span
+        value = max(self._min, min(self._max, value))
+        return round(value, self._decimals)
+
+    def _render(self) -> None:
+        self.setText(f"{self._value:g}{self._suffix}")
+
+    def _parse(self, text: str) -> Optional[float]:
+        cleaned = text.strip()
+        if self._suffix:
+            cleaned = cleaned.replace(self._suffix, "")
+        cleaned = cleaned.replace(",", ".").strip()
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+
+    def _set_and_render(self, value: float) -> None:
+        value = self._coerce(value)
+        if value != self._value:
+            self._value = value
+            self._render()
+
+    def _commit(self) -> None:
+        self._commit_timer.stop()
+        if self._value != self._committed:
+            self._committed = self._value
+            self.valueEdited.emit(self._value)
+
+    def _multiplier(self, modifiers) -> float:
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            return 10.0
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            return 0.1
+        return 1.0
+
+    def _on_editing_finished(self) -> None:
+        parsed = self._parse(self.text())
+        if parsed is None:
+            self._render()
+            return
+        self._set_and_render(parsed)
+        self._commit()
+
+    def wheelEvent(self, event) -> None:
+        steps = event.angleDelta().y() / 120.0
+        if not steps:
+            event.ignore()
+            return
+        self._set_and_render(self._value + steps * self._step * self._multiplier(event.modifiers()))
+        self._commit_timer.start()
+        event.accept()
+
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            direction = 1.0 if key == Qt.Key.Key_Up else -1.0
+            self._set_and_render(self._value + direction * self._step * self._multiplier(event.modifiers()))
+            self._commit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_pos = event.pos()
+            self._press_value = self._value
+            self._scrubbing = False
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._press_pos is None or not (event.buttons() & Qt.MouseButton.LeftButton):
+            super().mouseMoveEvent(event)
+            return
+        dx = event.pos().x() - self._press_pos.x()
+        if not self._scrubbing and abs(dx) < 3:
+            super().mouseMoveEvent(event)
+            return
+        if not self._scrubbing:
+            self._scrubbing = True
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        self.deselect()
+        self._set_and_render(self._press_value + dx * self._step * self._multiplier(event.modifiers()) / 2.0)
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._press_pos = None
+        if self._scrubbing:
+            self._scrubbing = False
+            self.unsetCursor()
+            self.deselect()
+            self._commit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)

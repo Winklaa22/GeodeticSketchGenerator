@@ -23,6 +23,7 @@ class IconManager:
         "line_tool": "mdi.vector-line",
         "circle_tool": "mdi.vector-circle",
         "pipe_tool": "mdi.pipe",
+        "multileader_tool": "mdi.call-split",
         "move_tool": "fa5s.arrows-alt",
         "rotate_tool": "mdi.rotate-right",
         "scale_tool": "mdi.resize-bottom-right",

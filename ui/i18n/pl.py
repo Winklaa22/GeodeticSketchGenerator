@@ -321,7 +321,7 @@ TRANSLATIONS: Dict[str, str] = {
     # ---------- dxf: text options bar ----------
     "text_options.content_tooltip": "Treść tekstu",
     "text_options.height_tooltip": "Wysokość tekstu",
-    "text_options.rotation_tooltip": "Obrót (stopnie)",
+    "text_options.rotation_tooltip": "Obrót (stopnie) - kółko myszy lub przeciąganie zmienia wartość",
     "text_options.color_tooltip": "Kolor tekstu",
 
     # ---------- dxf: toolbar ----------
@@ -332,6 +332,7 @@ TRANSLATIONS: Dict[str, str] = {
     "toolbar.line_tooltip": "Linia (L)",
     "toolbar.circle_tooltip": "Okrąg (C)",
     "toolbar.pipe_tooltip": "Rura (R, U)",
+    "toolbar.multileader_tooltip": "Multileader (M, L lub MLEADER)",
     "toolbar.move_tooltip": "Przesuń zaznaczone (M)",
     "toolbar.rotate_tooltip": "Obróć zaznaczone jako jedno (R, O)",
     "toolbar.scale_tooltip": "Skaluj zaznaczone jako jedno (S, C)",
@@ -361,6 +362,9 @@ TRANSLATIONS: Dict[str, str] = {
     "tool.specify_scale_factor": "Podaj współczynnik skali: ",
     "tool.scale_or_point_numeric": 'Wymagany współczynnik skali liczbowy lub punkt: "{value}".',
     "tool.specify_reference_point": "Podaj punkt odniesienia: ",
+    "tool.multileader_tip": "Podaj punkt grota Multileader: ",
+    "tool.multileader_landing": "Podaj punkt lądowania, albo [Bez lądowania]: ",
+    "tool.multileader_text_position": "Podaj pozycję tekstu Multileader: ",
 
     # ---------- dxf: viewer ----------
     "viewer.empty_hint": "Wczytaj plik .DXF albo naciśnij Zastosuj do DXF, aby zacząć nowy rysunek.",
@@ -402,4 +406,5 @@ TRANSLATIONS: Dict[str, str] = {
     "interpreter.numeric_width_required": 'Wymagana szerokość liczbowa: "{value}".',
     "interpreter.numeric_value_required": 'Wymagana wartość liczbowa: "{value}".',
     "interpreter.point_not_specified": "Nie podano punktu.",
+    "interpreter.multileader_options": "Opcje MLEADER: [Straight/Spline] [Closed/Open/Dot] [NoLanding] [Left/Right].",
 }
