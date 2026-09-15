@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import math
+import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -15,6 +16,18 @@ from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
 from ezdxf.math import Matrix44
 from ezdxf.sections.tables import LayerTable
+
+from core.multileader import (
+    MULTILEADER_APPID,
+    MultileaderSpec,
+    apply_metadata,
+    arrow_points,
+    leader_points,
+    metadata_from_entity,
+    spline_fit_points,
+    transform_spec,
+    with_identifier,
+)
 
 _TEXT_ALIGNMENTS = {
     ("left", "bottom"): TextEntityAlignment.BOTTOM_LEFT,
@@ -173,6 +186,182 @@ class DXFDocument:
         self.ensure_layer(layer)
         entity = self.modelspace.add_polyline3d(points, close=closed, dxfattribs={"layer": layer})
         return entity.dxf.handle
+
+    def add_spline(self, points: Iterable[Sequence[float]], layer: str = "0") -> str:
+        self.ensure_layer(layer)
+        entity = self.modelspace.add_spline(fit_points=points, degree=2, dxfattribs={"layer": layer})
+        return entity.dxf.handle
+
+    def add_solid(self, points: Iterable[Sequence[float]], layer: str = "0") -> str:
+        self.ensure_layer(layer)
+        entity = self.modelspace.add_solid(points, dxfattribs={"layer": layer})
+        return entity.dxf.handle
+
+    def add_multileader(self, spec: MultileaderSpec) -> Tuple[List[str], str]:
+        spec = spec.normalized()
+        self.ensure_layer(spec.layer)
+        if MULTILEADER_APPID not in self._drawing.appids:
+            self._drawing.appids.add(MULTILEADER_APPID)
+        handles: List[str] = []
+        route = leader_points(spec)
+        if spec.line_type == "spline":
+            route_handle = self.add_spline(spline_fit_points(spec), spec.layer)
+        elif len(route) > 2:
+            route_handle = self.add_lwpolyline(route, spec.layer)
+        else:
+            route_handle = self.add_line(route[0], route[-1], spec.layer)
+        handles.append(route_handle)
+        tip, left, right = arrow_points(spec)
+        if spec.arrowhead == "closed":
+            handles.append(self.add_solid((tip, left, right, right), spec.layer))
+        elif spec.arrowhead == "open":
+            handles.append(self.add_line(tip, left, spec.layer))
+            handles.append(self.add_line(tip, right, spec.layer))
+        else:
+            radius = max(spec.height * 0.28, 0.04)
+            handles.append(self.add_circle(tip, radius, spec.layer))
+        text_handle = self.add_text(
+            spec.text,
+            spec.text_position,
+            spec.height,
+            spec.layer,
+            halign=spec.attachment,
+        )
+        handles.append(text_handle)
+        for handle in handles:
+            entity = self._require_entity(handle)
+            role = "text" if handle == text_handle else "arrow" if handle != route_handle else "leader"
+            apply_metadata(entity, spec.identifier, role, spec)
+        return handles, text_handle
+
+    def multileader_metadata(self, handle: str):
+        entity = self.get_entity(handle)
+        return metadata_from_entity(entity) if entity is not None else None
+
+    def multileader_handles(self, handle: str) -> List[str]:
+        metadata = self.multileader_metadata(handle)
+        if metadata is None:
+            return [handle]
+        identifier, _role, _spec = metadata
+        return [
+            entity.dxf.handle
+            for entity in self.modelspace
+            if (entity_metadata := metadata_from_entity(entity)) is not None and entity_metadata[0] == identifier
+        ]
+
+    def expand_annotation_handles(self, handles: Iterable[str]) -> List[str]:
+        expanded: List[str] = []
+        for handle in handles:
+            for related in self.multileader_handles(handle):
+                if related not in expanded:
+                    expanded.append(related)
+        return expanded
+
+    def multileader_text_handle(self, handles: Iterable[str]) -> Optional[str]:
+        identifiers = set()
+        for handle in handles:
+            metadata = self.multileader_metadata(handle)
+            if metadata is None:
+                return None
+            identifiers.add(metadata[0])
+        if len(identifiers) != 1:
+            return None
+        identifier = identifiers.pop()
+        for entity in self.modelspace:
+            metadata = metadata_from_entity(entity)
+            if metadata is not None and metadata[0] == identifier and metadata[1] == "text":
+                return entity.dxf.handle
+        return None
+
+    def multileader_grips(self, handle: str) -> List[Tuple[float, float]]:
+        metadata = self.multileader_metadata(handle)
+        if metadata is None:
+            return []
+        _identifier, _role, spec = metadata
+        grips = [spec.tip]
+        if spec.landing_enabled and spec.landing is not None:
+            grips.append(spec.landing)
+        grips.append(spec.text_position)
+        return grips
+
+    def separate_multileader_groups(self, handles: Iterable[str], dx: float = 0.0, dy: float = 0.0) -> None:
+        handle_set = set(handles)
+        identifiers = set()
+        for handle in handles:
+            metadata = self.multileader_metadata(handle)
+            if metadata is not None:
+                identifiers.add(metadata[0])
+        for identifier in identifiers:
+            matching = [
+                entity
+                for entity in self.modelspace
+                if entity.dxf.handle in handle_set
+                and (metadata := metadata_from_entity(entity)) is not None
+                and metadata[0] == identifier
+            ]
+            if not matching:
+                continue
+            _matched_identifier, _role, spec = metadata_from_entity(matching[0])
+            new_identifier = uuid.uuid4().hex
+            moved = transform_spec(spec, lambda point: (point[0] + dx, point[1] + dy)) if dx or dy else spec
+            separated = with_identifier(moved, new_identifier)
+            for entity in matching:
+                _entity_identifier, role, _entity_spec = metadata_from_entity(entity)
+                apply_metadata(entity, new_identifier, role, separated)
+
+    def _transform_multileader_metadata(self, handles: Iterable[str], transform) -> None:
+        identifiers = set()
+        for handle in handles:
+            metadata = self.multileader_metadata(handle)
+            if metadata is not None:
+                identifiers.add(metadata[0])
+        for identifier in identifiers:
+            matching = [
+                entity
+                for entity in self.modelspace
+                if (metadata := metadata_from_entity(entity)) is not None and metadata[0] == identifier
+            ]
+            if not matching:
+                continue
+            _matched_identifier, _role, spec = metadata_from_entity(matching[0])
+            transformed = transform_spec(spec, transform)
+            for entity in matching:
+                _entity_identifier, role, _entity_spec = metadata_from_entity(entity)
+                apply_metadata(entity, identifier, role, transformed)
+
+    def translate_entities(self, handles: Iterable[str], dx: float, dy: float, dz: float = 0.0) -> List[str]:
+        resolved = self.expand_annotation_handles(handles)
+        for handle in resolved:
+            self.translate_entity(handle, dx, dy, dz)
+        self._transform_multileader_metadata(resolved, lambda point: (point[0] + dx, point[1] + dy))
+        return resolved
+
+    def rotate_entities(self, handles: Iterable[str], angle: float, center: Sequence[float]) -> List[str]:
+        resolved = self.expand_annotation_handles(handles)
+        for handle in resolved:
+            self.rotate_entity(handle, angle, center)
+        radians = math.radians(angle)
+        cos_a, sin_a = math.cos(radians), math.sin(radians)
+        cx, cy = center[0], center[1]
+        self._transform_multileader_metadata(
+            resolved,
+            lambda point: (
+                cx + (point[0] - cx) * cos_a - (point[1] - cy) * sin_a,
+                cy + (point[0] - cx) * sin_a + (point[1] - cy) * cos_a,
+            ),
+        )
+        return resolved
+
+    def scale_entities(self, handles: Iterable[str], factor: float, center: Sequence[float]) -> List[str]:
+        resolved = self.expand_annotation_handles(handles)
+        for handle in resolved:
+            self.scale_entity(handle, factor, center)
+        cx, cy = center[0], center[1]
+        self._transform_multileader_metadata(
+            resolved,
+            lambda point: (cx + (point[0] - cx) * factor, cy + (point[1] - cy) * factor),
+        )
+        return resolved
 
     def _require_entity(self, handle: str) -> DXFGraphic:
         entity = self.get_entity(handle)

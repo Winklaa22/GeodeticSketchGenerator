@@ -87,4 +87,3 @@ class CommandLine(qw.QWidget):
         self._history.appendPlainText(line)
         scrollbar = self._history.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
-

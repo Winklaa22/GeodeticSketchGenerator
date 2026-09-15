@@ -9,7 +9,14 @@ from core.commands.composite import CompositeCommand
 from core.commands.edit import MoveCommand, RotateCommand, ScaleCommand
 from core.dxf_document import DXFDocument
 from ui.dxf.items import HANDLE_ROLE
-from ui.dxf.tools.base import ToolSession, angle_degrees, parse_coordinate, point_distance, preview_pen
+from ui.dxf.tools.base import (
+    ToolSession,
+    add_preview_item,
+    angle_degrees,
+    parse_coordinate,
+    point_distance,
+    preview_pen,
+)
 from ui.i18n import tr
 
 
@@ -47,7 +54,7 @@ class MoveToolSession(ToolSession):
         if self._preview_item is None:
             self._preview_item = qw.QGraphicsLineItem()
             self._preview_item.setPen(preview_pen())
-            scene.addItem(self._preview_item)
+            add_preview_item(scene, self._preview_item)
         self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
 
     def is_done(self) -> bool:
@@ -107,7 +114,7 @@ class RotateToolSession(ToolSession):
         if self._preview_item is None:
             self._preview_item = qw.QGraphicsLineItem()
             self._preview_item.setPen(preview_pen())
-            scene.addItem(self._preview_item)
+            add_preview_item(scene, self._preview_item)
         self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
 
         if self._preview_targets is None:
@@ -183,7 +190,7 @@ class ScaleToolSession(ToolSession):
         if self._preview_item is None:
             self._preview_item = qw.QGraphicsLineItem()
             self._preview_item.setPen(preview_pen())
-            scene.addItem(self._preview_item)
+            add_preview_item(scene, self._preview_item)
         self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
 
         if self._preview_targets is None:
@@ -257,7 +264,7 @@ class RotateEachToolSession(ToolSession):
         if self._preview_item is None:
             self._preview_item = qw.QGraphicsLineItem()
             self._preview_item.setPen(preview_pen())
-            scene.addItem(self._preview_item)
+            add_preview_item(scene, self._preview_item)
         self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
 
         if self._preview_targets is None:
@@ -334,7 +341,7 @@ class ScaleEachToolSession(ToolSession):
         if self._preview_item is None:
             self._preview_item = qw.QGraphicsLineItem()
             self._preview_item.setPen(preview_pen())
-            scene.addItem(self._preview_item)
+            add_preview_item(scene, self._preview_item)
         self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
 
         if self._preview_targets is None:
@@ -365,4 +372,3 @@ class ScaleEachToolSession(ToolSession):
             for item in self._preview_targets:
                 item.setScale(1.0)
             self._preview_targets = None
-

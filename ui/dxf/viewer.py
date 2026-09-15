@@ -55,6 +55,7 @@ from ui.dxf.tools import (
     CircleToolSession,
     LineToolSession,
     MoveToolSession,
+    MultileaderToolSession,
     PipeToolSession,
     PointToolSession,
     RotateEachToolSession,
@@ -75,6 +76,7 @@ _TOOL_KEYS = {
     LineToolSession: "line",
     CircleToolSession: "circle",
     PipeToolSession: "pipe",
+    MultileaderToolSession: "multileader",
     MoveToolSession: "move",
     RotateToolSession: "rotate",
     ScaleToolSession: "scale",
@@ -202,6 +204,7 @@ class DxfViewer(qw.QWidget):
         self._toolbar.lineRequested.connect(lambda: self._start_draw_tool(LineToolSession))
         self._toolbar.circleRequested.connect(lambda: self._start_draw_tool(CircleToolSession))
         self._toolbar.pipeRequested.connect(lambda: self._start_draw_tool(PipeToolSession))
+        self._toolbar.multileaderRequested.connect(lambda: self._start_draw_tool(self._multileader_tool))
         self._toolbar.selectRequested.connect(self.cancel_tool)
         self._toolbar.moveRequested.connect(self.start_move_tool)
         self._toolbar.rotateRequested.connect(self.start_rotate_tool)
@@ -247,6 +250,7 @@ class DxfViewer(qw.QWidget):
         self._add_shortcut("L", lambda: self._start_draw_tool(LineToolSession), parent=self._view)
         self._add_shortcut("C", lambda: self._start_draw_tool(CircleToolSession), parent=self._view)
         self._add_shortcut("R,U", lambda: self._start_draw_tool(PipeToolSession), parent=self._view)
+        self._add_shortcut("M,L", lambda: self._start_draw_tool(self._multileader_tool), parent=self._view)
         self._add_shortcut("M", self.start_move_tool, parent=self._view)
         self._add_shortcut("R,O", self.start_rotate_tool, parent=self._view)
         self._add_shortcut("S,C", self.start_scale_tool, parent=self._view)
@@ -285,6 +289,11 @@ class DxfViewer(qw.QWidget):
         if self._layout_options is None:
             return TextToolSession()
         return TextToolSession(ANNOTATION_TEXT_MM * units_per_mm(self._layout_options))
+
+    def _multileader_tool(self) -> MultileaderToolSession:
+        if self._layout_options is None:
+            return MultileaderToolSession()
+        return MultileaderToolSession(ANNOTATION_TEXT_MM * units_per_mm(self._layout_options))
 
     @property
     def layout_options(self) -> Optional[PlotOptions]:
@@ -529,6 +538,7 @@ class DxfViewer(qw.QWidget):
     def clear_selection(self) -> None:
         self._selected_handles = []
         self._view.set_selected_items([])
+        self._view.set_annotation_grips([])
         self._toolbar.set_erase_enabled(False)
         self._sync_text_options_bar()
 
@@ -539,12 +549,13 @@ class DxfViewer(qw.QWidget):
         self._select_handles(handles)
 
     def _select_handles(self, handles: Iterable[str]) -> None:
-        handle_set = set(handles)
+        handle_set = set(self._doc.expand_annotation_handles(handles)) if self._doc is not None else set(handles)
         items = [item for item in self._view.scene().items() if item.data(HANDLE_ROLE) in handle_set]
         self._view.set_selected_items(items)
         self._selected_handles = [item.data(HANDLE_ROLE) for item in items]
         self._toolbar.set_erase_enabled(bool(items))
         self._sync_text_options_bar()
+        self._sync_multileader_grips()
 
     def start_tool(self, tool: ToolSession) -> None:
         self.cancel_tool()
@@ -688,19 +699,22 @@ class DxfViewer(qw.QWidget):
             self._command_line.focus_input()
 
     def _on_entity_selected(self, handles: List[str]) -> None:
-        self._selected_handles = list(handles)
-        self._toolbar.set_erase_enabled(bool(handles))
-        self._sync_text_options_bar()
+        self._select_handles(handles)
 
     def _on_items_drag_moved(self, handles: List[str], dx: float, dy: float) -> None:
-        self._selected_handles = list(handles)
-        self.execute_command(MoveCommand(handles, dx, dy))
+        self._selected_handles = self._doc.expand_annotation_handles(handles) if self._doc is not None else list(handles)
+        self.execute_command(MoveCommand(self._selected_handles, dx, dy))
 
     def _sync_text_options_bar(self) -> None:
-        if self._doc is None or len(self._selected_handles) != 1:
+        if self._doc is None:
             self._text_options_bar.hide()
             return
-        handle = self._selected_handles[0]
+        handle = self._doc.multileader_text_handle(self._selected_handles)
+        if handle is None and len(self._selected_handles) == 1:
+            handle = self._selected_handles[0]
+        if handle is None:
+            self._text_options_bar.hide()
+            return
         entity = self._doc.get_entity(handle)
         if entity is None or entity.dxftype() != "TEXT":
             self._text_options_bar.hide()
@@ -709,6 +723,12 @@ class DxfViewer(qw.QWidget):
             handle, entity.dxf.text, entity.dxf.height, entity.dxf.rotation, self._doc.get_entity_color(handle)
         )
         self._reposition_text_options_bar()
+
+    def _sync_multileader_grips(self) -> None:
+        if self._doc is None or not self._selected_handles:
+            self._view.set_annotation_grips([])
+            return
+        self._view.set_annotation_grips(self._doc.multileader_grips(self._selected_handles[0]))
 
     def _reposition_text_options_bar(self) -> None:
         bar = self._text_options_bar
@@ -809,4 +829,5 @@ class DxfViewer(qw.QWidget):
         self._layer_panel.refresh(self._doc.iter_layers())
         self._layer_panel.set_prune_available(self._imported_layer_names is not None)
         self._sync_text_options_bar()
+        self._sync_multileader_grips()
         self.documentChanged.emit()

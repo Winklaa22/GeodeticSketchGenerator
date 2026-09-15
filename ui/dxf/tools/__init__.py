@@ -11,6 +11,7 @@ from ui.dxf.tools.base import (
 from ui.dxf.tools.draw import (
     CircleToolSession,
     LineToolSession,
+    MultileaderToolSession,
     PipeToolSession,
     PointToolSession,
     TextToolSession,
@@ -26,6 +27,7 @@ from ui.dxf.tools.transform import (
 __all__ = [
     "CircleToolSession",
     "LineToolSession",
+    "MultileaderToolSession",
     "MoveToolSession",
     "PipeToolSession",
     "PointToolSession",

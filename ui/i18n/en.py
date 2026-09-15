@@ -321,7 +321,7 @@ TRANSLATIONS: Dict[str, str] = {
     # ---------- dxf: text options bar ----------
     "text_options.content_tooltip": "Text content",
     "text_options.height_tooltip": "Text height",
-    "text_options.rotation_tooltip": "Rotation (degrees)",
+    "text_options.rotation_tooltip": "Rotation (degrees) - scroll or drag to change",
     "text_options.color_tooltip": "Text color",
 
     # ---------- dxf: toolbar ----------
@@ -332,6 +332,7 @@ TRANSLATIONS: Dict[str, str] = {
     "toolbar.line_tooltip": "Line (L)",
     "toolbar.circle_tooltip": "Circle (C)",
     "toolbar.pipe_tooltip": "Pipe (R, U)",
+    "toolbar.multileader_tooltip": "Multileader (M, L or MLEADER)",
     "toolbar.move_tooltip": "Move selected (M)",
     "toolbar.rotate_tooltip": "Rotate selected as one (R, O)",
     "toolbar.scale_tooltip": "Scale selected as one (S, C)",
@@ -361,6 +362,9 @@ TRANSLATIONS: Dict[str, str] = {
     "tool.specify_scale_factor": "Specify scale factor: ",
     "tool.scale_or_point_numeric": 'Requires a numeric scale factor or a point: "{value}".',
     "tool.specify_reference_point": "Specify reference point: ",
+    "tool.multileader_tip": "Specify Multileader arrowhead point: ",
+    "tool.multileader_landing": "Specify landing point, or [No landing]: ",
+    "tool.multileader_text_position": "Specify Multileader text position: ",
 
     # ---------- dxf: viewer ----------
     "viewer.empty_hint": "Load a .DXF file, or press Apply to DXF to start a new drawing.",
@@ -402,4 +406,5 @@ TRANSLATIONS: Dict[str, str] = {
     "interpreter.numeric_width_required": 'Requires a numeric width: "{value}".',
     "interpreter.numeric_value_required": 'Requires a numeric value: "{value}".',
     "interpreter.point_not_specified": "Point not specified.",
+    "interpreter.multileader_options": "MLEADER options: [Straight/Spline] [Closed/Open/Dot] [NoLanding] [Left/Right].",
 }
