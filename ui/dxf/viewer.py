@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Iterable, List, Optional, Sequence, Set, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
@@ -30,6 +30,7 @@ from core.commands.text import (
 from core.dxf_document import DXFDocument
 from core.plot import (
     ANNOTATION_TEXT_MM,
+    PAPER_COLOR,
     PlotOptions,
     StrokeStyle,
     model_stroke_style,
@@ -39,20 +40,34 @@ from core.plot import (
     units_per_mm,
 )
 from core.table_template import ResolvedCell
-from ui.dxf.backend import QtSceneBackend
+from ui.dxf.backend import DetailSceneBackend, QtSceneBackend
+from core.commands.detail_view import UpdateDetailViewCommand
+from core.detail_view import (
+    DetailViewSpec,
+    handle_points,
+    panned,
+    resize_to_handle,
+    rotated,
+    with_scale,
+)
+from core.detail_view import corner_points as detail_corner_points
+from ui.dxf.detail_render import detail_players
 from ui.dxf.command_line import CommandLine
 from ui.dxf.compass import RotationCompass
 from ui.dxf.graphics_view import CadGraphicsView
 from ui.dxf.interpreter import DxfCommandInterpreter
-from ui.dxf.items import HANDLE_ROLE
+from ui.dxf.items import DETAIL_CONTENT_ROLE, HANDLE_ROLE
 from ui.dxf.layer_panel import LayerPanel
 from ui.dxf.page_frame import page_frame_for
 from ui.dxf.pdf_export import PlotJob, export_sheets
 from ui.dxf.sheet_tabs import SheetTabBar
+from ui.dxf.detail_options_bar import DetailOptionsBar
 from ui.dxf.text_options_bar import TextOptionsBar
 from ui.dxf.toolbar import DxfToolbar
 from ui.dxf.tools import (
     CircleToolSession,
+    DetailArrowToolSession,
+    DetailViewToolSession,
     LineToolSession,
     MoveToolSession,
     MultileaderToolSession,
@@ -70,9 +85,13 @@ from ui.theme import Color as UiColor, SPACE_MD, SPACE_SM, SPACE_XS
 from ui.theme.icons import icon_manager
 
 
+_DETAIL_ZOOM_STEP = 1.25
+_DETAIL_COMMIT_DELAY_MS = 400
+
 _TOOL_KEYS = {
     PointToolSession: "point",
     TextToolSession: "text",
+    DetailViewToolSession: "detail",
     LineToolSession: "line",
     CircleToolSession: "circle",
     PipeToolSession: "pipe",
@@ -116,6 +135,11 @@ class DxfViewer(qw.QWidget):
         self._layout_center: Optional[Tuple[float, float]] = None
         self._layout_label = ""
         self._layout_rotation = 0.0
+        self._detail_gesture: Optional[Tuple[str, DetailViewSpec]] = None
+        self._detail_commit_timer = qc.QTimer(self)
+        self._detail_commit_timer.setSingleShot(True)
+        self._detail_commit_timer.setInterval(_DETAIL_COMMIT_DELAY_MS)
+        self._detail_commit_timer.timeout.connect(self._commit_detail_gesture)
         self._layout_table_height_mm = 0.0
         self._layout_table_width_mm = 0.0
 
@@ -143,6 +167,7 @@ class DxfViewer(qw.QWidget):
         canvas_layout.setSpacing(0)
         self._view = CadGraphicsView()
         self._text_options_bar = TextOptionsBar(self)
+        self._detail_options_bar = DetailOptionsBar(self)
         self._command_line = CommandLine()
         self._sheet_tabs = SheetTabBar()
         self._compass = RotationCompass(self._canvas_page)
@@ -181,6 +206,13 @@ class DxfViewer(qw.QWidget):
         self._view.toolPointPlaced.connect(self._on_tool_point_placed)
         self._view.itemsDragMoved.connect(self._on_items_drag_moved)
         self._view.viewportChanged.connect(self._reposition_text_options_bar)
+        self._view.viewportChanged.connect(self._reposition_detail_options_bar)
+        self._view.detailZoomRequested.connect(self._on_detail_zoom)
+        self._view.detailPanRequested.connect(self._on_detail_pan)
+        self._view.detailRotateRequested.connect(self._on_detail_rotate)
+        self._view.detailResizeRequested.connect(self._on_detail_resize)
+        self._view.detailArrowAnchorPicked.connect(self._on_detail_arrow_anchor)
+        self._view.detailGestureFinished.connect(self._commit_detail_gesture)
         self._view.pageFrameMoved.connect(self._on_page_frame_moved)
         self._view.pageScaleZoomRequested.connect(self.pageScaleZoomRequested)
         self._view.viewportChanged.connect(self._reposition_compass)
@@ -194,6 +226,8 @@ class DxfViewer(qw.QWidget):
         self._text_options_bar.rotationChanged.connect(self._on_text_rotation_changed)
         self._text_options_bar.colorChanged.connect(self._on_text_color_changed)
 
+        self._detail_options_bar.modeChanged.connect(self._on_detail_mode_changed)
+
         self._command_line.commandEntered.connect(self._on_command_entered)
         self._command_line.undoRequested.connect(lambda: self._echo(self.undo()))
         self._command_line.redoRequested.connect(lambda: self._echo(self.redo()))
@@ -205,6 +239,7 @@ class DxfViewer(qw.QWidget):
         self._toolbar.circleRequested.connect(lambda: self._start_draw_tool(CircleToolSession))
         self._toolbar.pipeRequested.connect(lambda: self._start_draw_tool(PipeToolSession))
         self._toolbar.multileaderRequested.connect(lambda: self._start_draw_tool(self._multileader_tool))
+        self._toolbar.detailRequested.connect(lambda: self._start_draw_tool(DetailViewToolSession))
         self._toolbar.selectRequested.connect(self.cancel_tool)
         self._toolbar.moveRequested.connect(self.start_move_tool)
         self._toolbar.rotateRequested.connect(self.start_rotate_tool)
@@ -251,6 +286,7 @@ class DxfViewer(qw.QWidget):
         self._add_shortcut("C", lambda: self._start_draw_tool(CircleToolSession), parent=self._view)
         self._add_shortcut("R,U", lambda: self._start_draw_tool(PipeToolSession), parent=self._view)
         self._add_shortcut("M,L", lambda: self._start_draw_tool(self._multileader_tool), parent=self._view)
+        self._add_shortcut("D,V", lambda: self._start_draw_tool(DetailViewToolSession), parent=self._view)
         self._add_shortcut("M", self.start_move_tool, parent=self._view)
         self._add_shortcut("R,O", self.start_rotate_tool, parent=self._view)
         self._add_shortcut("S,C", self.start_scale_tool, parent=self._view)
@@ -541,6 +577,7 @@ class DxfViewer(qw.QWidget):
         self._view.set_annotation_grips([])
         self._toolbar.set_erase_enabled(False)
         self._sync_text_options_bar()
+        self._sync_detail_options_bar()
 
     def select_by_layer(self, name: str) -> None:
         if self._doc is None:
@@ -548,14 +585,27 @@ class DxfViewer(qw.QWidget):
         handles = {entity.dxf.handle for entity in self._doc.modelspace if entity.dxf.layer == name}
         self._select_handles(handles)
 
-    def _select_handles(self, handles: Iterable[str]) -> None:
-        handle_set = set(self._doc.expand_annotation_handles(handles)) if self._doc is not None else set(handles)
-        items = [item for item in self._view.scene().items() if item.data(HANDLE_ROLE) in handle_set]
+    def _items_for_handles(self, handle_set: Set[str]) -> List[qw.QGraphicsItem]:
+        # The contents of a detail view are stamped with the frame's own handle so that
+        # they can be hidden from snapping and hit-testing; they must never take part in
+        # selection, or zooming inside a frame would light up everything it shows.
+        return [
+            item
+            for item in self._view.scene().items()
+            if item.data(HANDLE_ROLE) in handle_set and not item.data(DETAIL_CONTENT_ROLE)
+        ]
+
+    def _apply_selection(self, items: List[qw.QGraphicsItem]) -> None:
         self._view.set_selected_items(items)
-        self._selected_handles = [item.data(HANDLE_ROLE) for item in items]
+        self._selected_handles = list(dict.fromkeys(item.data(HANDLE_ROLE) for item in items))
         self._toolbar.set_erase_enabled(bool(items))
         self._sync_text_options_bar()
+        self._sync_detail_options_bar()
         self._sync_multileader_grips()
+
+    def _select_handles(self, handles: Iterable[str]) -> None:
+        handle_set = set(self._doc.expand_annotation_handles(handles)) if self._doc is not None else set(handles)
+        self._apply_selection(self._items_for_handles(handle_set))
 
     def start_tool(self, tool: ToolSession) -> None:
         self.cancel_tool()
@@ -730,15 +780,15 @@ class DxfViewer(qw.QWidget):
             return
         self._view.set_annotation_grips(self._doc.multileader_grips(self._selected_handles[0]))
 
-    def _reposition_text_options_bar(self) -> None:
-        bar = self._text_options_bar
-        if not bar.isVisible() or bar.handle is None:
+    def _place_bar_above_entity(self, bar: qw.QWidget, handle: Optional[str], lift: int = 0) -> None:
+        if not bar.isVisible() or handle is None:
             return
-        item = self._find_item(bar.handle)
+        item = self._find_item(handle)
         if item is None:
             bar.hide()
             return
         rect = item.sceneBoundingRect()
+        # All four corners, because the scene and the view can both be rotated.
         corners = [
             self._view.mapFromScene(rect.topLeft()),
             self._view.mapFromScene(rect.topRight()),
@@ -749,14 +799,51 @@ class DxfViewer(qw.QWidget):
         top_y = min(p.y() for p in corners)
         global_point = self._view.viewport().mapToGlobal(qc.QPoint(round(center_x), round(top_y)))
         anchor = self.mapFromGlobal(global_point)
-        bar.move(anchor.x() - bar.width() // 2, anchor.y() - bar.height() - SPACE_SM)
+        bar.move(anchor.x() - bar.width() // 2, anchor.y() - bar.height() - SPACE_SM - lift)
         bar.raise_()
+
+    def _reposition_text_options_bar(self) -> None:
+        self._place_bar_above_entity(self._text_options_bar, self._text_options_bar.handle)
+
+    def _sync_detail_options_bar(self) -> None:
+        bar = self._detail_options_bar
+        handle = self._selected_handles[0] if len(self._selected_handles) == 1 else None
+        if self._doc is None or handle is None or self._doc.detail_view_spec(handle) is None:
+            bar.hide()
+            self._set_detail_mode(None, None)
+            return
+        bar.bind(handle)
+        # bind() drops the mode when the selection moves to another frame, so the view
+        # always learns the mode that is actually showing on the bar.
+        self._view.set_detail_mode(handle, bar.mode())
+        self._reposition_detail_options_bar()
+
+    def _reposition_detail_options_bar(self) -> None:
+        bar = self._detail_options_bar
+        # Stack above the text bar when a detail view happens to show both.
+        lift = self._text_options_bar.height() + SPACE_SM if self._text_options_bar.isVisible() else 0
+        self._place_bar_above_entity(bar, bar.handle, lift)
 
     def _find_item(self, handle: str) -> Optional[qw.QGraphicsItem]:
         for item in self._view.scene().items():
-            if item.data(HANDLE_ROLE) == handle:
+            if item.data(HANDLE_ROLE) == handle and not item.data(DETAIL_CONTENT_ROLE):
                 return item
         return None
+
+    def _set_detail_mode(self, handle: Optional[str], mode: Optional[str]) -> None:
+        self._detail_options_bar.set_mode(mode)
+        self._view.set_detail_mode(handle, mode)
+
+    def _on_detail_mode_changed(self, handle: str, mode: str) -> None:
+        self._view.set_detail_mode(handle, mode or None)
+
+    def _on_detail_arrow_anchor(self, handle: str, index: int) -> None:
+        if self._doc is None:
+            return
+        spec = self._doc.detail_view_spec(handle)
+        if spec is None:
+            return
+        self.start_tool(DetailArrowToolSession(handle_points(spec)[index]))
 
     def _on_text_content_changed(self, handle: str, text: str) -> None:
         self.execute_command(SetTextContentCommand(handle, text))
@@ -801,6 +888,101 @@ class DxfViewer(qw.QWidget):
     def can_redo(self) -> bool:
         return self._history is not None and self._history.can_redo()
 
+    def _begin_detail_gesture(self, handle: str) -> bool:
+        if self._doc is None:
+            return False
+        if self._detail_gesture is not None and self._detail_gesture[0] != handle:
+            self._commit_detail_gesture()
+        if self._detail_gesture is None:
+            spec = self._doc.detail_view_spec(handle)
+            if spec is None:
+                return False
+            self._detail_gesture = (handle, spec)
+        return True
+
+    def _apply_detail_spec(self, handle: str, spec: DetailViewSpec) -> None:
+        assert self._doc is not None
+        self._doc.set_detail_view_spec(handle, spec)
+        self._render(preserve_view=True)
+
+    def _on_detail_zoom(self, handle: str, notches: float, x: float, y: float) -> None:
+        if not self._begin_detail_gesture(handle):
+            return
+        assert self._doc is not None
+        spec = self._doc.detail_view_spec(handle)
+        if spec is None:
+            return
+        self._apply_detail_spec(handle, with_scale(spec, spec.scale * (_DETAIL_ZOOM_STEP ** notches), (x, y)))
+        self._detail_commit_timer.start()
+
+    def _on_detail_pan(self, handle: str, dx: float, dy: float) -> None:
+        if not self._begin_detail_gesture(handle):
+            return
+        assert self._doc is not None
+        spec = self._doc.detail_view_spec(handle)
+        if spec is None:
+            return
+        self._apply_detail_spec(handle, panned(spec, dx, dy))
+
+    def _on_detail_rotate(self, handle: str, degrees: float) -> None:
+        if not self._begin_detail_gesture(handle):
+            return
+        assert self._doc is not None
+        spec = self._doc.detail_view_spec(handle)
+        if spec is None:
+            return
+        self._apply_detail_spec(handle, rotated(spec, degrees))
+
+    def _on_detail_resize(self, handle: str, index: int, x: float, y: float) -> None:
+        if not self._begin_detail_gesture(handle):
+            return
+        assert self._doc is not None
+        spec = self._doc.detail_view_spec(handle)
+        if spec is None:
+            return
+        self._apply_detail_spec(handle, resize_to_handle(spec, index, (x, y)))
+
+    def _commit_detail_gesture(self) -> None:
+        self._detail_commit_timer.stop()
+        if self._detail_gesture is None or self._doc is None or self._history is None:
+            return
+        handle, previous = self._detail_gesture
+        self._detail_gesture = None
+        current = self._doc.detail_view_spec(handle)
+        if current is None or current == previous:
+            return
+        self._history.execute(UpdateDetailViewCommand(handle, current, previous), self._doc)
+        self.documentChanged.emit()
+
+    @staticmethod
+    def _detail_ground_color(scene: qw.QGraphicsScene, stroke: Optional[StrokeStyle]) -> qg.QColor:
+        """What a detail frame masks the drawing underneath it with.
+
+        A detail view is part of the drawing, so it takes the surface it sits on: the
+        white sheet in layout mode, the dark canvas otherwise.
+        """
+        if stroke is not None:
+            return qg.QColor(PAPER_COLOR)
+        brush = scene.backgroundBrush()
+        if brush.style() == qc.Qt.BrushStyle.NoBrush:
+            return qg.QColor(UiColor.SURFACE_SUNKEN)
+        return brush.color()
+
+    def _render_detail_views(self, scene: qw.QGraphicsScene) -> None:
+        assert self._doc is not None
+        stroke = self._stroke_style()
+        ground_color = self._detail_ground_color(scene, stroke)
+        for handle, spec, player in detail_players(self._doc, self._render_config()):
+            polygon = qg.QPolygonF([qc.QPointF(x, y) for x, y in detail_corner_points(spec)])
+            ground = qw.QGraphicsPolygonItem(polygon)
+            ground.setPen(qg.QPen(qc.Qt.PenStyle.NoPen))
+            ground.setBrush(qg.QBrush(ground_color))
+            ground.setZValue(-1.0)
+            ground.setData(HANDLE_ROLE, handle)
+            ground.setData(DETAIL_CONTENT_ROLE, True)
+            scene.addItem(ground)
+            player.replay(DetailSceneBackend(scene, stroke, handle))
+
     def _render(self, *, preserve_view: bool) -> None:
         assert self._doc is not None
         self._view.set_document(self._doc)
@@ -811,6 +993,7 @@ class DxfViewer(qw.QWidget):
         Frontend(context, backend, config=self._render_config()).draw_layout(
             self._doc.modelspace, finalize=True
         )
+        self._render_detail_views(scene)
         self._view.setScene(scene)
         if self._layout_options is not None:
             self._view.set_content_rotation(self._layout_rotation, self._layout_center)
@@ -819,15 +1002,9 @@ class DxfViewer(qw.QWidget):
         else:
             self._view.fit_to_page()
 
-        handle_set = set(self._selected_handles)
-        matched = [item for item in scene.items() if item.data(HANDLE_ROLE) in handle_set]
-        self._view.set_selected_items(matched)
-        self._selected_handles = [item.data(HANDLE_ROLE) for item in matched]
-        self._toolbar.set_erase_enabled(bool(self._selected_handles))
+        self._apply_selection(self._items_for_handles(set(self._selected_handles)))
         self.entity_count = self._doc.entity_count()
         self.layer_count = self._doc.layer_count()
         self._layer_panel.refresh(self._doc.iter_layers())
         self._layer_panel.set_prune_available(self._imported_layer_names is not None)
-        self._sync_text_options_bar()
-        self._sync_multileader_grips()
         self.documentChanged.emit()

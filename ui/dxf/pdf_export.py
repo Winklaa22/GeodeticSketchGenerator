@@ -34,6 +34,7 @@ from core.table_template import (
     table_layout,
 )
 from ui.dxf.backend import qcolor_from, qcolor_on_paper, to_qpainter_path
+from ui.dxf.detail_render import detail_players
 from ui.dxf.page_frame import PageFrame
 from ui.dxf.stamp_cache import stamp_cache
 from ui.i18n import tr
@@ -149,6 +150,13 @@ def _record(document: DXFDocument, config: Configuration) -> recorder.Recorder:
     rec = recorder.Recorder()
     context = RenderContext(document.drawing)
     Frontend(context, rec, config=config).draw_layout(document.modelspace, finalize=True)
+    # Player.replay() pushes its own background onto the target. The detail players never
+    # drew a layout, so theirs is the recorder default (black) and would repaint the whole
+    # sheet; the sheet's white background has to survive the replay.
+    page_background = rec.background
+    for _handle, _spec, player in detail_players(document, config):
+        player.replay(rec)
+    rec.set_background(page_background)
     return rec
 
 

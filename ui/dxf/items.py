@@ -7,6 +7,7 @@ from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 
 HANDLE_ROLE = qc.Qt.ItemDataRole.UserRole
+DETAIL_CONTENT_ROLE = qc.Qt.ItemDataRole.UserRole + 1
 CONTENT_ROTATION_PROPERTY = "gsgContentRotation"
 CONTENT_PIVOT_PROPERTY = "gsgContentPivot"
 

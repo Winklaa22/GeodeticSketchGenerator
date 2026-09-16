@@ -13,7 +13,7 @@ from ezdxf.math import Vec2
 from ezdxf.path import Command
 
 from core.plot import StrokeStyle
-from ui.dxf.items import HANDLE_ROLE, PointItem
+from ui.dxf.items import DETAIL_CONTENT_ROLE, HANDLE_ROLE, PointItem
 
 
 @lru_cache(maxsize=512)
@@ -162,3 +162,24 @@ class QtSceneBackend(Backend):
     def finalize(self) -> None:
         super().finalize()
         self._scene.setSceneRect(self._scene.itemsBoundingRect())
+
+
+class DetailSceneBackend(QtSceneBackend):
+
+    def __init__(
+        self, scene: qw.QGraphicsScene, stroke: Optional[StrokeStyle], handle: str
+    ) -> None:
+        super().__init__(scene, stroke)
+        self._detail_handle = handle
+
+    def _add(self, item: qw.QGraphicsItem, handle: str) -> None:
+        item.setData(DETAIL_CONTENT_ROLE, True)
+        super()._add(item, self._detail_handle)
+
+    def set_background(self, color: Color) -> None:
+        # The magnified content is part of the drawing, not a page of its own: it must
+        # never repaint the canvas behind the whole scene.
+        return
+
+    def finalize(self) -> None:
+        Backend.finalize(self)

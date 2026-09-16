@@ -8,7 +8,15 @@ from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 from core.dxf_document import DXFDocument
 from core.plot import PAPER_COLOR
 from core.table_template import BORDER_WIDTH_MM, CELL_PADDING_MM, ResolvedCell
-from ui.dxf.items import CONTENT_PIVOT_PROPERTY, CONTENT_ROTATION_PROPERTY, HANDLE_ROLE, PointItem, x_scale
+from core.detail_view import contains_point, handle_points
+from ui.dxf.items import (
+    CONTENT_PIVOT_PROPERTY,
+    CONTENT_ROTATION_PROPERTY,
+    DETAIL_CONTENT_ROLE,
+    HANDLE_ROLE,
+    PointItem,
+    x_scale,
+)
 from ui.dxf.page_frame import PageFrame
 from ui.dxf.stamp_cache import stamp_cache
 from ui.theme import Color as UiColor
@@ -19,6 +27,18 @@ if TYPE_CHECKING:
 
 _CLICK_THRESHOLD_PX = 4
 _SNAP_TOLERANCE_PX = 14
+_DETAIL_HANDLE_PX = 7
+# One per resize grip, in the order handle_points() returns them.
+_DETAIL_HANDLE_CURSORS = (
+    qc.Qt.CursorShape.SizeBDiagCursor,
+    qc.Qt.CursorShape.SizeVerCursor,
+    qc.Qt.CursorShape.SizeFDiagCursor,
+    qc.Qt.CursorShape.SizeHorCursor,
+    qc.Qt.CursorShape.SizeBDiagCursor,
+    qc.Qt.CursorShape.SizeVerCursor,
+    qc.Qt.CursorShape.SizeFDiagCursor,
+    qc.Qt.CursorShape.SizeHorCursor,
+)
 
 
 def _distance_to_segment(point: qc.QPointF, line: qc.QLineF) -> float:
@@ -74,6 +94,12 @@ class CadGraphicsView(qw.QGraphicsView):
     # factor > 1 means "make the drawing bigger on the paper"; the anchor is the world
     # point under the cursor, which the new sheet scale has to keep in place.
     pageScaleZoomRequested = qc.pyqtSignal(float, float, float)
+    detailZoomRequested = qc.pyqtSignal(str, float, float, float)
+    detailPanRequested = qc.pyqtSignal(str, float, float)
+    detailRotateRequested = qc.pyqtSignal(str, float)
+    detailResizeRequested = qc.pyqtSignal(str, int, float, float)
+    detailArrowAnchorPicked = qc.pyqtSignal(str, int)
+    detailGestureFinished = qc.pyqtSignal()
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -85,6 +111,11 @@ class CadGraphicsView(qw.QGraphicsView):
         self._press_pos: Optional[qc.QPoint] = None
         self._selected_items: List[qw.QGraphicsItem] = []
         self._annotation_grips: List[qc.QPointF] = []
+        self._detail_pan: Optional[Tuple[str, qc.QPointF]] = None
+        self._detail_mode: Optional[str] = None
+        self._detail_mode_handle: Optional[str] = None
+        self._detail_rotate: Optional[Tuple[str, float]] = None
+        self._detail_resize: Optional[Tuple[str, int]] = None
         self._pan_last_pos: Optional[qc.QPoint] = None
         self._rubber_band: Optional[qw.QRubberBand] = None
         self._snap_indicator: Optional[qc.QPointF] = None
@@ -224,9 +255,40 @@ class CadGraphicsView(qw.QGraphicsView):
         else:
             self.viewportChanged.emit()
 
+    def set_detail_mode(self, handle: Optional[str], mode: Optional[str]) -> None:
+        self._detail_mode_handle = handle if mode else None
+        self._detail_mode = mode or None
+        self.viewport().update()
+
+    def detail_mode(self) -> Optional[str]:
+        return self._detail_mode
+
+    def _mode_spec(self, mode: str):
+        """The spec of the frame the given mode is armed for, if any."""
+        if self._doc is None or self._detail_mode != mode or self._detail_mode_handle is None:
+            return None
+        return self._doc.detail_view_spec(self._detail_mode_handle)
+
+    def _detail_target(self, world_point: qc.QPointF) -> Optional[str]:
+        # Zooming and panning the magnified content only happens in the Edit mode of the
+        # detail options bar; otherwise the wheel and the left button keep their usual
+        # meaning over a selected frame.
+        spec = self._mode_spec("edit")
+        if spec is None:
+            return None
+        if not contains_point(spec, (world_point.x(), world_point.y())):
+            return None
+        return self._detail_mode_handle
+
     def wheelEvent(self, event: qg.QWheelEvent) -> None:
         notches = event.angleDelta().y() / 120
         if notches == 0:
+            return
+        anchor_point = self._world_point(event.position())
+        detail = self._detail_target(anchor_point)
+        if detail is not None:
+            self.detailZoomRequested.emit(detail, notches, anchor_point.x(), anchor_point.y())
+            event.accept()
             return
         factor = (1.0 + self._zoom_step) ** notches
         ctrl = bool(event.modifiers() & qc.Qt.KeyboardModifier.ControlModifier)
@@ -318,7 +380,7 @@ class CadGraphicsView(qw.QGraphicsView):
         best_point: Optional[qc.QPointF] = None
         best_distance = float(_SNAP_TOLERANCE_PX)
         for item in self.items(rect):
-            if item.data(HANDLE_ROLE) is None:
+            if item.data(HANDLE_ROLE) is None or item.data(DETAIL_CONTENT_ROLE):
                 continue
             for hover_point, snap_point in self._snap_candidates_for(item, raw_scene_point):
                 device_point = self.mapFromScene(hover_point)
@@ -418,8 +480,75 @@ class CadGraphicsView(qw.QGraphicsView):
         self._press_pos = event.position().toPoint()
         self._drag_candidate = None
         if self._tool is None and event.button() == qc.Qt.MouseButton.LeftButton:
-            self._drag_candidate = self._topmost_handled_item(self._press_pos)
+            world = self._world_point(event.position())
+            detail = self._detail_target(world)
+            if detail is not None:
+                self._detail_pan = (detail, world)
+                self.setCursor(qc.Qt.CursorShape.ClosedHandCursor)
+                return
+            if self._pick_detail_arrow_anchor(world):
+                # Picking an anchor starts the arrow tool, so this gesture's release must
+                # not reach it as the arrow's target point.
+                self._press_pos = None
+                return
+            if self._begin_detail_resize(world) or self._begin_detail_rotate(world):
+                return
+            self._drag_candidate = self._detail_move_item(world) or self._topmost_handled_item(self._press_pos)
         super().mousePressEvent(event)
+
+    def _pick_detail_arrow_anchor(self, world: qc.QPointF) -> bool:
+        """In Arrow mode the eight frame grips are where a leader can start."""
+        spec = self._mode_spec("arrow")
+        if spec is None:
+            return False
+        index = self._detail_handle_at(spec, world)
+        if index is None:
+            return False
+        self.detailArrowAnchorPicked.emit(self._detail_mode_handle, index)
+        return True
+
+    def _begin_detail_resize(self, world: qc.QPointF) -> bool:
+        spec = self._mode_spec("scale")
+        if spec is None:
+            return False
+        index = self._detail_handle_at(spec, world)
+        if index is None:
+            return False
+        self._detail_resize = (self._detail_mode_handle, index)
+        return True
+
+    def _begin_detail_rotate(self, world: qc.QPointF) -> bool:
+        spec = self._mode_spec("rotate")
+        if spec is None or not contains_point(spec, (world.x(), world.y())):
+            return False
+        grab = math.degrees(math.atan2(world.y() - spec.center[1], world.x() - spec.center[0]))
+        self._detail_rotate = (self._detail_mode_handle, grab - spec.rotation)
+        self.setCursor(qc.Qt.CursorShape.ClosedHandCursor)
+        return True
+
+    def _detail_move_item(self, world: qc.QPointF) -> Optional[qw.QGraphicsItem]:
+        """In Move mode the whole frame is grabbable, not just its border."""
+        spec = self._mode_spec("move")
+        if spec is None or not contains_point(spec, (world.x(), world.y())):
+            return None
+        for item in self._selected_items:
+            if item.data(HANDLE_ROLE) == self._detail_mode_handle:
+                return item
+        return None
+
+    def _scene_scale(self) -> float:
+        return x_scale(self.transform()) or 1.0
+
+    def _detail_handle_at(self, spec, world: qc.QPointF) -> Optional[int]:
+        tolerance = _DETAIL_HANDLE_PX / max(self._scene_scale(), 1e-9)
+        best_index: Optional[int] = None
+        best_distance = tolerance
+        for index, grip in enumerate(handle_points(spec)):
+            distance = math.hypot(grip[0] - world.x(), grip[1] - world.y())
+            if distance <= best_distance:
+                best_distance = distance
+                best_index = index
+        return best_index
 
     def mouseMoveEvent(self, event: qg.QMouseEvent) -> None:
         if self._pan_last_pos is not None:
@@ -429,7 +558,30 @@ class CadGraphicsView(qw.QGraphicsView):
             self._pan_last_pos = pos
             self.pan_by(old_scene.x() - new_scene.x(), old_scene.y() - new_scene.y())
             return
+        if self._detail_pan is not None:
+            handle, last = self._detail_pan
+            world = self._world_point(event.position())
+            dx, dy = world.x() - last.x(), world.y() - last.y()
+            if abs(dx) > 1e-12 or abs(dy) > 1e-12:
+                self._detail_pan = (handle, world)
+                self.detailPanRequested.emit(handle, dx, dy)
+            return
+        if self._detail_rotate is not None:
+            handle, grab_offset = self._detail_rotate
+            world = self._world_point(event.position())
+            spec = self._doc.detail_view_spec(handle) if self._doc is not None else None
+            if spec is not None:
+                pointer = math.degrees(math.atan2(world.y() - spec.center[1], world.x() - spec.center[0]))
+                self.detailRotateRequested.emit(handle, pointer - grab_offset - spec.rotation)
+            return
+        if self._detail_resize is not None:
+            handle, index = self._detail_resize
+            world = self._world_point(event.position())
+            self.detailResizeRequested.emit(handle, index, world.x(), world.y())
+            return
         super().mouseMoveEvent(event)
+        if self._tool is None and self._detail_mode in ("scale", "arrow"):
+            self._update_detail_handle_cursor(event.position())
         if self._tool is not None:
             view_pos = event.position().toPoint()
             raw_point = self.mapToScene(view_pos)
@@ -446,6 +598,17 @@ class CadGraphicsView(qw.QGraphicsView):
                 self._ensure_dragging_items(view_pos)
             else:
                 self._update_rubber_band(view_pos)
+
+    def _update_detail_handle_cursor(self, position: qc.QPointF) -> None:
+        arrow_mode = self._detail_mode == "arrow"
+        spec = self._mode_spec("arrow" if arrow_mode else "scale")
+        index = self._detail_handle_at(spec, self._world_point(position)) if spec is not None else None
+        if index is None:
+            self.setCursor(qc.Qt.CursorShape.ArrowCursor)
+        elif arrow_mode:
+            self.setCursor(qc.Qt.CursorShape.PointingHandCursor)
+        else:
+            self.setCursor(_DETAIL_HANDLE_CURSORS[index])
 
     def _ensure_dragging_items(self, view_pos: qc.QPoint) -> None:
         if not self._dragging_items:
@@ -468,6 +631,19 @@ class CadGraphicsView(qw.QGraphicsView):
         if event.button() == qc.Qt.MouseButton.MiddleButton:
             self._pan_last_pos = None
             self.setCursor(qc.Qt.CursorShape.CrossCursor if self._tool is not None else qc.Qt.CursorShape.ArrowCursor)
+            return
+        if self._detail_rotate is not None or self._detail_resize is not None:
+            self._detail_rotate = None
+            self._detail_resize = None
+            self._press_pos = None
+            self.setCursor(qc.Qt.CursorShape.ArrowCursor)
+            self.detailGestureFinished.emit()
+            return
+        if self._detail_pan is not None:
+            self._detail_pan = None
+            self._press_pos = None
+            self.setCursor(qc.Qt.CursorShape.ArrowCursor)
+            self.detailGestureFinished.emit()
             return
         super().mouseReleaseEvent(event)
         if event.button() != qc.Qt.MouseButton.LeftButton or self._press_pos is None:
@@ -537,7 +713,11 @@ class CadGraphicsView(qw.QGraphicsView):
         self._emit_selection()
 
     def _items_in_rect(self, rect: qc.QRect) -> List[qw.QGraphicsItem]:
-        return [item for item in self.items(rect) if item.data(HANDLE_ROLE) is not None]
+        return [
+            item
+            for item in self.items(rect)
+            if item.data(HANDLE_ROLE) is not None and not item.data(DETAIL_CONTENT_ROLE)
+        ]
 
     def _topmost_handled_item(self, view_pos: qc.QPoint) -> Optional[qw.QGraphicsItem]:
         tolerance = 4
@@ -599,14 +779,28 @@ class CadGraphicsView(qw.QGraphicsView):
                 fill_color.setAlpha(90)
                 painter.fillRect(item.boundingRect(), fill_color)
             painter.restore()
-        if self._annotation_grips:
+        squares = list(self._annotation_grips)
+        resize_spec = self._mode_spec("scale")
+        if resize_spec is not None:
+            squares.extend(qc.QPointF(x, y) for x, y in handle_points(resize_spec))
+        # Round grips mark where an arrow can start, so they never look like something
+        # that could be dragged to resize the frame.
+        arrow_spec = self._mode_spec("arrow")
+        dots = (
+            [qc.QPointF(x, y) for x, y in handle_points(arrow_spec)]
+            if arrow_spec is not None
+            else []
+        )
+        if squares or dots:
             grip_pen = qg.QPen(color, 1.5)
             grip_pen.setCosmetic(True)
             painter.setPen(grip_pen)
             painter.setBrush(qg.QBrush(qg.QColor(UiColor.SURFACE), qc.Qt.BrushStyle.SolidPattern))
             radius = 4 / scale
-            for grip in self._annotation_grips:
+            for grip in squares:
                 painter.drawRect(qc.QRectF(grip.x() - radius, grip.y() - radius, radius * 2, radius * 2))
+            for dot in dots:
+                painter.drawEllipse(dot, radius, radius)
 
     @staticmethod
     def _ring_path(outer: qc.QRectF, inner: qc.QRectF) -> qg.QPainterPath:

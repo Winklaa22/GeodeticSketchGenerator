@@ -6,6 +6,7 @@ from core.commands.composite import CompositeCommand
 from core.commands.draw import AddCircleCommand, AddLineCommand, AddPointCommand
 from ui.dxf.tools import (
     CircleToolSession,
+    DetailViewToolSession,
     LineToolSession,
     MultileaderToolSession,
     PipeToolSession,
@@ -50,6 +51,8 @@ class DxfCommandInterpreter:
             "RURA": self._cmd_pipe,
             "RU": self._cmd_pipe,
             "MLEADER": self._cmd_multileader,
+            "DETAIL": self._cmd_detail,
+            "DV": self._cmd_detail,
             "ML": self._cmd_multileader,
             "MOVE": self._cmd_move,
             "M": self._cmd_move,
@@ -201,6 +204,10 @@ class DxfCommandInterpreter:
                 attachment="left" if "LEFT" in options else "right" if "RIGHT" in options else None,
             )
         )
+        return ""
+
+    def _cmd_detail(self, args: List[str]) -> str:
+        self._viewer.start_tool(DetailViewToolSession())
         return ""
 
     def _cmd_move(self, args: List[str]) -> str:
