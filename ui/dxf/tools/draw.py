@@ -50,6 +50,53 @@ _DEFAULT_TEXT_HEIGHT = 0.6
 _PREVIEW_SPLINE_SEGMENTS = 32
 
 
+def leader_curve(spec: MultileaderSpec) -> List[Tuple[float, float]]:
+    route = list(leader_points(spec))
+    if spec.line_type != "spline":
+        return route
+    fit_points = spline_fit_points(spec)
+    if len(set(fit_points)) < 3:
+        return route
+    curve = fit_points_to_cad_cv(fit_points)
+    return [(vertex.x, vertex.y) for vertex in curve.approximate(_PREVIEW_SPLINE_SEGMENTS)]
+
+
+def _add_preview(scene: qw.QGraphicsScene, item: qw.QGraphicsItem, sink: List[qw.QGraphicsItem]) -> None:
+    item.setPen(preview_pen())
+    add_preview_item(scene, item)
+    sink.append(item)
+
+
+def add_polyline_preview(
+    scene: qw.QGraphicsScene, points: List[Tuple[float, float]], sink: List[qw.QGraphicsItem]
+) -> None:
+    path = qg.QPainterPath(qc.QPointF(*points[0]))
+    for vertex in points[1:]:
+        path.lineTo(qc.QPointF(*vertex))
+    _add_preview(scene, qw.QGraphicsPathItem(path), sink)
+
+
+def add_leader_preview(
+    scene: qw.QGraphicsScene, spec: MultileaderSpec, sink: List[qw.QGraphicsItem]
+) -> None:
+    """Draws the leader route and its arrowhead, appending every item to ``sink``."""
+    add_polyline_preview(scene, leader_curve(spec), sink)
+    tip, left, right = arrow_points(spec)
+    if spec.arrowhead == "closed":
+        polygon = qg.QPolygonF([qc.QPointF(*tip), qc.QPointF(*left), qc.QPointF(*right)])
+        item = qw.QGraphicsPolygonItem(polygon)
+        item.setBrush(qg.QBrush(preview_pen().color()))
+        _add_preview(scene, item, sink)
+        return
+    if spec.arrowhead == "open":
+        add_polyline_preview(scene, [left, tip, right], sink)
+        return
+    radius = max(spec.height * 0.28, 0.04)
+    _add_preview(
+        scene, qw.QGraphicsEllipseItem(tip[0] - radius, tip[1] - radius, radius * 2, radius * 2), sink
+    )
+
+
 class MultileaderToolSession(ToolSession):
 
     def __init__(
@@ -167,16 +214,6 @@ class MultileaderToolSession(ToolSession):
             ).normalized()
         return self._spec_for(point)
 
-    def _leader_curve(self, spec: MultileaderSpec) -> List[Tuple[float, float]]:
-        route = list(leader_points(spec))
-        if spec.line_type != "spline":
-            return route
-        fit_points = spline_fit_points(spec)
-        if len(set(fit_points)) < 3:
-            return route
-        curve = fit_points_to_cad_cv(fit_points)
-        return [(vertex.x, vertex.y) for vertex in curve.approximate(_PREVIEW_SPLINE_SEGMENTS)]
-
     def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
         if self._tip is None or self._text is not None:
             return
@@ -184,40 +221,12 @@ class MultileaderToolSession(ToolSession):
         if spec is None:
             return
         self._reset_preview(scene)
-        self._add_polyline(scene, self._leader_curve(spec))
-        self._add_arrowhead(scene, spec)
+        add_leader_preview(scene, spec, self._preview_items)
 
     def _reset_preview(self, scene: qw.QGraphicsScene) -> None:
         for item in self._preview_items:
             scene.removeItem(item)
         self._preview_items = []
-
-    def _add_item(self, scene: qw.QGraphicsScene, item: qw.QGraphicsItem) -> None:
-        item.setPen(preview_pen())
-        add_preview_item(scene, item)
-        self._preview_items.append(item)
-
-    def _add_polyline(self, scene: qw.QGraphicsScene, points: List[Tuple[float, float]]) -> None:
-        path = qg.QPainterPath(qc.QPointF(*points[0]))
-        for vertex in points[1:]:
-            path.lineTo(qc.QPointF(*vertex))
-        self._add_item(scene, qw.QGraphicsPathItem(path))
-
-    def _add_arrowhead(self, scene: qw.QGraphicsScene, spec: MultileaderSpec) -> None:
-        tip, left, right = arrow_points(spec)
-        if spec.arrowhead == "closed":
-            polygon = qg.QPolygonF([qc.QPointF(*tip), qc.QPointF(*left), qc.QPointF(*right)])
-            item = qw.QGraphicsPolygonItem(polygon)
-            item.setBrush(qg.QBrush(preview_pen().color()))
-            self._add_item(scene, item)
-            return
-        if spec.arrowhead == "open":
-            self._add_polyline(scene, [left, tip, right])
-            return
-        radius = max(spec.height * 0.28, 0.04)
-        self._add_item(
-            scene, qw.QGraphicsEllipseItem(tip[0] - radius, tip[1] - radius, radius * 2, radius * 2)
-        )
 
     def is_done(self) -> bool:
         return self._spec(self._text or "") is not None and self._text is not None

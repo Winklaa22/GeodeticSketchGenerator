@@ -383,6 +383,27 @@ QLineEdit#textOptionsContent, QLineEdit#textOptionsField {{
 }}
 QLineEdit#textOptionsContent:focus, QLineEdit#textOptionsField:focus {{ border-color: {c.ACCENT_BORDER}; }}
 
+/* ---------- detail options bar (floats above a selected detail view frame) ---------- */
+QFrame#detailOptionsBar {{
+    background: {c.SURFACE_RAISED};
+    border: 1px solid {c.BORDER_STRONG};
+    border-radius: {RADIUS_SM}px;
+}}
+/* Smaller than the main toolbar buttons - the bar hovers over the drawing. */
+QToolButton#detailOptionsBtn {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: {RADIUS_SM}px;
+    padding: 0px;
+    color: {c.TEXT_MUTED};
+}}
+QToolButton#detailOptionsBtn:hover {{ background: {c.SURFACE_HOVER}; color: {c.TEXT}; }}
+QToolButton#detailOptionsBtn:checked {{
+    background: {c.ACCENT_SOFT};
+    border: 1px solid {c.ACCENT_BORDER};
+    color: {c.ACCENT};
+}}
+
 /* ---------- accordion ---------- */
 QFrame#accordionHeader {{
     background: transparent;

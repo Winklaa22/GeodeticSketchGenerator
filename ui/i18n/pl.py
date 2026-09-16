@@ -324,6 +324,13 @@ TRANSLATIONS: Dict[str, str] = {
     "text_options.rotation_tooltip": "Obrót (stopnie) - kółko myszy lub przeciąganie zmienia wartość",
     "text_options.color_tooltip": "Kolor tekstu",
 
+    # ---------- dxf: detail options bar ----------
+    "detail_options.edit_tooltip": "Edytuj powiekszenie - kolko myszy zmienia zoom, przeciaganie przesuwa widok w ramce",
+    "detail_options.rotate_tooltip": "Obroc ramke razem z tym, co pokazuje",
+    "detail_options.scale_tooltip": "Zmien rozmiar ramki - naroznik skaluje, krawedz pokazuje wiecej lub mniej",
+    "detail_options.move_tooltip": "Przesun ramke bez zmiany tego, co pokazuje",
+    "detail_options.arrow_tooltip": "Poprowadz strzalke - wybierz kropke na ramce, z ktorej ma wychodzic",
+
     # ---------- dxf: toolbar ----------
     "toolbar.select_tooltip": "Zaznacz / anuluj bieżące narzędzie (Esc)",
     "toolbar.select_similar_tooltip": "Zaznacz podobne (S, S)",
@@ -333,6 +340,7 @@ TRANSLATIONS: Dict[str, str] = {
     "toolbar.circle_tooltip": "Okrąg (C)",
     "toolbar.pipe_tooltip": "Rura (R, U)",
     "toolbar.multileader_tooltip": "Multileader (M, L lub MLEADER)",
+    "toolbar.detail_tooltip": "Powiekszenie szczegolu (D, V lub DETAIL)",
     "toolbar.move_tooltip": "Przesuń zaznaczone (M)",
     "toolbar.rotate_tooltip": "Obróć zaznaczone jako jedno (R, O)",
     "toolbar.scale_tooltip": "Skaluj zaznaczone jako jedno (S, C)",
@@ -365,6 +373,13 @@ TRANSLATIONS: Dict[str, str] = {
     "tool.multileader_tip": "Podaj punkt grota Multileader: ",
     "tool.multileader_landing": "Podaj punkt lądowania, albo [Bez lądowania]: ",
     "tool.multileader_text_position": "Podaj pozycję tekstu Multileader: ",
+    "tool.detail_source_center": "Podaj srodek obszaru do powiekszenia: ",
+    "tool.detail_source_size": "Podaj rozmiar obszaru do powiekszenia albo wskaz punkt: ",
+    "tool.detail_frame_center": "Podaj srodek ramki, ktora to pokaze: ",
+    "tool.detail_frame_size": "Podaj rozmiar ramki albo wskaz punkt: ",
+    "tool.detail_size_or_point_numeric": 'Wymagany rozmiar liczbowy lub punkt: "{value}".',
+    "tool.detail_size_positive": "Kwadrat powiekszenia musi miec dodatni rozmiar.",
+    "tool.detail_arrow_target": "Wskaz, na co ma wskazywac strzalka: ",
 
     # ---------- dxf: viewer ----------
     "viewer.empty_hint": "Wczytaj plik .DXF albo naciśnij Zastosuj do DXF, aby zacząć nowy rysunek.",
@@ -407,4 +422,5 @@ TRANSLATIONS: Dict[str, str] = {
     "interpreter.numeric_value_required": 'Wymagana wartość liczbowa: "{value}".',
     "interpreter.point_not_specified": "Nie podano punktu.",
     "interpreter.multileader_options": "Opcje MLEADER: [Straight/Spline] [Closed/Open/Dot] [NoLanding] [Left/Right].",
+    "viewer.detail_hint": "Powiekszenie wstawione - scroll w srodku zmienia zoom, przeciaganie przesuwa, dopoki jest zaznaczone.",
 }

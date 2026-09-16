@@ -324,6 +324,13 @@ TRANSLATIONS: Dict[str, str] = {
     "text_options.rotation_tooltip": "Rotation (degrees) - scroll or drag to change",
     "text_options.color_tooltip": "Text color",
 
+    # ---------- dxf: detail options bar ----------
+    "detail_options.edit_tooltip": "Edit the magnified view - scroll to zoom, drag to pan inside the frame",
+    "detail_options.rotate_tooltip": "Rotate the frame and everything it shows",
+    "detail_options.scale_tooltip": "Resize the frame - drag a corner to scale, an edge to show more or less",
+    "detail_options.move_tooltip": "Move the frame without changing what it shows",
+    "detail_options.arrow_tooltip": "Draw an arrow - pick a dot on the frame to start it from",
+
     # ---------- dxf: toolbar ----------
     "toolbar.select_tooltip": "Select / cancel current tool (Esc)",
     "toolbar.select_similar_tooltip": "Select Similar (S, S)",
@@ -333,6 +340,7 @@ TRANSLATIONS: Dict[str, str] = {
     "toolbar.circle_tooltip": "Circle (C)",
     "toolbar.pipe_tooltip": "Pipe (R, U)",
     "toolbar.multileader_tooltip": "Multileader (M, L or MLEADER)",
+    "toolbar.detail_tooltip": "Detail view (D, V or DETAIL)",
     "toolbar.move_tooltip": "Move selected (M)",
     "toolbar.rotate_tooltip": "Rotate selected as one (R, O)",
     "toolbar.scale_tooltip": "Scale selected as one (S, C)",
@@ -365,6 +373,13 @@ TRANSLATIONS: Dict[str, str] = {
     "tool.multileader_tip": "Specify Multileader arrowhead point: ",
     "tool.multileader_landing": "Specify landing point, or [No landing]: ",
     "tool.multileader_text_position": "Specify Multileader text position: ",
+    "tool.detail_source_center": "Specify centre of the area to magnify: ",
+    "tool.detail_source_size": "Specify size of the area to magnify, or pick a point: ",
+    "tool.detail_frame_center": "Specify centre of the frame that will show it: ",
+    "tool.detail_frame_size": "Specify size of the frame, or pick a point: ",
+    "tool.detail_size_or_point_numeric": 'Requires a numeric size or a point: "{value}".',
+    "tool.detail_size_positive": "The detail square needs a positive size.",
+    "tool.detail_arrow_target": "Specify what the arrow should point at: ",
 
     # ---------- dxf: viewer ----------
     "viewer.empty_hint": "Load a .DXF file, or press Apply to DXF to start a new drawing.",
@@ -407,4 +422,5 @@ TRANSLATIONS: Dict[str, str] = {
     "interpreter.numeric_value_required": 'Requires a numeric value: "{value}".',
     "interpreter.point_not_specified": "Point not specified.",
     "interpreter.multileader_options": "MLEADER options: [Straight/Spline] [Closed/Open/Dot] [NoLanding] [Left/Right].",
+    "viewer.detail_hint": "Detail view placed - scroll inside it to zoom, drag to pan, while it stays selected.",
 }

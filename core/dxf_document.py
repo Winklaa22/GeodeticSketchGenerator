@@ -17,6 +17,14 @@ from ezdxf.layouts import Modelspace
 from ezdxf.math import Matrix44
 from ezdxf.sections.tables import LayerTable
 
+from core.detail_view import (
+    DETAIL_APPID,
+    DetailViewSpec,
+    corner_points,
+)
+from core.detail_view import apply_metadata as apply_detail_metadata
+from core.detail_view import metadata_from_entity as detail_metadata_from_entity
+from core.detail_view import transform_spec as transform_detail_spec
 from core.multileader import (
     MULTILEADER_APPID,
     MultileaderSpec,
@@ -334,6 +342,7 @@ class DXFDocument:
         for handle in resolved:
             self.translate_entity(handle, dx, dy, dz)
         self._transform_multileader_metadata(resolved, lambda point: (point[0] + dx, point[1] + dy))
+        self._transform_detail_metadata(resolved, lambda point: (point[0] + dx, point[1] + dy))
         return resolved
 
     def rotate_entities(self, handles: Iterable[str], angle: float, center: Sequence[float]) -> List[str]:
@@ -343,13 +352,12 @@ class DXFDocument:
         radians = math.radians(angle)
         cos_a, sin_a = math.cos(radians), math.sin(radians)
         cx, cy = center[0], center[1]
-        self._transform_multileader_metadata(
-            resolved,
-            lambda point: (
-                cx + (point[0] - cx) * cos_a - (point[1] - cy) * sin_a,
-                cy + (point[0] - cx) * sin_a + (point[1] - cy) * cos_a,
-            ),
+        rotate = lambda point: (
+            cx + (point[0] - cx) * cos_a - (point[1] - cy) * sin_a,
+            cy + (point[0] - cx) * sin_a + (point[1] - cy) * cos_a,
         )
+        self._transform_multileader_metadata(resolved, rotate)
+        self._transform_detail_metadata(resolved, rotate, rotation_delta=angle)
         return resolved
 
     def scale_entities(self, handles: Iterable[str], factor: float, center: Sequence[float]) -> List[str]:
@@ -357,11 +365,53 @@ class DXFDocument:
         for handle in resolved:
             self.scale_entity(handle, factor, center)
         cx, cy = center[0], center[1]
-        self._transform_multileader_metadata(
-            resolved,
-            lambda point: (cx + (point[0] - cx) * factor, cy + (point[1] - cy) * factor),
-        )
+        resize = lambda point: (cx + (point[0] - cx) * factor, cy + (point[1] - cy) * factor)
+        self._transform_multileader_metadata(resolved, resize)
+        self._transform_detail_metadata(resolved, resize, factor)
         return resolved
+
+    def add_detail_view(self, spec: DetailViewSpec) -> str:
+        spec = spec.normalized()
+        self.ensure_layer(spec.layer)
+        if DETAIL_APPID not in self._drawing.appids:
+            self._drawing.appids.add(DETAIL_APPID)
+        handle = self.add_lwpolyline(corner_points(spec), spec.layer, closed=True)
+        apply_detail_metadata(self._require_entity(handle), spec)
+        return handle
+
+    def detail_view_spec(self, handle: str) -> Optional[DetailViewSpec]:
+        entity = self.get_entity(handle)
+        return detail_metadata_from_entity(entity) if entity is not None else None
+
+    def iter_detail_views(self) -> List[Tuple[str, DetailViewSpec]]:
+        found: List[Tuple[str, DetailViewSpec]] = []
+        for entity in self.modelspace:
+            spec = detail_metadata_from_entity(entity)
+            if spec is not None:
+                found.append((entity.dxf.handle, spec))
+        return found
+
+    def set_detail_view_spec(self, handle: str, spec: DetailViewSpec) -> None:
+        spec = spec.normalized()
+        entity = self._require_entity(handle)
+        entity.set_points(corner_points(spec), format="xy")
+        entity.close(True)
+        apply_detail_metadata(entity, spec)
+
+    def _transform_detail_metadata(
+        self, handles: Iterable[str], transform, length_factor: float = 1.0, rotation_delta: float = 0.0
+    ) -> None:
+        for handle in handles:
+            entity = self.get_entity(handle)
+            if entity is None:
+                continue
+            spec = detail_metadata_from_entity(entity)
+            if spec is None:
+                continue
+            moved = transform_detail_spec(spec, transform, length_factor, rotation_delta)
+            entity.set_points(corner_points(moved), format="xy")
+            entity.close(True)
+            apply_detail_metadata(entity, moved)
 
     def _require_entity(self, handle: str) -> DXFGraphic:
         entity = self.get_entity(handle)

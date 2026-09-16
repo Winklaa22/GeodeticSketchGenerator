@@ -17,6 +17,7 @@ class DxfToolbar(qw.QWidget):
     circleRequested = qc.pyqtSignal()
     pipeRequested = qc.pyqtSignal()
     multileaderRequested = qc.pyqtSignal()
+    detailRequested = qc.pyqtSignal()
     selectRequested = qc.pyqtSignal()
     moveRequested = qc.pyqtSignal()
     rotateRequested = qc.pyqtSignal()
@@ -44,6 +45,7 @@ class DxfToolbar(qw.QWidget):
             "circle": self.circleRequested,
             "pipe": self.pipeRequested,
             "multileader": self.multileaderRequested,
+            "detail": self.detailRequested,
             "move": self.moveRequested,
             "rotate": self.rotateRequested,
             "scale": self.scaleRequested,
@@ -58,6 +60,7 @@ class DxfToolbar(qw.QWidget):
             "circle": "circle_tool",
             "pipe": "pipe_tool",
             "multileader": "multileader_tool",
+            "detail": "detail_tool",
             "move": "move_tool",
             "rotate": "rotate_tool",
             "scale": "scale_tool",
@@ -76,6 +79,7 @@ class DxfToolbar(qw.QWidget):
         self._add_tool_button(layout, "circle", "circle_tool", tr("toolbar.circle_tooltip"))
         self._add_tool_button(layout, "pipe", "pipe_tool", tr("toolbar.pipe_tooltip"))
         self._add_tool_button(layout, "multileader", "multileader_tool", tr("toolbar.multileader_tooltip"))
+        self._add_tool_button(layout, "detail", "detail_tool", tr("toolbar.detail_tooltip"))
         layout.addWidget(self._separator())
         self._add_tool_button(layout, "move", "move_tool", tr("toolbar.move_tooltip"))
         self._add_tool_button(layout, "rotate", "rotate_tool", tr("toolbar.rotate_tooltip"))
