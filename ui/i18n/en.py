@@ -370,6 +370,8 @@ TRANSLATIONS: Dict[str, str] = {
     "tool.specify_scale_factor": "Specify scale factor: ",
     "tool.scale_or_point_numeric": 'Requires a numeric scale factor or a point: "{value}".',
     "tool.specify_reference_point": "Specify reference point: ",
+    "tool.specify_reference_length": "Pick a reference length, or type the scale factor [Base point]: ",
+    "tool.specify_new_length": "Pick the new length for it: ",
     "tool.multileader_tip": "Specify Multileader arrowhead point: ",
     "tool.multileader_landing": "Specify landing point, or [No landing]: ",
     "tool.multileader_text_position": "Specify Multileader text position: ",

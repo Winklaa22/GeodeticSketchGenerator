@@ -370,6 +370,8 @@ TRANSLATIONS: Dict[str, str] = {
     "tool.specify_scale_factor": "Podaj współczynnik skali: ",
     "tool.scale_or_point_numeric": 'Wymagany współczynnik skali liczbowy lub punkt: "{value}".',
     "tool.specify_reference_point": "Podaj punkt odniesienia: ",
+    "tool.specify_reference_length": "Wskaż długość odniesienia albo wpisz skalę [Bazowy]: ",
+    "tool.specify_new_length": "Wskaż, ile ma wynosić po zmianie: ",
     "tool.multileader_tip": "Podaj punkt grota Multileader: ",
     "tool.multileader_landing": "Podaj punkt lądowania, albo [Bez lądowania]: ",
     "tool.multileader_text_position": "Podaj pozycję tekstu Multileader: ",
