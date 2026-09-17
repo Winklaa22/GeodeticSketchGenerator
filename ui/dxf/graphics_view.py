@@ -232,15 +232,30 @@ class CadGraphicsView(qw.QGraphicsView):
             step = 1.0
         return step, step
 
-    def save_view(self) -> Tuple[qg.QTransform, int, int]:
-        return self.transform(), self.horizontalScrollBar().value(), self.verticalScrollBar().value()
+    def save_view(self) -> Tuple[qg.QTransform, qc.QPointF]:
+        """The zoom, plus the scene point the viewport is centred on.
 
-    def restore_view(self, saved: Tuple[qg.QTransform, int, int]) -> None:
-        transform, h_value, v_value = saved
+        Scroll bar values cannot stand in for that point. Every render installs a fresh
+        scene whose rect is its own items' bounding box, so as soon as the drawing's
+        extents change - an edit, or switching to a tab that shows different content -
+        the same scroll value points somewhere else entirely.
+        """
+        # A float centre; the integer QPoint one rounds the view by up to a pixel on
+        # every save/restore round trip.
+        return self.transform(), self.mapToScene(self.viewport().rect()).boundingRect().center()
+
+    def restore_view(self, saved: Tuple[qg.QTransform, qc.QPointF]) -> None:
+        transform, center = saved
         self.setTransform(transform)
-        self.horizontalScrollBar().setValue(h_value)
-        self.verticalScrollBar().setValue(v_value)
+        self._widen_scene_rect_to(center)
+        self.centerOn(center)
         self.viewportChanged.emit()
+
+    def _widen_scene_rect_to(self, center: qc.QPointF) -> None:
+        """Keep centerOn() from clamping when the new scene is smaller than the old view."""
+        wanted = self.mapToScene(self.viewport().rect()).boundingRect()
+        wanted.moveCenter(center)
+        self.setSceneRect(self.sceneRect().united(wanted))
 
     def resizeEvent(self, event: qg.QResizeEvent) -> None:
         super().resizeEvent(event)
@@ -313,6 +328,32 @@ class CadGraphicsView(qw.QGraphicsView):
         if pivot is None:
             return scene_point
         return _rotate_point(scene_point, pivot, -rotation)
+
+    def _to_scene(self, world_point: qc.QPointF) -> qc.QPointF:
+        """A DXF/world point as a scene point - the inverse of :meth:`_to_world`.
+
+        Anything painted in scene coordinates (the overlays in drawForeground) has to go
+        through this, or on a rotated sheet it lands where the entity would be if the
+        sheet were not turned, instead of on the entity.
+        """
+        rotation, pivot = self._content_rotation()
+        if pivot is None:
+            return world_point
+        return _rotate_point(world_point, pivot, rotation)
+
+    def _to_world_delta(self, dx: float, dy: float) -> Tuple[float, float]:
+        """A scene-space drag as a DXF/world displacement.
+
+        A displacement has no anchor, so only the content rotation applies - without this
+        a drag on a rotated sheet would move the entity off in the direction the sheet is
+        turned by.
+        """
+        rotation, pivot = self._content_rotation()
+        if pivot is None:
+            return dx, dy
+        origin = qc.QPointF(0.0, 0.0)
+        rotated = _rotate_point(qc.QPointF(dx, dy), origin, -rotation)
+        return rotated.x(), rotated.y()
 
     def current_zoom_factor(self) -> float:
         return self._current_zoom()
@@ -687,7 +728,8 @@ class CadGraphicsView(qw.QGraphicsView):
         self._drag_candidate = None
         self._drag_start_scene = None
         if handles and (abs(dx) > 1e-9 or abs(dy) > 1e-9):
-            self.itemsDragMoved.emit(handles, dx, dy)
+            world_dx, world_dy = self._to_world_delta(dx, dy)
+            self.itemsDragMoved.emit(handles, world_dx, world_dy)
 
     def _update_rubber_band(self, current_pos: qc.QPoint) -> None:
         if self._press_pos is None:
@@ -779,15 +821,16 @@ class CadGraphicsView(qw.QGraphicsView):
                 fill_color.setAlpha(90)
                 painter.fillRect(item.boundingRect(), fill_color)
             painter.restore()
-        squares = list(self._annotation_grips)
+        # Every grip below is a world point and this painter draws in scene coordinates.
+        squares = [self._to_scene(grip) for grip in self._annotation_grips]
         resize_spec = self._mode_spec("scale")
         if resize_spec is not None:
-            squares.extend(qc.QPointF(x, y) for x, y in handle_points(resize_spec))
+            squares.extend(self._to_scene(qc.QPointF(x, y)) for x, y in handle_points(resize_spec))
         # Round grips mark where an arrow can start, so they never look like something
         # that could be dragged to resize the frame.
         arrow_spec = self._mode_spec("arrow")
         dots = (
-            [qc.QPointF(x, y) for x, y in handle_points(arrow_spec)]
+            [self._to_scene(qc.QPointF(x, y)) for x, y in handle_points(arrow_spec)]
             if arrow_spec is not None
             else []
         )

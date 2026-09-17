@@ -91,6 +91,31 @@ class ToolSession:
         pass
 
 
+def content_rotation(scene: qw.QGraphicsScene) -> Tuple[float, Optional[qc.QPointF]]:
+    """The sheet rotation the scene is showing its contents under, if any."""
+    rotation = scene.property(CONTENT_ROTATION_PROPERTY)
+    pivot = scene.property(CONTENT_PIVOT_PROPERTY)
+    if not rotation or pivot is None:
+        return 0.0, None
+    return float(rotation), pivot
+
+
+def to_scene_point(scene: qw.QGraphicsScene, point: Tuple[float, float]) -> qc.QPointF:
+    """A DXF/world point in scene coordinates.
+
+    Qt applies an item's transform() *after* its rotation(), so a preview transform acts
+    on scene coordinates - on a rotated sheet a world-space origin would send the item
+    somewhere else for the duration of the gesture.
+    """
+    rotation, pivot = content_rotation(scene)
+    if pivot is None:
+        return qc.QPointF(*point)
+    radians = math.radians(rotation)
+    cos_a, sin_a = math.cos(radians), math.sin(radians)
+    dx, dy = point[0] - pivot.x(), point[1] - pivot.y()
+    return qc.QPointF(pivot.x() + dx * cos_a - dy * sin_a, pivot.y() + dx * sin_a + dy * cos_a)
+
+
 def add_preview_item(scene: qw.QGraphicsScene, item: qw.QGraphicsItem) -> qw.QGraphicsItem:
     scene.addItem(item)
     rotation = scene.property(CONTENT_ROTATION_PROPERTY)

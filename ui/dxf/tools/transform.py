@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from PyQt6 import QtCore as qc, QtWidgets as qw
+from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 from core.commands.base import Command as EditCommand
 from core.commands.composite import CompositeCommand
@@ -16,8 +16,53 @@ from ui.dxf.tools.base import (
     parse_coordinate,
     point_distance,
     preview_pen,
+    to_scene_point,
 )
 from ui.i18n import tr
+
+
+# Previews transform the real scene items. On a sheet those items already carry the
+# layout's rotation via setRotation()/setTransformOriginPoint(), so a preview must not
+# touch either - it goes through setTransform() instead. Qt applies that transform
+# *after* the item's own rotation, i.e. in scene coordinates, so every origin below is
+# mapped world -> scene first; skipping that is what made previewed objects jump away
+# on a rotated sheet and snap back when the gesture finished.
+def _preview_targets(scene: qw.QGraphicsScene, handles: List[str]) -> List[qw.QGraphicsItem]:
+    handle_set = set(handles)
+    return [item for item in scene.items() if item.data(HANDLE_ROLE) in handle_set]
+
+
+def _rotation_about(origin: qc.QPointF, degrees: float) -> qg.QTransform:
+    return (
+        qg.QTransform()
+        .translate(origin.x(), origin.y())
+        .rotate(degrees)
+        .translate(-origin.x(), -origin.y())
+    )
+
+
+def _scaling_about(origin: qc.QPointF, factor: float) -> qg.QTransform:
+    return (
+        qg.QTransform()
+        .translate(origin.x(), origin.y())
+        .scale(factor, factor)
+        .translate(-origin.x(), -origin.y())
+    )
+
+
+def _item_center(item: qw.QGraphicsItem) -> qc.QPointF:
+    """An item's own centre in scene coordinates, ignoring any preview transform."""
+    center = item.boundingRect().center()
+    spin = qg.QTransform()
+    spin.translate(item.transformOriginPoint().x(), item.transformOriginPoint().y())
+    spin.rotate(item.rotation())
+    spin.translate(-item.transformOriginPoint().x(), -item.transformOriginPoint().y())
+    return spin.map(center)
+
+
+def _clear_preview_transforms(items: Optional[List[qw.QGraphicsItem]]) -> None:
+    for item in items or ():
+        item.setTransform(qg.QTransform())
 
 
 class MoveToolSession(ToolSession):
@@ -118,14 +163,10 @@ class RotateToolSession(ToolSession):
         self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
 
         if self._preview_targets is None:
-            handle_set = set(self._handles)
-            self._preview_targets = [item for item in scene.items() if item.data(HANDLE_ROLE) in handle_set]
-            origin = qc.QPointF(*self._base)
-            for item in self._preview_targets:
-                item.setTransformOriginPoint(origin)
-        angle = angle_degrees(self._base, point)
+            self._preview_targets = _preview_targets(scene, self._handles)
+        spin = _rotation_about(to_scene_point(scene, self._base), angle_degrees(self._base, point))
         for item in self._preview_targets:
-            item.setRotation(angle)
+            item.setTransform(spin)
 
     def is_done(self) -> bool:
         return self._base is not None and self._angle is not None
@@ -138,31 +179,51 @@ class RotateToolSession(ToolSession):
         if self._preview_item is not None:
             scene.removeItem(self._preview_item)
             self._preview_item = None
-        if self._preview_targets is not None:
-            for item in self._preview_targets:
-                item.setRotation(0)
-            self._preview_targets = None
+        _clear_preview_transforms(self._preview_targets)
+        self._preview_targets = None
 
 
 class ScaleToolSession(ToolSession):
+    """Scales by a ratio of two picked distances, so a gesture means the same at any zoom.
+
+    Taking the raw distance from the base as the factor made the tool unusable on a
+    sheet: there the whole drawing is a few dozen pixels wide, so an ordinary drag is
+    tens of drawing units and scaled the selection by that many times.
+    """
 
     def __init__(self, handles: List[str]) -> None:
         super().__init__()
         self._handles = handles
         self.prompt = tr("tool.specify_base_point")
         self._base: Optional[Tuple[float, float]] = None
+        self._reference: Optional[float] = None
         self._factor: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
         self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
 
+    def _set_reference(self, length: float) -> None:
+        self._reference = length
+        self.prompt = tr("tool.specify_new_length")
+
+    def _preview_factor(self, point: Tuple[float, float]) -> Optional[float]:
+        if self._base is None or self._reference is None or self._reference <= 0:
+            return None
+        factor = point_distance(self._base, point) / self._reference
+        return factor if factor > 0 else None
+
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._base is None:
             self._base = point
-            self.prompt = tr("tool.specify_scale_factor")
-        else:
-            factor = point_distance(self._base, point)
-            if factor > 0:
-                self._factor = factor
+            self.prompt = tr("tool.specify_reference_length")
+            return
+        if self._reference is None:
+            length = point_distance(self._base, point)
+            if length > 0:
+                self._set_reference(length)
+            return
+        factor = self._preview_factor(point)
+        if factor is not None:
+            self._factor = factor
 
     def on_text(self, text: str) -> Optional[str]:
         if self._base is None:
@@ -170,15 +231,22 @@ class ScaleToolSession(ToolSession):
             if coord is None:
                 return tr("common.point_xy_format", value=text)
             self._base = coord
-            self.prompt = tr("tool.specify_scale_factor")
+            self.prompt = tr("tool.specify_reference_length")
             return None
+        # A typed number is still the factor itself - the quickest way to an exact scale.
         try:
             factor = float(text.strip())
         except ValueError:
             coord = parse_coordinate(text, last_point=self._base)
             if coord is None:
                 return tr("tool.scale_or_point_numeric", value=text)
-            factor = point_distance(self._base, coord)
+            if self._reference is None:
+                length = point_distance(self._base, coord)
+                if length <= 0:
+                    return tr("common.scale_positive")
+                self._set_reference(length)
+                return None
+            factor = self._preview_factor(coord) or 0.0
         if factor <= 0:
             return tr("common.scale_positive")
         self._factor = factor
@@ -194,16 +262,13 @@ class ScaleToolSession(ToolSession):
         self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
 
         if self._preview_targets is None:
-            handle_set = set(self._handles)
-            self._preview_targets = [item for item in scene.items() if item.data(HANDLE_ROLE) in handle_set]
-            origin = qc.QPointF(*self._base)
-            for item in self._preview_targets:
-                item.setTransformOriginPoint(origin)
-        factor = point_distance(self._base, point)
-        if factor <= 0:
+            self._preview_targets = _preview_targets(scene, self._handles)
+        factor = self._preview_factor(point)
+        if factor is None:
             return
+        resize = _scaling_about(to_scene_point(scene, self._base), factor)
         for item in self._preview_targets:
-            item.setScale(factor)
+            item.setTransform(resize)
 
     def is_done(self) -> bool:
         return self._base is not None and self._factor is not None
@@ -216,10 +281,8 @@ class ScaleToolSession(ToolSession):
         if self._preview_item is not None:
             scene.removeItem(self._preview_item)
             self._preview_item = None
-        if self._preview_targets is not None:
-            for item in self._preview_targets:
-                item.setScale(1.0)
-            self._preview_targets = None
+        _clear_preview_transforms(self._preview_targets)
+        self._preview_targets = None
 
 
 class RotateEachToolSession(ToolSession):
@@ -268,13 +331,10 @@ class RotateEachToolSession(ToolSession):
         self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
 
         if self._preview_targets is None:
-            handle_set = set(self._handles)
-            self._preview_targets = [item for item in scene.items() if item.data(HANDLE_ROLE) in handle_set]
-            for item in self._preview_targets:
-                item.setTransformOriginPoint(item.boundingRect().center())
+            self._preview_targets = _preview_targets(scene, self._handles)
         angle = angle_degrees(self._base, point)
         for item in self._preview_targets:
-            item.setRotation(angle)
+            item.setTransform(_rotation_about(_item_center(item), angle))
 
     def is_done(self) -> bool:
         return self._base is not None and self._angle is not None
@@ -289,10 +349,8 @@ class RotateEachToolSession(ToolSession):
         if self._preview_item is not None:
             scene.removeItem(self._preview_item)
             self._preview_item = None
-        if self._preview_targets is not None:
-            for item in self._preview_targets:
-                item.setRotation(0)
-            self._preview_targets = None
+        _clear_preview_transforms(self._preview_targets)
+        self._preview_targets = None
 
 
 class ScaleEachToolSession(ToolSession):
@@ -302,18 +360,34 @@ class ScaleEachToolSession(ToolSession):
         self._handles = handles
         self.prompt = tr("tool.specify_reference_point")
         self._base: Optional[Tuple[float, float]] = None
+        self._reference: Optional[float] = None
         self._factor: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
         self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
 
+    def _set_reference(self, length: float) -> None:
+        self._reference = length
+        self.prompt = tr("tool.specify_new_length")
+
+    def _preview_factor(self, point: Tuple[float, float]) -> Optional[float]:
+        if self._base is None or self._reference is None or self._reference <= 0:
+            return None
+        factor = point_distance(self._base, point) / self._reference
+        return factor if factor > 0 else None
+
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._base is None:
             self._base = point
-            self.prompt = tr("tool.specify_scale_factor")
-        else:
-            factor = point_distance(self._base, point)
-            if factor > 0:
-                self._factor = factor
+            self.prompt = tr("tool.specify_reference_length")
+            return
+        if self._reference is None:
+            length = point_distance(self._base, point)
+            if length > 0:
+                self._set_reference(length)
+            return
+        factor = self._preview_factor(point)
+        if factor is not None:
+            self._factor = factor
 
     def on_text(self, text: str) -> Optional[str]:
         if self._base is None:
@@ -321,7 +395,7 @@ class ScaleEachToolSession(ToolSession):
             if coord is None:
                 return tr("common.point_xy_format", value=text)
             self._base = coord
-            self.prompt = tr("tool.specify_scale_factor")
+            self.prompt = tr("tool.specify_reference_length")
             return None
         try:
             factor = float(text.strip())
@@ -329,7 +403,13 @@ class ScaleEachToolSession(ToolSession):
             coord = parse_coordinate(text, last_point=self._base)
             if coord is None:
                 return tr("tool.scale_or_point_numeric", value=text)
-            factor = point_distance(self._base, coord)
+            if self._reference is None:
+                length = point_distance(self._base, coord)
+                if length <= 0:
+                    return tr("common.scale_positive")
+                self._set_reference(length)
+                return None
+            factor = self._preview_factor(coord) or 0.0
         if factor <= 0:
             return tr("common.scale_positive")
         self._factor = factor
@@ -345,15 +425,12 @@ class ScaleEachToolSession(ToolSession):
         self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
 
         if self._preview_targets is None:
-            handle_set = set(self._handles)
-            self._preview_targets = [item for item in scene.items() if item.data(HANDLE_ROLE) in handle_set]
-            for item in self._preview_targets:
-                item.setTransformOriginPoint(item.boundingRect().center())
-        factor = point_distance(self._base, point)
-        if factor <= 0:
+            self._preview_targets = _preview_targets(scene, self._handles)
+        factor = self._preview_factor(point)
+        if factor is None:
             return
         for item in self._preview_targets:
-            item.setScale(factor)
+            item.setTransform(_scaling_about(_item_center(item), factor))
 
     def is_done(self) -> bool:
         return self._base is not None and self._factor is not None
@@ -368,7 +445,5 @@ class ScaleEachToolSession(ToolSession):
         if self._preview_item is not None:
             scene.removeItem(self._preview_item)
             self._preview_item = None
-        if self._preview_targets is not None:
-            for item in self._preview_targets:
-                item.setScale(1.0)
-            self._preview_targets = None
+        _clear_preview_transforms(self._preview_targets)
+        self._preview_targets = None
