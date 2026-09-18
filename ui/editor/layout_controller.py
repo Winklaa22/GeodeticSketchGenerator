@@ -75,6 +75,7 @@ class LayoutController:
 
         self._viewer.pageFrameMoved.connect(self.on_page_frame_moved)
         self._viewer.pageFrameRotated.connect(self.on_page_frame_rotated)
+        self._viewer.modelRotationChanged.connect(self.on_model_rotated)
         self._viewer.pageScaleZoomRequested.connect(self.on_page_scale_zoom)
         panel.projectFieldsChanged.connect(self.on_project_fields_changed)
 
@@ -130,6 +131,21 @@ class LayoutController:
         if footprint is None or (incoming is not None and footprint == self._frame_footprint(incoming)):
             self._viewer.view.restore_view(view_state)
 
+    def _capture_model_view_if_active(self) -> None:
+        """Remember the Model tab's zoom/pan for persistence, if it's the outgoing tab.
+
+        Unlike rotation (turned by the compass, which has a discrete drag-release to hook
+        a "commit" onto), zoom and pan change continuously via the wheel and mouse drags
+        with no such moment, so this is called wherever the in-session raw view state is
+        already being captured for the tab being left, plus once more before a save.
+        """
+        if self._sheets.active_index is None and self._viewer.has_document:
+            self._sheets.set_model_view(*self._viewer.model_view_state())
+
+    def sync_model_view_for_save(self) -> None:
+        """Flush the live Model view into the sheet set before to_state() reads it."""
+        self._capture_model_view_if_active()
+
     def activate(self, index: Optional[int]) -> None:
         # Switching between the Model tab and a sheet tab (or between two sheet
         # tabs) used to always re-fit the view, discarding whatever zoom/pan the
@@ -141,6 +157,7 @@ class LayoutController:
             outgoing = self._sheets.active
             footprint = self._frame_footprint(outgoing) if outgoing is not None else None
             self._view_states[self._view_key()] = (self._viewer.view.save_view(), footprint)
+            self._capture_model_view_if_active()
         self._sheets.activate(index)
         self._apply_active()
         self._restore_remembered_view()
@@ -150,6 +167,19 @@ class LayoutController:
         sheet = self._sheets.active
         if sheet is None:
             self._viewer.set_layout_mode(None, preserve_view=preserve_view)
+            if not preserve_view:
+                # The Model tab has no sheet to carry its rotation/zoom/pan, so put back
+                # what the project remembers - this is also what restores it on load. If
+                # an in-session raw view state exists for this tab, _restore_remembered_view()
+                # (called right after _apply_active() returns) overrides this with it, so a
+                # same-session tab switch keeps its exact prior framing instead of snapping
+                # back to the last explicitly-remembered one. That remembered zoom/pan is
+                # only ever refreshed when actually leaving the tab (_capture_model_view_if_active),
+                # so a preserve_view=True call - e.g. reapply() re-resolving the active tab
+                # after a plain content edit while still on the Model tab - must skip this:
+                # otherwise every edit would snap the live view back to that stale value.
+                self._viewer.set_model_rotation(self._sheets.model_rotation)
+                self._viewer.set_model_view(self._sheets.model_zoom, self._sheets.model_center)
             return
         options = self._resolved(sheet)
         self._viewer.set_layout_mode(
@@ -260,6 +290,9 @@ class LayoutController:
             return
         self._sheets.set_center(index, (center_x, center_y))
         self._panel.set_coverage_text(self._coverage_text())
+
+    def on_model_rotated(self, rotation: float) -> None:
+        self._sheets.set_model_rotation(rotation)
 
     def on_page_frame_rotated(self, rotation: float) -> None:
         index = self._sheets.active_index

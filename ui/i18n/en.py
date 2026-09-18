@@ -372,6 +372,8 @@ TRANSLATIONS: Dict[str, str] = {
     "tool.specify_reference_point": "Specify reference point: ",
     "tool.specify_reference_length": "Pick a reference length, or type the scale factor [Base point]: ",
     "tool.specify_new_length": "Pick the new length for it: ",
+    "tool.scale_gizmo_hint": "Drag a corner handle to resize, or type a factor [Reference]: ",
+    "tool.rotate_gizmo_hint": "Drag the handle to rotate, or type an angle: ",
     "tool.multileader_tip": "Specify Multileader arrowhead point: ",
     "tool.multileader_landing": "Specify landing point, or [No landing]: ",
     "tool.multileader_text_position": "Specify Multileader text position: ",

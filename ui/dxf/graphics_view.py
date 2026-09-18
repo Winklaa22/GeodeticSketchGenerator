@@ -112,6 +112,7 @@ class CadGraphicsView(qw.QGraphicsView):
         self._selected_items: List[qw.QGraphicsItem] = []
         self._annotation_grips: List[qc.QPointF] = []
         self._detail_pan: Optional[Tuple[str, qc.QPointF]] = None
+        self._tool_dragging = False
         self._detail_mode: Optional[str] = None
         self._detail_mode_handle: Optional[str] = None
         self._detail_rotate: Optional[Tuple[str, float]] = None
@@ -196,13 +197,28 @@ class CadGraphicsView(qw.QGraphicsView):
             self.centerOn(prior_center.x() + recenter_delta[0], prior_center.y() + recenter_delta[1])
         self.viewportChanged.emit()
 
-    def zoom_by(self, factor: float) -> bool:
+    def zoom_by(self, factor: float, anchor_pos: Optional[qc.QPointF] = None) -> bool:
         if factor <= 0:
             return False
         resulting_zoom = self._current_zoom() * factor
         if resulting_zoom < self._min_zoom or resulting_zoom > self._max_zoom:
             return False
-        self.scale(factor, factor)
+        if anchor_pos is not None:
+            # Do the cursor-anchored zoom explicitly with a point the caller just read
+            # off the wheel event, rather than relying on the view's AnchorUnderMouse
+            # transformationAnchor: that anchors on Qt's own last-recorded mouse
+            # position, which is stale until the widget has processed a real mouse
+            # press (a plain hover, even with mouse tracking on, doesn't update it if
+            # the cursor was already sitting still over the view before the first
+            # scroll) - so the very first wheel-zoom after opening the view could
+            # anchor somewhere else on the drawing instead of under the cursor.
+            before = self.mapToScene(anchor_pos.toPoint())
+            self.scale(factor, factor)
+            after = self.mapToScene(anchor_pos.toPoint())
+            center = self.mapToScene(self.viewport().rect().center())
+            self.centerOn(center + (before - after))
+        else:
+            self.scale(factor, factor)
         self.viewportChanged.emit()
         return True
 
@@ -225,6 +241,19 @@ class CadGraphicsView(qw.QGraphicsView):
         self.centerOn(center.x() + dx, center.y() + dy)
         self.viewportChanged.emit()
 
+    def recenter_on(self, x: float, y: float) -> None:
+        """Absolute pan to a scene point - the counterpart of pan_by's relative version.
+
+        Widens sceneRect() first for the same reason restore_view() does: centerOn()
+        clamps to the current sceneRect, which a fresh fit-to-scene sized to the content
+        alone, not to wherever a remembered pan wants to look - without this, panning
+        back towards the edge of (or past) that fitted rect silently falls short.
+        """
+        point = qc.QPointF(x, y)
+        self._widen_scene_rect_to(point)
+        self.centerOn(point)
+        self.viewportChanged.emit()
+
     def default_duplicate_offset(self) -> Tuple[float, float]:
         visible = self.mapToScene(self.viewport().rect()).boundingRect()
         step = max(visible.width(), visible.height()) * 0.03
@@ -232,7 +261,7 @@ class CadGraphicsView(qw.QGraphicsView):
             step = 1.0
         return step, step
 
-    def save_view(self) -> Tuple[qg.QTransform, qc.QPointF]:
+    def save_view(self) -> Tuple[qg.QTransform, qc.QPointF, float]:
         """The zoom, plus the scene point the viewport is centred on.
 
         Scroll bar values cannot stand in for that point. Every render installs a fresh
@@ -242,11 +271,18 @@ class CadGraphicsView(qw.QGraphicsView):
         """
         # A float centre; the integer QPoint one rounds the view by up to a pixel on
         # every save/restore round trip.
-        return self.transform(), self.mapToScene(self.viewport().rect()).boundingRect().center()
+        return (
+            self.transform(),
+            self.mapToScene(self.viewport().rect()).boundingRect().center(),
+            self._view_rotation,
+        )
 
-    def restore_view(self, saved: Tuple[qg.QTransform, qc.QPointF]) -> None:
-        transform, center = saved
+    def restore_view(self, saved: Tuple[qg.QTransform, qc.QPointF, float]) -> None:
+        transform, center, rotation = saved
         self.setTransform(transform)
+        # The transform already carries the turn visually; the field has to agree with it,
+        # or the next compass move would be measured against a stale angle.
+        self._view_rotation = rotation
         self._widen_scene_rect_to(center)
         self.centerOn(center)
         self.viewportChanged.emit()
@@ -313,7 +349,7 @@ class CadGraphicsView(qw.QGraphicsView):
         # whole preview. On the model tab there is no sheet to rescale, so the wheel
         # keeps its plain view-zoom meaning.
         if ctrl or self._page_frame is None:
-            self.zoom_by(factor)
+            self.zoom_by(factor, event.position())
             return
         anchor = self._world_point(event.position())
         self.pageScaleZoomRequested.emit(factor, anchor.x(), anchor.y())
@@ -359,12 +395,36 @@ class CadGraphicsView(qw.QGraphicsView):
         return self._current_zoom()
 
     def apply_zoom_factor(self, factor: float) -> None:
-        """Re-apply a zoom level relative to the page fit, without moving the centre."""
+        """Re-apply a zoom level relative to the page fit, without moving the centre.
+
+        A relative multiply: calling this twice compounds. It exists for callers that
+        know they are running exactly once, right after a guaranteed-fresh fit.
+        """
         if factor <= 0 or abs(factor - 1.0) < 1e-9:
             return
         anchor = self.transformationAnchor()
         self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.scale(factor, factor)
+        self.setTransformationAnchor(anchor)
+        self.viewportChanged.emit()
+
+    def set_zoom_factor(self, factor: float) -> None:
+        """Set the zoom (relative to the fit) to an absolute target.
+
+        Unlike apply_zoom_factor's relative multiply, this is idempotent - calling it
+        again with the same target is a no-op. That matters here: restoring a remembered
+        Model-tab view can run more than once for one tab switch (set_layout_mode's own
+        render re-enters through documentChanged -> the app's "keep the sheet in sync"
+        handler -> another reapply()), and a relative multiply would compound each time.
+        """
+        if factor <= 0:
+            return
+        current = self._current_zoom()
+        if current <= 0 or abs(factor - current) < 1e-9:
+            return
+        anchor = self.transformationAnchor()
+        self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.scale(factor / current, factor / current)
         self.setTransformationAnchor(anchor)
         self.viewportChanged.emit()
 
@@ -520,6 +580,14 @@ class CadGraphicsView(qw.QGraphicsView):
             return
         self._press_pos = event.position().toPoint()
         self._drag_candidate = None
+        self._tool_dragging = False
+        if self._tool is not None and event.button() == qc.Qt.MouseButton.LeftButton:
+            world = self._world_point(event.position())
+            if self._tool.grab((world.x(), world.y()), self._gizmo_tolerance()):
+                # The release of this same gesture is what finishes the drag, through the
+                # tool's usual on_click - nothing else should treat it as a plain click.
+                self._tool_dragging = True
+                return
         if self._tool is None and event.button() == qc.Qt.MouseButton.LeftButton:
             world = self._world_point(event.position())
             detail = self._detail_target(world)
@@ -626,7 +694,13 @@ class CadGraphicsView(qw.QGraphicsView):
         if self._tool is not None:
             view_pos = event.position().toPoint()
             raw_point = self.mapToScene(view_pos)
-            point, snapped = self._snap_point(view_pos, raw_point)
+            if self._tool_dragging:
+                # Snapping mid-drag would make the scale factor jump between whatever
+                # geometry happens to be near the cursor.
+                point, snapped = raw_point, False
+            else:
+                point, snapped = self._snap_point(view_pos, raw_point)
+                self._update_gizmo_cursor(view_pos)
             self._set_snap_indicator(point if snapped else None)
             world = self._to_world(point)
             self._tool.update_preview((world.x(), world.y()), self.scene())
@@ -639,6 +713,48 @@ class CadGraphicsView(qw.QGraphicsView):
                 self._ensure_dragging_items(view_pos)
             else:
                 self._update_rubber_band(view_pos)
+
+    def _paint_selection_highlight(self, painter: qg.QPainter, scale: float, color: qg.QColor) -> None:
+        pen = qg.QPen(color, 3)
+        pen.setCosmetic(True)
+        pen.setJoinStyle(qc.Qt.PenJoinStyle.RoundJoin)
+        pen.setCapStyle(qc.Qt.PenCapStyle.RoundCap)
+        painter.setBrush(qc.Qt.BrushStyle.NoBrush)
+        for item in self._selected_items:
+            painter.save()
+            painter.setPen(pen)
+            painter.setTransform(item.sceneTransform(), True)
+            if isinstance(item, PointItem):
+                radius = item._radius / scale + 3 / scale
+                painter.drawEllipse(item._pos, radius, radius)
+            elif isinstance(item, qw.QGraphicsLineItem):
+                painter.drawLine(item.line())
+            elif isinstance(item, qw.QGraphicsPathItem):
+                painter.drawPath(item.path())
+            elif isinstance(item, qw.QGraphicsPolygonItem):
+                painter.drawPolygon(item.polygon())
+            else:
+                painter.setPen(qc.Qt.PenStyle.NoPen)
+                fill_color = qg.QColor(color)
+                fill_color.setAlpha(90)
+                painter.fillRect(item.boundingRect(), fill_color)
+            painter.restore()
+
+    def _gizmo_tolerance(self) -> float:
+        return _DETAIL_HANDLE_PX / max(self._scene_scale(), 1e-9)
+
+    def _update_gizmo_cursor(self, position: qc.QPoint) -> None:
+        gizmo = self._tool.gizmo() if self._tool is not None else None
+        if gizmo is None:
+            return
+        world = self._world_point(qc.QPointF(position))
+        tolerance = self._gizmo_tolerance()
+        near = any(
+            math.hypot(p[0] - world.x(), p[1] - world.y()) <= tolerance for p in gizmo.points()
+        )
+        self.setCursor(
+            qc.Qt.CursorShape.PointingHandCursor if near else qc.Qt.CursorShape.CrossCursor
+        )
 
     def _update_detail_handle_cursor(self, position: qc.QPointF) -> None:
         arrow_mode = self._detail_mode == "arrow"
@@ -694,7 +810,8 @@ class CadGraphicsView(qw.QGraphicsView):
         self._press_pos = None
         if self._tool is not None:
             raw_point = self.mapToScene(release_pos)
-            scene_point, _ = self._snap_point(release_pos, raw_point)
+            scene_point = raw_point if self._tool_dragging else self._snap_point(release_pos, raw_point)[0]
+            self._tool_dragging = False
             world_point = self._to_world(scene_point)
             self._tool.on_click((world_point.x(), world_point.y()))
             self.toolPointPlaced.emit()
@@ -795,32 +912,10 @@ class CadGraphicsView(qw.QGraphicsView):
         if self._snap_indicator is not None:
             self._paint_snap_indicator(painter, self._snap_indicator, scale, color)
 
-        if not self._selected_items:
-            return
-        pen = qg.QPen(color, 3)
-        pen.setCosmetic(True)
-        pen.setJoinStyle(qc.Qt.PenJoinStyle.RoundJoin)
-        pen.setCapStyle(qc.Qt.PenCapStyle.RoundCap)
-        painter.setBrush(qc.Qt.BrushStyle.NoBrush)
-        for item in self._selected_items:
-            painter.save()
-            painter.setPen(pen)
-            painter.setTransform(item.sceneTransform(), True)
-            if isinstance(item, PointItem):
-                radius = item._radius / scale + 3 / scale
-                painter.drawEllipse(item._pos, radius, radius)
-            elif isinstance(item, qw.QGraphicsLineItem):
-                painter.drawLine(item.line())
-            elif isinstance(item, qw.QGraphicsPathItem):
-                painter.drawPath(item.path())
-            elif isinstance(item, qw.QGraphicsPolygonItem):
-                painter.drawPolygon(item.polygon())
-            else:
-                painter.setPen(qc.Qt.PenStyle.NoPen)
-                fill_color = qg.QColor(color)
-                fill_color.setAlpha(90)
-                painter.fillRect(item.boundingRect(), fill_color)
-            painter.restore()
+        # Only the highlight below needs a selection. The grips must still be drawn
+        # without one: starting a tool clears the selection, and a transform gizmo has to
+        # stay on screen for the whole gesture.
+        self._paint_selection_highlight(painter, scale, color)
         # Every grip below is a world point and this painter draws in scene coordinates.
         squares = [self._to_scene(grip) for grip in self._annotation_grips]
         resize_spec = self._mode_spec("scale")
@@ -834,6 +929,11 @@ class CadGraphicsView(qw.QGraphicsView):
             if arrow_spec is not None
             else []
         )
+        gizmo = self._tool.gizmo() if self._tool is not None else None
+        if gizmo is not None:
+            squares.extend(self._to_scene(qc.QPointF(x, y)) for x, y in gizmo.handles)
+            if gizmo.knob is not None:
+                dots.append(self._to_scene(qc.QPointF(*gizmo.knob)))
         if squares or dots:
             grip_pen = qg.QPen(color, 1.5)
             grip_pen.setCosmetic(True)
@@ -844,6 +944,18 @@ class CadGraphicsView(qw.QGraphicsView):
                 painter.drawRect(qc.QRectF(grip.x() - radius, grip.y() - radius, radius * 2, radius * 2))
             for dot in dots:
                 painter.drawEllipse(dot, radius, radius)
+        if gizmo is not None:
+            self._paint_gizmo_center(painter, self._to_scene(qc.QPointF(*gizmo.center)), scale, color)
+
+    @staticmethod
+    def _paint_gizmo_center(painter, center: qc.QPointF, scale: float, color) -> None:
+        """A small cross on the point a transform turns or scales about."""
+        pen = qg.QPen(color, 1.5)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        arm = 5 / scale
+        painter.drawLine(qc.QPointF(center.x() - arm, center.y()), qc.QPointF(center.x() + arm, center.y()))
+        painter.drawLine(qc.QPointF(center.x(), center.y() - arm), qc.QPointF(center.x(), center.y() + arm))
 
     @staticmethod
     def _ring_path(outer: qc.QRectF, inner: qc.QRectF) -> qg.QPainterPath:

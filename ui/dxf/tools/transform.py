@@ -8,8 +8,17 @@ from core.commands.base import Command as EditCommand
 from core.commands.composite import CompositeCommand
 from core.commands.edit import MoveCommand, RotateCommand, ScaleCommand
 from core.dxf_document import DXFDocument
+from core.transform_gizmo import (
+    Box,
+    bbox_corners,
+    center_of,
+    knob_point,
+    rotation_delta,
+    scale_factor,
+)
 from ui.dxf.items import HANDLE_ROLE
 from ui.dxf.tools.base import (
+    Gizmo,
     ToolSession,
     add_preview_item,
     angle_degrees,
@@ -48,6 +57,12 @@ def _scaling_about(origin: qc.QPointF, factor: float) -> qg.QTransform:
         .scale(factor, factor)
         .translate(-origin.x(), -origin.y())
     )
+
+
+def _knob_offset(box: Box) -> float:
+    """How far above the box the rotation grip floats - a share of its own size."""
+    (min_x, min_y), (max_x, max_y) = box
+    return max(max_x - min_x, max_y - min_y) * 0.25 or 1.0
 
 
 def _item_center(item: qw.QGraphicsItem) -> qc.QPointF:
@@ -118,17 +133,49 @@ class MoveToolSession(ToolSession):
 
 
 class RotateToolSession(ToolSession):
+    """Drag the grip beside the selection; it turns about the selection's own centre."""
 
-    def __init__(self, handles: List[str]) -> None:
+    def __init__(self, handles: List[str], box: Optional[Box] = None) -> None:
         super().__init__()
         self._handles = handles
-        self.prompt = tr("tool.specify_base_point")
-        self._base: Optional[Tuple[float, float]] = None
+        self._box = box
+        self._center: Optional[Tuple[float, float]] = center_of(*box) if box is not None else None
+        self._knob: Optional[Tuple[float, float]] = None
+        self._grab: Optional[Tuple[float, float]] = None
+        # Without a box there is nothing to put a gizmo on, so fall back to picking a
+        # base point and an angle by hand.
+        self._base: Optional[Tuple[float, float]] = self._center
+        self.prompt = tr("tool.rotate_gizmo_hint" if box is not None else "tool.specify_base_point")
         self._angle: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
         self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
 
+    def gizmo(self) -> Optional[Gizmo]:
+        if self._box is None or self._center is None or self._angle is not None:
+            return None
+        self._knob = knob_point(*self._box, offset=_knob_offset(self._box))
+        return Gizmo(center=self._center, knob=self._knob)
+
+    def grab(self, point: Tuple[float, float], tolerance: float) -> bool:
+        if self._knob is None:
+            return False
+        if point_distance(self._knob, point) > tolerance:
+            return False
+        self._grab = self._knob
+        return True
+
+    def _dragged_angle(self, point: Tuple[float, float]) -> Optional[float]:
+        if self._center is None or self._grab is None:
+            return None
+        return rotation_delta(self._center, self._grab, point)
+
     def on_click(self, point: Tuple[float, float]) -> None:
+        angle = self._dragged_angle(point)
+        if angle is not None:
+            self._angle = angle
+            return
+        if self._box is not None:
+            return  # a click that grabbed nothing: the gizmo stays waiting
         if self._base is None:
             self._base = point
             self.prompt = tr("tool.specify_rotation_angle")
@@ -156,17 +203,27 @@ class RotateToolSession(ToolSession):
     def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
         if self._base is None or self._angle is not None:
             return
+        angle = self._dragged_angle(point)
+        if angle is None:
+            if self._box is not None:
+                return  # nothing grabbed yet - the selection must stay put
+            angle = angle_degrees(self._base, point)
+            self._draw_rubber_line(self._base, point, scene)
+        else:
+            self._draw_rubber_line(self._center, point, scene)
+
+        if self._preview_targets is None:
+            self._preview_targets = _preview_targets(scene, self._handles)
+        spin = _rotation_about(to_scene_point(scene, self._base), angle)
+        for item in self._preview_targets:
+            item.setTransform(spin)
+
+    def _draw_rubber_line(self, start, point, scene: qw.QGraphicsScene) -> None:
         if self._preview_item is None:
             self._preview_item = qw.QGraphicsLineItem()
             self._preview_item.setPen(preview_pen())
             add_preview_item(scene, self._preview_item)
-        self._preview_item.setLine(self._base[0], self._base[1], point[0], point[1])
-
-        if self._preview_targets is None:
-            self._preview_targets = _preview_targets(scene, self._handles)
-        spin = _rotation_about(to_scene_point(scene, self._base), angle_degrees(self._base, point))
-        for item in self._preview_targets:
-            item.setTransform(spin)
+        self._preview_item.setLine(start[0], start[1], point[0], point[1])
 
     def is_done(self) -> bool:
         return self._base is not None and self._angle is not None
@@ -184,34 +241,70 @@ class RotateToolSession(ToolSession):
 
 
 class ScaleToolSession(ToolSession):
-    """Scales by a ratio of two picked distances, so a gesture means the same at any zoom.
+    """Drag a corner grip; the selection grows about its own centre, which stays put.
 
-    Taking the raw distance from the base as the factor made the tool unusable on a
-    sheet: there the whole drawing is a few dozen pixels wide, so an ordinary drag is
-    tens of drawing units and scaled the selection by that many times.
+    The factor is a ratio of two distances from that centre, so the same drag means the
+    same thing however far the view is zoomed out - on a fitted sheet the drawing can be
+    a few dozen pixels wide, where a distance measured in drawing units is meaningless.
     """
 
-    def __init__(self, handles: List[str]) -> None:
+    def __init__(self, handles: List[str], box: Optional[Box] = None) -> None:
         super().__init__()
         self._handles = handles
-        self.prompt = tr("tool.specify_base_point")
-        self._base: Optional[Tuple[float, float]] = None
+        self._box = box
+        self._center: Optional[Tuple[float, float]] = center_of(*box) if box is not None else None
+        self._corners: Tuple[Tuple[float, float], ...] = bbox_corners(*box) if box is not None else ()
+        self._grab: Optional[Tuple[float, float]] = None
+        self._reference_mode = box is None
+        self._base: Optional[Tuple[float, float]] = self._center
+        self.prompt = tr("tool.scale_gizmo_hint" if box is not None else "tool.specify_base_point")
         self._reference: Optional[float] = None
         self._factor: Optional[float] = None
         self._preview_item: Optional[qw.QGraphicsLineItem] = None
         self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
 
+    def gizmo(self) -> Optional[Gizmo]:
+        if self._box is None or self._reference_mode or self._center is None or self._factor is not None:
+            return None
+        return Gizmo(center=self._center, handles=self._corners)
+
+    def grab(self, point: Tuple[float, float], tolerance: float) -> bool:
+        if self._reference_mode or not self._corners:
+            return False
+        nearest = min(self._corners, key=lambda corner: point_distance(corner, point))
+        if point_distance(nearest, point) > tolerance:
+            return False
+        self._grab = nearest
+        return True
+
+    def _dragged_factor(self, point: Tuple[float, float]) -> Optional[float]:
+        if self._center is None or self._grab is None:
+            return None
+        return scale_factor(self._center, self._grab, point)
+
+    def _enter_reference_mode(self) -> None:
+        self._reference_mode = True
+        self._grab = None
+        self._base = None
+        self._reference = None
+        self.prompt = tr("tool.specify_base_point")
+
     def _set_reference(self, length: float) -> None:
         self._reference = length
         self.prompt = tr("tool.specify_new_length")
 
-    def _preview_factor(self, point: Tuple[float, float]) -> Optional[float]:
+    def _reference_factor(self, point: Tuple[float, float]) -> Optional[float]:
         if self._base is None or self._reference is None or self._reference <= 0:
             return None
         factor = point_distance(self._base, point) / self._reference
         return factor if factor > 0 else None
 
     def on_click(self, point: Tuple[float, float]) -> None:
+        if not self._reference_mode:
+            factor = self._dragged_factor(point)
+            if factor is not None:
+                self._factor = factor
+            return
         if self._base is None:
             self._base = point
             self.prompt = tr("tool.specify_reference_length")
@@ -221,11 +314,14 @@ class ScaleToolSession(ToolSession):
             if length > 0:
                 self._set_reference(length)
             return
-        factor = self._preview_factor(point)
+        factor = self._reference_factor(point)
         if factor is not None:
             self._factor = factor
 
     def on_text(self, text: str) -> Optional[str]:
+        if text.strip().upper() in {"R", "REF", "REFERENCE"} and not self._reference_mode:
+            self._enter_reference_mode()
+            return None
         if self._base is None:
             coord = parse_coordinate(text, last_point=None)
             if coord is None:
@@ -240,13 +336,14 @@ class ScaleToolSession(ToolSession):
             coord = parse_coordinate(text, last_point=self._base)
             if coord is None:
                 return tr("tool.scale_or_point_numeric", value=text)
-            if self._reference is None:
+            if self._reference_mode and self._reference is None:
                 length = point_distance(self._base, coord)
                 if length <= 0:
                     return tr("common.scale_positive")
                 self._set_reference(length)
                 return None
-            factor = self._preview_factor(coord) or 0.0
+            factor = (self._reference_factor(coord) if self._reference_mode
+                      else self._dragged_factor(coord)) or 0.0
         if factor <= 0:
             return tr("common.scale_positive")
         self._factor = factor
@@ -255,6 +352,9 @@ class ScaleToolSession(ToolSession):
     def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
         if self._base is None or self._factor is not None:
             return
+        factor = self._reference_factor(point) if self._reference_mode else self._dragged_factor(point)
+        if factor is None:
+            return  # nothing grabbed, or no reference length yet: leave the drawing alone
         if self._preview_item is None:
             self._preview_item = qw.QGraphicsLineItem()
             self._preview_item.setPen(preview_pen())
@@ -263,9 +363,6 @@ class ScaleToolSession(ToolSession):
 
         if self._preview_targets is None:
             self._preview_targets = _preview_targets(scene, self._handles)
-        factor = self._preview_factor(point)
-        if factor is None:
-            return
         resize = _scaling_about(to_scene_point(scene, self._base), factor)
         for item in self._preview_targets:
             item.setTransform(resize)
