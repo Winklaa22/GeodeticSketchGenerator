@@ -248,3 +248,48 @@ def test_the_whole_set_with_field_values_survives_a_state_round_trip() -> None:
     sheets.set_field_values(0, {"powiat": "wrocławski", "sketch_number": "1"})
     restored = SheetSet.from_state(sheets.to_state())
     assert restored.sheets == sheets.sheets
+
+
+def test_the_model_tabs_rotation_survives_a_state_round_trip() -> None:
+    sheets = SheetSet()
+    sheets.set_model_rotation(35.0)
+
+    restored = SheetSet.from_state(sheets.to_state())
+
+    assert restored.model_rotation == 35.0
+
+
+def test_a_fresh_set_starts_unrotated() -> None:
+    assert SheetSet().model_rotation == 0.0
+    assert SheetSet.from_state(LayoutState()).model_rotation == 0.0
+
+
+def test_the_model_tabs_zoom_and_pan_survive_a_state_round_trip() -> None:
+    sheets = SheetSet()
+    sheets.set_model_view(2.5, (12.0, -3.5))
+
+    restored = SheetSet.from_state(sheets.to_state())
+
+    assert restored.model_zoom == 2.5
+    assert restored.model_center == (12.0, -3.5)
+
+
+def test_a_fresh_set_has_no_remembered_camera() -> None:
+    assert SheetSet().model_zoom == 1.0
+    assert SheetSet().model_center is None
+
+
+def test_a_non_positive_zoom_falls_back_to_the_fit() -> None:
+    sheets = SheetSet()
+    sheets.set_model_view(0.0, (1.0, 2.0))
+    assert sheets.model_zoom == 1.0
+
+    sheets.set_model_view(-4.0, (1.0, 2.0))
+    assert sheets.model_zoom == 1.0
+
+
+def test_clearing_the_center_forgets_the_pan() -> None:
+    sheets = SheetSet()
+    sheets.set_model_view(2.0, (5.0, 5.0))
+    sheets.set_model_view(2.0, None)
+    assert sheets.model_center is None

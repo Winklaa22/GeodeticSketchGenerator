@@ -109,6 +109,7 @@ class DxfViewer(qw.QWidget):
     documentChanged = qc.pyqtSignal()
     pageFrameMoved = qc.pyqtSignal(float, float)
     pageFrameRotated = qc.pyqtSignal(float)
+    modelRotationChanged = qc.pyqtSignal(float)
     pageScaleZoomRequested = qc.pyqtSignal(float, float, float)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
@@ -356,25 +357,21 @@ class DxfViewer(qw.QWidget):
             self._layout_table_width_mm = 0.0
             self._view.set_page_frame(None)
             self._view.set_title_block([])
-            self._compass.set_angle(0.0)
+            self._compass.set_angle(self._view.view_rotation())
         else:
             new_center = center or self._layout_center or self.content_center() or (0.0, 0.0)
-            # A preserved zoom/pan only stays meaningful if the sheet's physical
-            # footprint - both its size and where it's centered - hasn't
-            # changed. Paper size/scale changing is one way that breaks; a
-            # sheet with no manually dragged center (the common case) also
-            # re-centers on the document's content bbox on every render, so
-            # restoring an old view once that centroid has moved (e.g. after
-            # "Apply to DXF" adds more entities) would leave the preview
-            # looking at a stale location that no longer matches the frame -
-            # or what actually gets exported, which always resolves the
-            # center fresh - so fall back to a fresh fit-to-page whenever
-            # either part of that footprint is different.
+            # A preserved zoom/pan only stays meaningful if the sheet's paper
+            # footprint - its size and scale - hasn't changed; that's the one
+            # thing that would make restoring the old camera transform look
+            # wrong relative to the page. A sheet with no manually dragged
+            # center (the common case) also re-centers on the document's
+            # content bbox on every render, but that's just the page frame
+            # tracking new content - it doesn't need to reset the user's
+            # zoom/pan too, so it's deliberately not part of this check
+            # (previously it was, which meant drawing so much as a single new
+            # line snapped the view back to a fresh fit-to-page every time).
             if preserve_view and self._layout_options is not None:
-                preserve_view = (
-                    sheet_size_in_units(self._layout_options) == sheet_size_in_units(options)
-                    and self._layout_center == new_center
-                )
+                preserve_view = sheet_size_in_units(self._layout_options) == sheet_size_in_units(options)
             self._view.reset_view_rotation()
             self._layout_options = options
             self._layout_center = new_center
@@ -432,6 +429,8 @@ class DxfViewer(qw.QWidget):
         if self._layout_options is not None:
             self._layout_rotation = self._view.page_frame_rotation()
             self.pageFrameRotated.emit(self._layout_rotation)
+        else:
+            self.modelRotationChanged.emit(self._view.view_rotation())
 
     def _on_compass_reset(self) -> None:
         self._compass.set_angle(0.0)
@@ -441,6 +440,42 @@ class DxfViewer(qw.QWidget):
             self.pageFrameRotated.emit(0.0)
         else:
             self._view.reset_view_rotation()
+            self.modelRotationChanged.emit(0.0)
+
+    def model_rotation(self) -> float:
+        return self._view.view_rotation()
+
+    def set_model_rotation(self, degrees: float) -> None:
+        """Turn the model view back to a remembered angle, compass included."""
+        if self._layout_options is not None:
+            return
+        self._view.set_view_rotation(degrees)
+        self._compass.set_angle(degrees)
+
+    def model_view_state(self) -> Tuple[float, Tuple[float, float]]:
+        """Current zoom (relative to the fit) and the world point the view is centred on.
+
+        Meaningful for the Model tab only - callers only use it while that tab is active.
+        Zoom is relative rather than the raw transform because the raw scale is only valid
+        for the window size it was measured in; a relative factor plus a world-space
+        centre both mean the same thing whatever size the window is reopened at.
+        """
+        center = self._view.save_view()[1]
+        return self._view.current_zoom_factor(), (center.x(), center.y())
+
+    def set_model_view(self, zoom: float, center: Optional[Tuple[float, float]]) -> None:
+        """Return the Model tab to a remembered zoom/pan - set_model_rotation's counterpart.
+
+        Uses set_zoom_factor (an idempotent, absolute setter) rather than the relative
+        apply_zoom_factor: entering the Model tab from a sheet can call this twice for one
+        switch (set_layout_mode's render re-enters through documentChanged before this
+        method's own caller resumes), and a relative multiply would compound each time.
+        """
+        if self._layout_options is not None or self._doc is None:
+            return
+        self._view.set_zoom_factor(zoom)
+        if center is not None:
+            self._view.recenter_on(center[0], center[1])
 
     def _on_page_frame_rotated(self, rotation: float) -> None:
         self._layout_rotation = rotation
@@ -630,6 +665,12 @@ class DxfViewer(qw.QWidget):
         self.ensure_document()
         self.start_tool(factory())
 
+    def _selection_box(self):
+        """Outline of the selection, for a tool that puts a gizmo on it."""
+        if self._doc is None:
+            return None
+        return self._doc.entities_bbox(self._doc.expand_annotation_handles(self._selected_handles))
+
     def start_move_tool(self) -> None:
         if not self._selected_handles:
             self._echo(tr("viewer.select_to_move"))
@@ -642,14 +683,14 @@ class DxfViewer(qw.QWidget):
             self._echo(tr("viewer.select_to_rotate"))
             self._toolbar.set_active_tool(None)
             return
-        self.start_tool(RotateToolSession(list(self._selected_handles)))
+        self.start_tool(RotateToolSession(list(self._selected_handles), self._selection_box()))
 
     def start_scale_tool(self) -> None:
         if not self._selected_handles:
             self._echo(tr("viewer.select_to_scale"))
             self._toolbar.set_active_tool(None)
             return
-        self.start_tool(ScaleToolSession(list(self._selected_handles)))
+        self.start_tool(ScaleToolSession(list(self._selected_handles), self._selection_box()))
 
     def start_rotate_each_tool(self) -> None:
         if not self._selected_handles:

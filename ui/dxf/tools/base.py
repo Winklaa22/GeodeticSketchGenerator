@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
@@ -67,10 +68,34 @@ def offset_segment_perpendicular(
     return (start[0] + shift[0], start[1] + shift[1]), (end[0] + shift[0], end[1] + shift[1])
 
 
+@dataclass(frozen=True)
+class Gizmo:
+    """On-canvas grips a tool offers, in DXF/world coordinates.
+
+    The view paints these and decides what counts as a hit; the tool only says where they
+    are and what happens when one is dragged.
+    """
+
+    center: Tuple[float, float]
+    handles: Tuple[Tuple[float, float], ...] = ()
+    knob: Optional[Tuple[float, float]] = None
+
+    def points(self) -> Tuple[Tuple[float, float], ...]:
+        return self.handles + ((self.knob,) if self.knob is not None else ())
+
+
 class ToolSession:
 
     def __init__(self) -> None:
         self.prompt: str = ""
+
+    def gizmo(self) -> Optional[Gizmo]:
+        """Grips to draw on the canvas, or None for a tool driven purely by clicks."""
+        return None
+
+    def grab(self, point: Tuple[float, float], tolerance: float) -> bool:
+        """Try to take hold of a grip near `point`; True means the drag is ours."""
+        return False
 
     def on_click(self, point: Tuple[float, float]) -> None:
         raise NotImplementedError

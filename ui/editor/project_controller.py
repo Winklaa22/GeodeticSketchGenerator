@@ -37,6 +37,10 @@ class ProjectController:
     def current_state(self) -> ProjectState:
         session = self._host.session
         fallback = project_io.default_project_name(session.file_path, session.dxf_path)
+        # If the user is currently on the Model tab and never switched away from it (the
+        # usual trigger for remembering its view), its live zoom/pan has not been written
+        # into the sheet set yet - flush it now so a save always captures where they are.
+        self._host.layouts.sync_model_view_for_save()
         return collect_project_state(
             self._host.panel,
             name=self.name or fallback,

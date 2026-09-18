@@ -372,6 +372,8 @@ TRANSLATIONS: Dict[str, str] = {
     "tool.specify_reference_point": "Podaj punkt odniesienia: ",
     "tool.specify_reference_length": "Wskaż długość odniesienia albo wpisz skalę [Bazowy]: ",
     "tool.specify_new_length": "Wskaż, ile ma wynosić po zmianie: ",
+    "tool.scale_gizmo_hint": "Ciagnij uchwyt w rogu albo wpisz skale [Referencja]: ",
+    "tool.rotate_gizmo_hint": "Ciagnij uchwyt, albo wpisz kat: ",
     "tool.multileader_tip": "Podaj punkt grota Multileader: ",
     "tool.multileader_landing": "Podaj punkt lądowania, albo [Bez lądowania]: ",
     "tool.multileader_text_position": "Podaj pozycję tekstu Multileader: ",

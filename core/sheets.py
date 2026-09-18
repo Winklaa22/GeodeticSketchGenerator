@@ -77,6 +77,9 @@ class SheetSet:
             sheets = [Sheet(name=f"{SHEET_NAME_PREFIX} 1")]
         self._sheets: List[Sheet] = list(sheets)
         self._active: Optional[int] = None
+        self._model_rotation = 0.0
+        self._model_zoom = 1.0
+        self._model_center: Optional[Tuple[float, float]] = None
         self.activate(active_index)
 
     def __len__(self) -> int:
@@ -166,14 +169,40 @@ class SheetSet:
     def set_field_values(self, index: int, values: Dict[str, str]) -> None:
         self._sheets[index] = replace(self._sheets[index], field_values=values)
 
+    @property
+    def model_rotation(self) -> float:
+        return self._model_rotation
+
+    def set_model_rotation(self, rotation: float) -> None:
+        self._model_rotation = float(rotation)
+
+    @property
+    def model_zoom(self) -> float:
+        return self._model_zoom
+
+    @property
+    def model_center(self) -> Optional[Tuple[float, float]]:
+        return self._model_center
+
+    def set_model_view(self, zoom: float, center: Optional[Tuple[float, float]]) -> None:
+        """Remember the Model tab's camera - its zoom relative to the fit, and pan."""
+        self._model_zoom = float(zoom) if zoom > 0 else 1.0
+        self._model_center = (float(center[0]), float(center[1])) if center is not None else None
+
     def to_state(self) -> LayoutState:
         return LayoutState(
             sheets=[state_from_sheet(sheet) for sheet in self._sheets],
             active_index=self._active,
+            model_rotation=self._model_rotation,
+            model_zoom=self._model_zoom,
+            model_center=self._model_center,
         )
 
     def load_state(self, state: LayoutState) -> None:
         self._sheets = [sheet_from_state(item) for item in state.sheets]
+        self._model_rotation = float(state.model_rotation)
+        self._model_zoom = state.model_zoom if state.model_zoom > 0 else 1.0
+        self._model_center = tuple(state.model_center) if state.model_center is not None else None
         self.activate(state.active_index)
 
     @classmethod

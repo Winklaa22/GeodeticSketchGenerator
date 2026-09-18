@@ -246,3 +246,60 @@ def test_default_project_name_prefers_dxf_then_txt_then_untitled() -> None:
     assert default_project_name("C:/a/points.txt", "C:/b/drawing.dxf") == "drawing"
     assert default_project_name("C:/a/points.txt", "") == "points"
     assert default_project_name("", "") == "Untitled"
+
+
+def test_the_model_views_rotation_is_written_to_the_project_file(tmp_path) -> None:
+    state = ProjectState(name="Turned")
+    state.layout.model_rotation = 35.0
+    path = tmp_path / "turned.gsgproj"
+
+    save_project(str(path), state)
+
+    assert load_project(str(path)).layout.model_rotation == 35.0
+
+
+def test_a_project_saved_before_the_model_rotation_existed_opens_upright(tmp_path) -> None:
+    path = tmp_path / "old.gsgproj"
+    payload = json.loads(json.dumps({"version": 1, "name": "Old", "layout": {"sheets": [], "active_index": None}}))
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert load_project(str(path)).layout.model_rotation == 0.0
+
+
+def test_the_model_views_zoom_and_pan_are_written_to_the_project_file(tmp_path) -> None:
+    state = ProjectState(name="Panned")
+    state.layout.model_zoom = 3.5
+    state.layout.model_center = (120.0, -40.0)
+    path = tmp_path / "panned.gsgproj"
+
+    save_project(str(path), state)
+    reloaded = load_project(str(path))
+
+    assert reloaded.layout.model_zoom == 3.5
+    assert reloaded.layout.model_center == (120.0, -40.0)
+
+
+def test_a_project_saved_before_the_model_camera_existed_opens_fitted(tmp_path) -> None:
+    path = tmp_path / "old.gsgproj"
+    payload = json.loads(json.dumps({"version": 1, "name": "Old", "layout": {"sheets": [], "active_index": None}}))
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    reloaded = load_project(str(path))
+
+    assert reloaded.layout.model_zoom == 1.0
+    assert reloaded.layout.model_center is None
+
+
+def test_a_malformed_model_camera_falls_back_to_the_fit(tmp_path) -> None:
+    path = tmp_path / "bad.gsgproj"
+    payload = {
+        "version": 1,
+        "name": "Bad",
+        "layout": {"sheets": [], "active_index": None, "model_zoom": -1.0, "model_center": "nope"},
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    reloaded = load_project(str(path))
+
+    assert reloaded.layout.model_zoom == 1.0
+    assert reloaded.layout.model_center is None

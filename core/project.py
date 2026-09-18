@@ -95,6 +95,15 @@ class LayoutState:
 
     sheets: List[SheetState] = field(default_factory=lambda: [SheetState()])
     active_index: Optional[int] = None
+    # How far the Model tab's view is turned, zoomed and panned. Sheets keep their own
+    # rotation/centre on the sheet itself; the model view has no sheet to hang these on,
+    # so they live here. model_zoom is relative to the fit-to-drawing baseline (1.0 = the
+    # fresh fit), which is what stays meaningful across window sizes and DPIs; the raw
+    # zoomed-in transform would not be. model_center is None until the user has actually
+    # panned/zoomed, so a project that never touched the Model view still opens fitted.
+    model_rotation: float = 0.0
+    model_zoom: float = 1.0
+    model_center: Optional[Tuple[float, float]] = None
 
 
 @dataclass
@@ -368,10 +377,39 @@ def _load_layer_state(layer_payload: Dict[str, Any]) -> LayerState:
 _SHEET_STATE_FIELD_NAMES = {f.name for f in fields(SheetState)}
 
 
+def _model_rotation_from(layout_payload: Dict[str, Any]) -> float:
+    try:
+        return float(layout_payload.get("model_rotation", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _model_zoom_from(layout_payload: Dict[str, Any]) -> float:
+    try:
+        zoom = float(layout_payload.get("model_zoom", 1.0))
+    except (TypeError, ValueError):
+        return 1.0
+    return zoom if zoom > 0 else 1.0
+
+
+def _model_center_from(layout_payload: Dict[str, Any]) -> Optional[Tuple[float, float]]:
+    center = layout_payload.get("model_center")
+    if center is None:
+        return None
+    try:
+        x, y = center
+        return float(x), float(y)
+    except (TypeError, ValueError):
+        return None
+
+
 def _load_layout_state(layout_payload: Dict[str, Any]) -> LayoutState:
+    model_rotation = _model_rotation_from(layout_payload)
+    model_zoom = _model_zoom_from(layout_payload)
+    model_center = _model_center_from(layout_payload)
     sheets_payload = layout_payload.get("sheets")
     if sheets_payload is None:
-        return LayoutState()
+        return LayoutState(model_rotation=model_rotation, model_zoom=model_zoom, model_center=model_center)
     sheets = [
         SheetState(**{key: value for key, value in item.items() if key in _SHEET_STATE_FIELD_NAMES})
         for item in sheets_payload
@@ -381,7 +419,13 @@ def _load_layout_state(layout_payload: Dict[str, Any]) -> LayoutState:
         active_index = int(active_index)
         if not 0 <= active_index < len(sheets):
             active_index = None
-    return LayoutState(sheets=sheets, active_index=active_index)
+    return LayoutState(
+        sheets=sheets,
+        active_index=active_index,
+        model_rotation=model_rotation,
+        model_zoom=model_zoom,
+        model_center=model_center,
+    )
 
 
 def open_any(path: str) -> ProjectState:

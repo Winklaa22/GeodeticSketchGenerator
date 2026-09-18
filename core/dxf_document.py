@@ -467,6 +467,18 @@ class DXFDocument:
             return 0.0, 0.0
         return box.center.x, box.center.y
 
+    def entities_bbox(
+        self, handles: Iterable[str]
+    ) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+        """The outline around everything named - where a transform gizmo goes."""
+        entities = [entity for handle in handles if (entity := self.get_entity(handle)) is not None]
+        if not entities:
+            return None
+        box = ezdxf_bbox.extents(entities)
+        if not box.has_data:
+            return None
+        return (box.extmin.x, box.extmin.y), (box.extmax.x, box.extmax.y)
+
     def get_text_content(self, handle: str) -> str:
         return self._require_entity(handle).dxf.text
 
