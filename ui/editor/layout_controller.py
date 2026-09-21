@@ -26,6 +26,7 @@ from core.table_template import MAX_TABLE_WIDTH_MM, Rect, table_layout
 from ui.dxf.page_frame import PageFrame, page_frame_for
 from ui.dxf.pdf_export import PlotJob
 from ui.i18n import tr
+from ui.loading_overlay import FREQUENT_OP_DELAY_MS
 
 if TYPE_CHECKING:
     from ui.editor.window import MainWindow
@@ -159,9 +160,10 @@ class LayoutController:
             self._view_states[self._view_key()] = (self._viewer.view.save_view(), footprint)
             self._capture_model_view_if_active()
         self._sheets.activate(index)
-        self._apply_active()
-        self._restore_remembered_view()
-        self.refresh()
+        with self._host.loading(delay_ms=FREQUENT_OP_DELAY_MS):
+            self._apply_active()
+            self._restore_remembered_view()
+            self.refresh()
 
     def _apply_active(self, *, preserve_view: bool = False) -> None:
         sheet = self._sheets.active
@@ -235,8 +237,9 @@ class LayoutController:
         self._sheets.set_options(index, self._panel.plot_tab.get_options())
         self._sheets.set_rotation(index, self._panel.plot_tab.get_rotation())
         self._sheets.set_field_values(index, self._panel.sheet_fields_tab.get_values())
-        self._apply_active(preserve_view=True)
-        self.refresh()
+        with self._host.loading(delay_ms=FREQUENT_OP_DELAY_MS):
+            self._apply_active(preserve_view=True)
+            self.refresh()
 
     def on_project_fields_changed(self) -> None:
         if self._syncing:
@@ -403,7 +406,10 @@ class LayoutController:
         )
         if not path:
             return
-        ok, message = self._viewer.export_sheets(path, jobs, title=self._host.project.name)
+        with self._host.loading() as report:
+            ok, message = self._viewer.export_sheets(
+                path, jobs, title=self._host.project.name, progress=report
+            )
         if not ok:
             self._host.flash_status(message, ms=5000)
             return

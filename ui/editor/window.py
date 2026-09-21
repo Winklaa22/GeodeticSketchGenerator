@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Optional
+from contextlib import contextmanager
+from typing import Callable, Iterator, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon
@@ -39,7 +40,7 @@ from ui.editor.status_bar import StatusBar
 from ui.editor.table_template_controller import TableTemplateController
 from ui.global_settings import new_project_table_template
 from ui.i18n import tr
-from ui.loading_overlay import ProgressFn
+from ui.loading_overlay import FREQUENT_OP_DELAY_MS, LoadingOverlay, ProgressFn
 from ui.settings_dialog import SettingsDialog
 from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_XL
 from ui.theme.assets import ICON_PATH
@@ -47,6 +48,7 @@ from ui.theme.style import APP_STYLESHEET
 from ui.window_router import WindowRouter
 
 LEFT_COLUMN_WIDTH_KEY = "ui/leftColumnWidth"
+PROJECT_OPEN_RENDER_BAND = (55, 95)
 
 
 def _no_progress(_percent: int) -> None:
@@ -92,11 +94,11 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(APP_STYLESHEET)
         self.loading_progress(25)
         if initial_state is not None:
-            self.dxf_viewer.loading_progress = self.loading_progress
+            self.dxf_viewer.arm_loading(self.loading_progress, *PROJECT_OPEN_RENDER_BAND)
             try:
                 self.project.load_state(initial_state)
             finally:
-                self.dxf_viewer.loading_progress = None
+                self.dxf_viewer.disarm_loading()
         self.project.apply_window_title()
         self.refresh()
         self.loading_progress(100)
@@ -161,8 +163,8 @@ class MainWindow(QMainWindow):
         self.menu_bar.exportTableTemplateRequested.connect(self.table_template_controller.export_template)
         self.menu_bar.closeProjectRequested.connect(self.open_start_screen)
         self.menu_bar.settingsRequested.connect(self.open_settings)
-        self.menu_bar.undoRequested.connect(lambda: self.dxf_viewer.echo(self.dxf_viewer.undo()))
-        self.menu_bar.redoRequested.connect(lambda: self.dxf_viewer.echo(self.dxf_viewer.redo()))
+        self.menu_bar.undoRequested.connect(lambda: self._run_history(self.dxf_viewer.undo))
+        self.menu_bar.redoRequested.connect(lambda: self._run_history(self.dxf_viewer.redo))
         self.menu_bar.editMenuAboutToShow.connect(self._sync_edit_menu)
 
         self.panel.option_changed.connect(self._on_config_changed)
@@ -265,6 +267,28 @@ class MainWindow(QMainWindow):
         self.status_bar.flash(message)
         QTimer.singleShot(ms, self.refresh)
 
+    def _run_history(self, action: Callable[[], str]) -> None:
+        with self.loading(delay_ms=FREQUENT_OP_DELAY_MS):
+            self.dxf_viewer.echo(action())
+
+    @contextmanager
+    def loading(
+        self, *, delay_ms: int = 0, render_band: Tuple[int, int] = (0, 100)
+    ) -> Iterator[ProgressFn]:
+        # A nested scope would stack a second overlay on top of the one already driving this
+        # operation (project restore drives it from the router), so it just stays passive.
+        if self.dxf_viewer.loading_progress is not None:
+            yield _no_progress
+            return
+        overlay = LoadingOverlay(self)
+        overlay.begin(delay_ms)
+        self.dxf_viewer.arm_loading(overlay.report, *render_band)
+        try:
+            yield overlay.report
+        finally:
+            self.dxf_viewer.disarm_loading()
+            overlay.finish()
+
     def _build_draw_command(self) -> Command:
         ensure_has_data(self.session.data, self.session.file_path)
         selected_numbers = self.panel.selection_tab.get_selected_numbers(self.session.data)
@@ -283,31 +307,39 @@ class MainWindow(QMainWindow):
 
     def apply_to_dxf(self) -> None:
         self.panel.layer_tab.persist(self.settings)
-        try:
-            command = self._build_draw_command()
-        except AppError as exc:
-            self.session.fail(str(exc))
+        with self.loading(render_band=(40, 95)) as report:
+            report(10)
+            try:
+                command = self._build_draw_command()
+            except AppError as exc:
+                self.session.fail(str(exc))
+                self.refresh()
+                return
+            report(40)
+            self.session.last_error = None
+            try:
+                self.dxf_viewer.execute_command(command)
+            except Exception as exc:
+                self.session.fail(tr("window.could_not_draw", error=exc))
+                self.refresh()
+                return
+            self.session.mark_applied()
+            self.documents.refresh_dxf_source()
             self.refresh()
-            return
-        self.session.last_error = None
-        try:
-            self.dxf_viewer.execute_command(command)
-        except Exception as exc:
-            self.session.fail(tr("window.could_not_draw", error=exc))
-            self.refresh()
-            return
-        self.session.mark_applied()
-        self.documents.refresh_dxf_source()
-        self.refresh()
+            report(100)
 
     def _on_apply_font_to_all(self) -> None:
         font_id, font_italic, font_lineweight_mm = self.fonts_panel.get_state()
         doc = self.dxf_viewer.ensure_document()
         count = len(doc.all_text_handles())
-        self.dxf_viewer.execute_command(ApplyFontToAllTextCommand(font_id, font_italic, font_lineweight_mm))
-        self.documents.refresh_dxf_source()
-        self.flash_status(tr("fonts_panel.applied_status", count=count))
-        self.refresh()
+        with self.loading(render_band=(0, 95)) as report:
+            self.dxf_viewer.execute_command(
+                ApplyFontToAllTextCommand(font_id, font_italic, font_lineweight_mm)
+            )
+            self.documents.refresh_dxf_source()
+            self.flash_status(tr("fonts_panel.applied_status", count=count))
+            self.refresh()
+            report(100)
 
     def refresh_table_template_bindings(self) -> None:
         sheet_fields = [f for f in self.table_template.fields if f.scope == "sheet"]

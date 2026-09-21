@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, Sequence, Tuple
+from typing import Dict, Iterable, Optional, Sequence, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg
 
@@ -38,7 +38,9 @@ from ui.dxf.detail_render import detail_players
 from ui.dxf.page_frame import PageFrame
 from ui.dxf.stamp_cache import stamp_cache
 from ui.i18n import tr
+from ui.loading_overlay import ProgressFn
 
+RECORD_BAND = 40
 RESOLUTION_DPI = 1200
 MM_PER_INCH = 25.4
 CROP_PRECISION_MM = 0.1
@@ -324,16 +326,25 @@ def export_sheets(
     path: str,
     jobs: Sequence[PlotJob],
     title: str = "",
+    progress: Optional[ProgressFn] = None,
 ) -> Tuple[bool, str]:
     if not jobs:
         return False, tr("pdf_export.no_sheets")
 
+    def report(percent: int) -> None:
+        if progress is not None:
+            progress(percent)
+
     try:
         recorders: Dict[Configuration, recorder.Recorder] = {}
+        configs = []
         for job in jobs:
             config = render_configuration(job.options)
-            if config not in recorders:
-                recorders[config] = _record(document, config)
+            if config not in configs:
+                configs.append(config)
+        for index, config in enumerate(configs):
+            recorders[config] = _record(document, config)
+            report(RECORD_BAND * (index + 1) // len(configs))
     except Exception as exc:
         return False, tr("pdf_export.could_not_render", error=exc)
 
@@ -343,7 +354,7 @@ def export_sheets(
     painter = None
     writer = None
     try:
-        for job in jobs:
+        for job_index, job in enumerate(jobs):
             settings = settings_for(job.options)
             render_box = job_render_box(job)
             page = _final_page(job, settings, render_box)
@@ -370,6 +381,7 @@ def export_sheets(
             _replay(player, painter, page, settings, render_box, paper_stroke_style(job.options))
             _draw_title_block_chrome(painter, page, job)
             painter.restore()
+            report(RECORD_BAND + (100 - RECORD_BAND) * (job_index + 1) // len(jobs))
     except Exception as exc:
         return False, tr("pdf_export.could_not_write_pdf", error=exc)
     finally:

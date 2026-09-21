@@ -90,10 +90,6 @@ from ui.theme.icons import icon_manager
 _DETAIL_ZOOM_STEP = 1.25
 _DETAIL_COMMIT_DELAY_MS = 400
 
-DXF_PARSED_PERCENT = 55
-RENDER_DONE_PERCENT = 95
-VIEW_READY_PERCENT = 96
-
 _TOOL_KEYS = {
     PointToolSession: "point",
     TextToolSession: "text",
@@ -132,6 +128,8 @@ class DxfViewer(qw.QWidget):
         self.entity_count = 0
         self.layer_count = 0
         self.loading_progress: Optional[ProgressFn] = None
+        self._loading_lo = 0
+        self._loading_hi = 100
         self._doc: Optional[DXFDocument] = None
         self._history: Optional[CommandHistory] = None
         self._active_tool: Optional[ToolSession] = None
@@ -510,11 +508,15 @@ class DxfViewer(qw.QWidget):
         return (box.center.x, box.center.y) if box is not None else None
 
     def export_sheets(
-        self, file_path: str, jobs: Sequence[PlotJob], title: str = ""
+        self,
+        file_path: str,
+        jobs: Sequence[PlotJob],
+        title: str = "",
+        progress: Optional[ProgressFn] = None,
     ) -> Tuple[bool, str]:
         if self._doc is None:
             return False, tr("viewer.no_drawing_to_export")
-        return export_sheets(self._doc, file_path, jobs, title)
+        return export_sheets(self._doc, file_path, jobs, title, progress)
 
     def save_document(self, file_path: str) -> None:
         assert self._doc is not None
@@ -555,7 +557,7 @@ class DxfViewer(qw.QWidget):
             return False, tr("viewer.could_not_read_file", error=exc)
         except ezdxf.DXFError as exc:
             return False, tr("viewer.not_valid_dxf", error=exc)
-        self._report_loading(DXF_PARSED_PERCENT)
+        self._report_loading(self._loading_lo)
         return self._adopt_document(doc)
 
     def load_from_text(self, content: str) -> Tuple[bool, str]:
@@ -563,8 +565,18 @@ class DxfViewer(qw.QWidget):
             doc = DXFDocument.from_text(content)
         except ezdxf.DXFError as exc:
             return False, tr("viewer.could_not_restore_snapshot", error=exc)
-        self._report_loading(DXF_PARSED_PERCENT)
+        self._report_loading(self._loading_lo)
         return self._adopt_document(doc)
+
+    def arm_loading(self, progress: ProgressFn, lo: int = 0, hi: int = 100) -> None:
+        self.loading_progress = progress
+        self._loading_lo = lo
+        self._loading_hi = hi
+
+    def disarm_loading(self) -> None:
+        self.loading_progress = None
+        self._loading_lo = 0
+        self._loading_hi = 100
 
     def _report_loading(self, percent: int) -> None:
         if self.loading_progress is not None:
@@ -1072,9 +1084,9 @@ class DxfViewer(qw.QWidget):
         self.layer_count = self._doc.layer_count()
         self._layer_panel.refresh(self._doc.iter_layers())
         self._layer_panel.set_prune_available(self._imported_layer_names is not None)
-        self._report_loading(VIEW_READY_PERCENT)
+        self._report_loading(self._loading_hi)
         self.documentChanged.emit()
 
     def _report_render_progress(self, drawn: int, total: int) -> None:
-        span = RENDER_DONE_PERCENT - DXF_PARSED_PERCENT
-        self._report_loading(DXF_PARSED_PERCENT + span * drawn // total)
+        span = self._loading_hi - self._loading_lo
+        self._report_loading(self._loading_lo + span * drawn // total)
