@@ -59,6 +59,7 @@ class ProjectController:
         self._host.table_template = template_from_state(state.table_template)
         self._host.refresh_table_template_bindings()
         self._host.layouts.reapply()
+        self._host.loading_progress(35)
         missing = self._host.documents.restore_project_files(state)
         if missing:
             self._host.flash_status(

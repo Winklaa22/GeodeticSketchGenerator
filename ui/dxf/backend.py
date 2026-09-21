@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Iterable, Optional, Tuple
+from typing import Callable, Iterable, Optional, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
@@ -58,6 +58,9 @@ def to_qpainter_path(paths: Iterable[BkPath2d]) -> qg.QPainterPath:
     return qpath
 
 
+PROGRESS_REPORT_EVERY = 64
+
+
 class QtSceneBackend(Backend):
 
     def __init__(
@@ -68,6 +71,14 @@ class QtSceneBackend(Backend):
         self._stroke = stroke
         self._no_line = qg.QPen(qc.Qt.PenStyle.NoPen)
         self._no_fill = qg.QBrush(qc.Qt.BrushStyle.NoBrush)
+        self._progress: Optional[Callable[[int, int], None]] = None
+        self._progress_total = 0
+        self._drawn = 0
+
+    def set_progress(self, callback: Callable[[int, int], None], total: int) -> None:
+        self._progress = callback
+        self._progress_total = max(total, 1)
+        self._drawn = 0
 
     def configure(self, config: Configuration) -> None:
         if config.min_lineweight is None:
@@ -77,6 +88,11 @@ class QtSceneBackend(Backend):
     def _add(self, item: qw.QGraphicsItem, handle: str) -> None:
         item.setData(HANDLE_ROLE, handle)
         self._scene.addItem(item)
+        if self._progress is None:
+            return
+        self._drawn += 1
+        if self._drawn % PROGRESS_REPORT_EVERY == 0:
+            self._progress(min(self._drawn, self._progress_total), self._progress_total)
 
     def _entity_color(self, color: Color) -> qg.QColor:
         return qcolor_on_paper(color) if self._stroke is not None else qcolor_from(color)
