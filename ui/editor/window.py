@@ -39,6 +39,7 @@ from ui.editor.status_bar import StatusBar
 from ui.editor.table_template_controller import TableTemplateController
 from ui.global_settings import new_project_table_template
 from ui.i18n import tr
+from ui.loading_overlay import ProgressFn
 from ui.settings_dialog import SettingsDialog
 from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_XL
 from ui.theme.assets import ICON_PATH
@@ -48,12 +49,20 @@ from ui.window_router import WindowRouter
 LEFT_COLUMN_WIDTH_KEY = "ui/leftColumnWidth"
 
 
+def _no_progress(_percent: int) -> None:
+    pass
+
+
 class MainWindow(QMainWindow):
 
     def __init__(
-        self, initial_state: Optional[ProjectState] = None, project_path: Optional[str] = None
+        self,
+        initial_state: Optional[ProjectState] = None,
+        project_path: Optional[str] = None,
+        progress: Optional[ProgressFn] = None,
     ) -> None:
         super().__init__()
+        self.loading_progress: ProgressFn = progress if progress is not None else _no_progress
         self.setWindowIcon(QIcon(ICON_PATH))
         self.resize(1360, 860)
         self.setMinimumSize(1080, 680)
@@ -81,10 +90,16 @@ class MainWindow(QMainWindow):
         self._wire_signals()
         self.refresh_table_template_bindings()
         self.setStyleSheet(APP_STYLESHEET)
+        self.loading_progress(25)
         if initial_state is not None:
-            self.project.load_state(initial_state)
+            self.dxf_viewer.loading_progress = self.loading_progress
+            try:
+                self.project.load_state(initial_state)
+            finally:
+                self.dxf_viewer.loading_progress = None
         self.project.apply_window_title()
         self.refresh()
+        self.loading_progress(100)
 
     def _build_ui(self) -> None:
         self.dxf_viewer = DxfViewer()

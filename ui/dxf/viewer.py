@@ -82,12 +82,17 @@ from ui.dxf.tools import (
     ToolSession,
 )
 from ui.i18n import tr
+from ui.loading_overlay import ProgressFn
 from ui.theme import Color as UiColor, SPACE_MD, SPACE_SM, SPACE_XS
 from ui.theme.icons import icon_manager
 
 
 _DETAIL_ZOOM_STEP = 1.25
 _DETAIL_COMMIT_DELAY_MS = 400
+
+DXF_PARSED_PERCENT = 55
+RENDER_DONE_PERCENT = 95
+VIEW_READY_PERCENT = 96
 
 _TOOL_KEYS = {
     PointToolSession: "point",
@@ -126,6 +131,7 @@ class DxfViewer(qw.QWidget):
     def _init_state(self) -> None:
         self.entity_count = 0
         self.layer_count = 0
+        self.loading_progress: Optional[ProgressFn] = None
         self._doc: Optional[DXFDocument] = None
         self._history: Optional[CommandHistory] = None
         self._active_tool: Optional[ToolSession] = None
@@ -549,6 +555,7 @@ class DxfViewer(qw.QWidget):
             return False, tr("viewer.could_not_read_file", error=exc)
         except ezdxf.DXFError as exc:
             return False, tr("viewer.not_valid_dxf", error=exc)
+        self._report_loading(DXF_PARSED_PERCENT)
         return self._adopt_document(doc)
 
     def load_from_text(self, content: str) -> Tuple[bool, str]:
@@ -556,7 +563,12 @@ class DxfViewer(qw.QWidget):
             doc = DXFDocument.from_text(content)
         except ezdxf.DXFError as exc:
             return False, tr("viewer.could_not_restore_snapshot", error=exc)
+        self._report_loading(DXF_PARSED_PERCENT)
         return self._adopt_document(doc)
+
+    def _report_loading(self, percent: int) -> None:
+        if self.loading_progress is not None:
+            self.loading_progress(percent)
 
     def to_dxf_text(self) -> Optional[str]:
         if self._doc is None:
@@ -1040,6 +1052,8 @@ class DxfViewer(qw.QWidget):
         saved = self._view.save_view() if preserve_view else None
         scene = qw.QGraphicsScene()
         backend = QtSceneBackend(scene, self._stroke_style())
+        if self.loading_progress is not None:
+            backend.set_progress(self._report_render_progress, self._doc.entity_count())
         context = RenderContext(self._doc.drawing)
         Frontend(context, backend, config=self._render_config()).draw_layout(
             self._doc.modelspace, finalize=True
@@ -1058,4 +1072,9 @@ class DxfViewer(qw.QWidget):
         self.layer_count = self._doc.layer_count()
         self._layer_panel.refresh(self._doc.iter_layers())
         self._layer_panel.set_prune_available(self._imported_layer_names is not None)
+        self._report_loading(VIEW_READY_PERCENT)
         self.documentChanged.emit()
+
+    def _report_render_progress(self, drawn: int, total: int) -> None:
+        span = RENDER_DONE_PERCENT - DXF_PARSED_PERCENT
+        self._report_loading(DXF_PARSED_PERCENT + span * drawn // total)

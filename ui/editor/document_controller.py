@@ -98,6 +98,7 @@ class DocumentController:
         missing: List[str] = []
         if state.txt_file_path:
             self._restore_or_report(state.txt_file_path, self.load_point_file, missing)
+        self._host.loading_progress(45)
         if state.dxf_content:
             self.load_dxf_from_text(state.dxf_content, state.dxf_file_path)
         elif state.dxf_file_path:

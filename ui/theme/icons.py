@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 import qtawesome as qta
 from PyQt6.QtGui import QIcon
 
@@ -78,18 +80,31 @@ class IconManager:
         "warning_icon": "fa5s.exclamation-triangle",
 
         "new_project_icon": "fa5s.plus",
+
+        "loading": "mdi.loading",
     }
 
     def __init__ (self) -> None:
         self._cache: dict[tuple[str, int, str], QIcon] = {}
 
-    def get(self, name: str, size: int = ICON_MD, color: str = Color.TEXT_MUTED) -> QIcon:
+    def get(
+        self,
+        name: str,
+        size: int = ICON_MD,
+        color: str = Color.TEXT_MUTED,
+        animation: Optional[object] = None,
+    ) -> QIcon:
+        glyph = self._GLYPHS.get(name)
+
+        # An animation is bound to one specific widget, so an animated icon must never be
+        # shared through the cache.
+        if animation is not None:
+            return qta.icon(glyph, color=color, animation=animation) if glyph else QIcon()
+
         key = (name, size, color)
         cashed = self._cache.get(key)
         if cashed is not None:
             return cashed
-
-        glyph = self._GLYPHS.get(name)
 
         if glyph is None:
             icon = QIcon()

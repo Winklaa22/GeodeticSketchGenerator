@@ -571,6 +571,15 @@ QPushButton#settingsNavBtn:checked {{
     font-weight: 600;
 }}
 QPushButton#settingsNavBtn:disabled {{ color: {c.TEXT_FAINT}; }}
+
+/* ---------- loading overlay ---------- */
+QWidget#loadingOverlay {{ background: transparent; }}
+QLabel#loadingPercent {{
+    background: transparent;
+    color: {c.TEXT};
+    font-size: {TEXT_XL}px;
+    font-weight: 600;
+}}
 """
 
 
