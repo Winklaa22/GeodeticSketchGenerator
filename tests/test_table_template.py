@@ -347,6 +347,57 @@ def test_save_and_load_table_template_file_round_trips(tmp_path) -> None:
     assert loaded.project_field_values == {}
 
 
+def test_cell_layout_resolves_an_empty_font_id_to_the_table_default() -> None:
+    template = TableTemplate(
+        columns=[ColumnDef(1.0)],
+        rows=[RowDef(10.0), RowDef(10.0)],
+        cells=[
+            CellDef(row=0, col=0, label="inherits"),
+            CellDef(row=1, col=0, label="overrides", font_id="times"),
+        ],
+        default_font_id="romans",
+    )
+    placed = {cell.row: cell.font_id for cell in cell_layout(template, 100.0)}
+    assert placed[0] == "romans"
+    assert placed[1] == "times"
+
+
+def test_table_default_font_survives_a_template_file_round_trip(tmp_path) -> None:
+    from core.project import load_table_template_file, save_table_template_file
+
+    template = TableTemplate(
+        columns=[ColumnDef(1.0)],
+        rows=[RowDef(10.0)],
+        cells=[CellDef(row=0, col=0, label="Left", font_id="isocp", font_size=3.2)],
+        default_font_id="times",
+    )
+    path = str(tmp_path / "fonts.gsgtable")
+    save_table_template_file(path, template)
+    loaded = load_table_template_file(path)
+    assert loaded.default_font_id == "times"
+    assert loaded.cells[0].font_id == "isocp"
+    assert loaded.cells[0].font_size == 3.2
+
+
+def test_templates_saved_before_fonts_existed_load_with_defaults(tmp_path) -> None:
+    import json
+
+    from core.project import load_table_template_file
+
+    path = tmp_path / "old.gsgtable"
+    payload = {
+        "version": 1,
+        "columns": [{"width_fraction": 1.0}],
+        "rows": [{"height_mm": 10.0}],
+        "cells": [{"row": 0, "col": 0, "kind": "static", "label": "Left"}],
+        "fields": [],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    loaded = load_table_template_file(str(path))
+    assert loaded.default_font_id == "calibri"
+    assert loaded.cells[0].font_id == ""
+
+
 def test_load_table_template_file_rejects_malformed_json(tmp_path) -> None:
     from core.exceptions import ProjectFileError
     from core.project import load_table_template_file

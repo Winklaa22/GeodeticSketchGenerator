@@ -20,6 +20,7 @@ from ui.dxf.items import (
 from ui.dxf.page_frame import PageFrame
 from ui.dxf.stamp_cache import stamp_cache
 from ui.theme import Color as UiColor
+from ui.theme.qt_fonts import apply_font_family
 
 if TYPE_CHECKING:
     from ui.dxf.tools import ToolSession
@@ -1066,6 +1067,7 @@ class CadGraphicsView(qw.QGraphicsView):
         font_size: float,
         bold: bool = False,
         italic: bool = False,
+        font_id: str = "",
     ) -> None:
         if font_size <= 0.0 or not text:
             return
@@ -1082,7 +1084,7 @@ class CadGraphicsView(qw.QGraphicsView):
         painter.save()
         painter.translate(rect.left(), rect.top())
         painter.scale(local_scale, local_scale)
-        font = qg.QFont()
+        font = apply_font_family(qg.QFont(), font_id) if font_id else qg.QFont()
         font.setPixelSize(round(cls._TEXT_REFERENCE_PX))
         font.setBold(bold)
         font.setItalic(italic)
@@ -1095,7 +1097,8 @@ class CadGraphicsView(qw.QGraphicsView):
     @classmethod
     def _paint_cell_text(cls, painter: qg.QPainter, rect: qc.QRectF, cell: ResolvedCell) -> None:
         cls._draw_scaled_text(
-            painter, rect, cls._cell_flags(cell), cell.text, cell.font_size, cell.bold, cell.italic
+            painter, rect, cls._cell_flags(cell), cell.text, cell.font_size, cell.bold, cell.italic,
+            cell.font_id,
         )
 
     @staticmethod

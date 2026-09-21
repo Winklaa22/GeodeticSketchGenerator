@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import replace
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QItemSelectionModel, Qt
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -25,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.exceptions import ProjectFileError
+from core.fonts import FONT_CATALOG
 from core.project import (
     TABLE_TEMPLATE_FILE_EXTENSION,
     TABLE_TEMPLATE_FILE_FILTER,
@@ -52,6 +54,7 @@ from core.table_template import (
 )
 from ui.i18n import tr, tr_options
 from ui.theme import SPACE_LG, SPACE_MD
+from ui.theme.qt_fonts import apply_font_family
 from ui.widgets import CheckField, Dropdown, SectionColumn, make_button, make_field, styled_line_edit
 
 _ALIGN_OPTION_KEYS = [
@@ -77,6 +80,26 @@ _SCOPE_OPTION_KEYS = [
 
 _EDITOR_PX_PER_MM = 4.0
 _REFERENCE_EDITOR_WIDTH_PX = 760
+_PREVIEW_PT_PER_MM = 3.5
+
+_PREVIEW_ALIGN_H = {
+    "left": Qt.AlignmentFlag.AlignLeft,
+    "center": Qt.AlignmentFlag.AlignHCenter,
+    "right": Qt.AlignmentFlag.AlignRight,
+}
+_PREVIEW_ALIGN_V = {
+    "top": Qt.AlignmentFlag.AlignTop,
+    "middle": Qt.AlignmentFlag.AlignVCenter,
+    "bottom": Qt.AlignmentFlag.AlignBottom,
+}
+
+# Styling applies to every selected cell; content properties stay single-cell, so a
+# multi-cell selection can't accidentally stamp one label over a dozen records.
+_MULTI_CELL_PROPS = frozenset({"font_id", "font_size", "bold", "italic", "align", "valign"})
+
+
+def _font_option_items() -> List[Tuple[str, str]]:
+    return [("", tr("table_structure.font_inherit"))] + [(spec.id, spec.label) for spec in FONT_CATALOG]
 
 
 def _stamp_file_filter() -> str:
@@ -95,6 +118,7 @@ class TableStructureDialog(QDialog):
         self.resize(860, 560)
         self._template = template
         self._selected_origin: Optional[Tuple[int, int]] = None
+        self._selected_origins: List[Tuple[int, int]] = []
         self._updating = False
 
         outer = QVBoxLayout(self)
@@ -105,7 +129,7 @@ class TableStructureDialog(QDialog):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self._grid = QTableWidget()
         self._grid.setObjectName("tableStructureGrid")
-        self._grid.setSelectionMode(QAbstractItemView.SelectionMode.ContiguousSelection)
+        self._grid.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._grid.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._grid.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._grid.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -149,6 +173,11 @@ class TableStructureDialog(QDialog):
         toolbar.addWidget(self._unmerge_button)
         toolbar.addWidget(make_button(tr("table_structure.manage_fields_button"), "secondary", self._on_manage_fields))
         toolbar.addStretch(1)
+        self._table_font_dropdown = Dropdown()
+        self._table_font_dropdown.set_items([(spec.id, spec.label) for spec in FONT_CATALOG])
+        self._table_font_dropdown.set_current_key(self._template.default_font_id)
+        self._table_font_dropdown.currentIndexChanged.connect(self._on_table_font_changed)
+        toolbar.addWidget(make_field(tr("table_structure.table_font_field"), self._table_font_dropdown))
         toolbar.addWidget(make_button(tr("table_structure.clear"), "secondary", self._on_clear))
         return toolbar
 
@@ -196,6 +225,11 @@ class TableStructureDialog(QDialog):
         self._valign_dropdown.currentIndexChanged.connect(self._on_valign_changed)
         column.addWidget(make_field(tr("table_structure.vertical_align_field"), self._valign_dropdown))
 
+        self._font_dropdown = Dropdown()
+        self._font_dropdown.set_items(_font_option_items())
+        self._font_dropdown.currentIndexChanged.connect(self._on_font_changed)
+        column.addWidget(make_field(tr("table_structure.font_field"), self._font_dropdown))
+
         self._bold_check = CheckField(tr("table_structure.bold"))
         self._bold_check.toggled.connect(self._on_bold_toggled)
         column.addWidget(self._bold_check)
@@ -214,6 +248,13 @@ class TableStructureDialog(QDialog):
         column.addStretch(1)
         self._set_property_panel_enabled(False)
         return panel
+
+    def _preview_font(self, cell: CellDef) -> QFont:
+        font = apply_font_family(QFont(), cell.font_id or self._template.default_font_id)
+        font.setPointSizeF(max(cell.font_size * _PREVIEW_PT_PER_MM, 6.0))
+        font.setBold(cell.bold)
+        font.setItalic(cell.italic)
+        return font
 
     @staticmethod
     def _cell_display_text(cell: CellDef) -> str:
@@ -248,6 +289,11 @@ class TableStructureDialog(QDialog):
                 else:
                     flags &= ~Qt.ItemFlag.ItemIsEditable
                 item.setFlags(flags)
+                item.setFont(self._preview_font(cell))
+                item.setTextAlignment(
+                    _PREVIEW_ALIGN_H.get(cell.align, Qt.AlignmentFlag.AlignLeft)
+                    | _PREVIEW_ALIGN_V.get(cell.valign, Qt.AlignmentFlag.AlignTop)
+                )
                 self._grid.setItem(cell.row, cell.col, item)
                 if cell.row_span > 1 or cell.col_span > 1:
                     self._grid.setSpan(cell.row, cell.col, cell.row_span, cell.col_span)
@@ -268,7 +314,7 @@ class TableStructureDialog(QDialog):
         if self._selected_origin is None:
             return
         self._template = delete_row(self._template, self._selected_origin[0])
-        self._selected_origin = None
+        self._clear_selection_state()
         self._rebuild_grid()
 
     def _on_add_column(self) -> None:
@@ -280,7 +326,7 @@ class TableStructureDialog(QDialog):
         if self._selected_origin is None:
             return
         self._template = delete_column(self._template, self._selected_origin[1])
-        self._selected_origin = None
+        self._clear_selection_state()
         self._rebuild_grid()
 
     def _on_merge(self) -> None:
@@ -293,6 +339,7 @@ class TableStructureDialog(QDialog):
             selected.rowCount(), selected.columnCount(),
         )
         self._selected_origin = (selected.topRow(), selected.leftColumn())
+        self._selected_origins = [self._selected_origin]
         self._rebuild_grid()
 
     def _on_unmerge(self) -> None:
@@ -317,7 +364,7 @@ class TableStructureDialog(QDialog):
         if confirmed != QMessageBox.StandardButton.Yes:
             return
         self._template = TableTemplate(columns=[], rows=[], cells=[])
-        self._selected_origin = None
+        self._clear_selection_state()
         self._rebuild_grid()
 
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
@@ -328,22 +375,36 @@ class TableStructureDialog(QDialog):
             return
         self._template = set_cell(self._template, cell.row, cell.col, label=item.text())
 
+    def _clear_selection_state(self) -> None:
+        self._selected_origin = None
+        self._selected_origins = []
+
+    def _selected_cells(self) -> List[CellDef]:
+        found: Dict[Tuple[int, int], CellDef] = {}
+        for selected in self._grid.selectedRanges():
+            for row in range(selected.topRow(), selected.bottomRow() + 1):
+                for col in range(selected.leftColumn(), selected.rightColumn() + 1):
+                    cell = find_cell_at(self._template, row, col)
+                    if cell is not None:
+                        found[(cell.row, cell.col)] = cell
+        return list(found.values())
+
     def _on_selection_changed(self) -> None:
         if self._updating:
             return
+        cells = self._selected_cells()
+        self._selected_origins = [(cell.row, cell.col) for cell in cells]
+        self._selected_origin = self._selected_origins[0] if self._selected_origins else None
+        self._sync_property_panel(cells)
         ranges = self._grid.selectedRanges()
-        if len(ranges) != 1:
-            self._selected_origin = None
-            self._sync_property_panel(None)
-            self._merge_button.setEnabled(False)
-            self._unmerge_button.setEnabled(False)
-            return
-        selected = ranges[0]
-        cell = find_cell_at(self._template, selected.topRow(), selected.leftColumn())
-        self._selected_origin = (cell.row, cell.col) if cell is not None else None
-        self._sync_property_panel(cell)
-        self._merge_button.setEnabled(selected.rowCount() > 1 or selected.columnCount() > 1)
-        self._unmerge_button.setEnabled(cell is not None and (cell.row_span > 1 or cell.col_span > 1))
+        single_range = len(ranges) == 1
+        self._merge_button.setEnabled(
+            single_range and (ranges[0].rowCount() > 1 or ranges[0].columnCount() > 1)
+        )
+        primary = cells[0] if cells else None
+        self._unmerge_button.setEnabled(
+            len(cells) == 1 and primary is not None and (primary.row_span > 1 or primary.col_span > 1)
+        )
 
     def _on_row_resized(self, index: int, _old_size: int, new_size: int) -> None:
         if self._updating:
@@ -357,57 +418,78 @@ class TableStructureDialog(QDialog):
         total = sum(widths) or 1.0
         self._template = replace(self._template, columns=[ColumnDef(width_fraction=w / total) for w in widths])
 
-    def _sync_property_panel(self, cell: Optional[CellDef]) -> None:
+    def _sync_property_panel(self, cells: List[CellDef]) -> None:
         self._updating = True
         try:
-            if cell is None:
+            if not cells:
                 self._label_input.setText("")
                 self._stamp_label.setText(tr("table_structure.no_file_selected"))
                 self._stamp_label.setToolTip("")
                 self._set_property_panel_enabled(False)
                 return
+            cell = cells[0]
+            single = len(cells) == 1
             self._set_property_panel_enabled(True)
-            self._label_input.setText(cell.label)
+            self._set_content_widgets_enabled(single)
+            self._label_input.setText(cell.label if single else "")
             self._kind_dropdown.set_current_key(cell.kind)
             self._refresh_field_dropdown_items()
             self._field_dropdown.set_current_key(cell.field_name)
-            self._field_dropdown.setEnabled(cell.kind == "field")
+            self._field_dropdown.setEnabled(single and cell.kind == "field")
             stamp_name = os.path.basename(cell.image_path) if cell.image_path else tr("table_structure.no_file_selected")
-            self._stamp_label.setText(stamp_name)
-            self._stamp_label.setToolTip(cell.image_path)
-            self._stamp_browse_button.setEnabled(cell.kind == "image")
-            self._stamp_clear_button.setEnabled(cell.kind == "image" and bool(cell.image_path))
+            self._stamp_label.setText(stamp_name if single else tr("table_structure.no_file_selected"))
+            self._stamp_label.setToolTip(cell.image_path if single else "")
+            self._stamp_browse_button.setEnabled(single and cell.kind == "image")
+            self._stamp_clear_button.setEnabled(single and cell.kind == "image" and bool(cell.image_path))
             self._show_label_check.setChecked(cell.show_label)
             self._align_dropdown.set_current_key(cell.align)
             self._valign_dropdown.set_current_key(cell.valign)
+            self._font_dropdown.set_current_key(cell.font_id)
             self._bold_check.setChecked(cell.bold)
             self._italic_check.setChecked(cell.italic)
             self._font_size_input.setValue(cell.font_size)
         finally:
             self._updating = False
 
+    def _set_content_widgets_enabled(self, enabled: bool) -> None:
+        for widget in (self._label_input, self._kind_dropdown, self._show_label_check):
+            widget.setEnabled(enabled)
+
     def _set_property_panel_enabled(self, enabled: bool) -> None:
         for widget in (
             self._label_input, self._kind_dropdown, self._field_dropdown, self._show_label_check,
-            self._align_dropdown, self._valign_dropdown, self._bold_check, self._italic_check,
-            self._font_size_input, self._stamp_browse_button, self._stamp_clear_button,
+            self._align_dropdown, self._valign_dropdown, self._font_dropdown, self._bold_check,
+            self._italic_check, self._font_size_input, self._stamp_browse_button,
+            self._stamp_clear_button,
         ):
             widget.setEnabled(enabled)
 
     def _apply_property_change(self, **changes) -> None:
-        if self._updating or self._selected_origin is None:
+        if self._updating or not self._selected_origins:
             return
-        row, col = self._selected_origin
-        self._template = set_cell(self._template, row, col, **changes)
+        fans_out = _MULTI_CELL_PROPS.issuperset(changes)
+        targets = list(self._selected_origins) if fans_out else self._selected_origins[:1]
+        for row, col in targets:
+            self._template = set_cell(self._template, row, col, **changes)
         self._rebuild_grid()
-        self._reselect(row, col)
+        self._reselect(targets)
 
-    def _reselect(self, row: int, col: int) -> None:
+    def _reselect(self, origins: List[Tuple[int, int]]) -> None:
         self._updating = True
-        self._grid.setCurrentCell(row, col)
+        self._grid.clearSelection()
+        for row, col in origins:
+            item = self._grid.item(row, col)
+            if item is not None:
+                item.setSelected(True)
+        if origins:
+            self._grid.setCurrentCell(
+                origins[0][0], origins[0][1], QItemSelectionModel.SelectionFlag.NoUpdate
+            )
         self._updating = False
-        self._selected_origin = (row, col)
-        self._sync_property_panel(find_cell_at(self._template, row, col))
+        self._selected_origins = list(origins)
+        self._selected_origin = origins[0] if origins else None
+        cells = [find_cell_at(self._template, row, col) for row, col in origins]
+        self._sync_property_panel([cell for cell in cells if cell is not None])
 
     def _on_label_edited(self) -> None:
         self._apply_property_change(label=self._label_input.text())
@@ -443,6 +525,21 @@ class TableStructureDialog(QDialog):
         if key:
             self._apply_property_change(valign=key)
 
+    def _on_font_changed(self, _index: int) -> None:
+        if self._updating:
+            return
+        self._apply_property_change(font_id=self._font_dropdown.current_key())
+
+    def _on_table_font_changed(self, _index: int) -> None:
+        if self._updating:
+            return
+        font_id = self._table_font_dropdown.current_key()
+        if not font_id:
+            return
+        self._template = replace(self._template, default_font_id=font_id)
+        self._rebuild_grid()
+        self._reselect(list(self._selected_origins))
+
     def _on_bold_toggled(self, checked: bool) -> None:
         self._apply_property_change(bold=checked)
 
@@ -463,7 +560,8 @@ class TableStructureDialog(QDialog):
         except ProjectFileError as exc:
             QMessageBox.warning(self, tr("common.import_table_template_title"), str(exc))
             return
-        self._selected_origin = None
+        self._clear_selection_state()
+        self._table_font_dropdown.set_current_key(self._template.default_font_id)
         self._rebuild_grid()
 
     def _on_export(self) -> None:
