@@ -70,11 +70,18 @@ class ProjectController:
         if not self.path:
             self.save_as()
             return
-        self._save_to(self.path, self.current_state())
+        with self._host.loading() as report:
+            report(10)
+            state = self.current_state()
+            report(60)
+            self._save_to(self.path, state)
+            report(100)
 
     def save_as(self) -> None:
-        state = self.current_state()
-        suggested = state.name + project_io.PROJECT_FILE_EXTENSION
+        # The dialog has to run before the overlay goes up, otherwise the overlay covers it.
+        session = self._host.session
+        fallback = project_io.default_project_name(session.file_path, session.dxf_path)
+        suggested = (self.name or fallback) + project_io.PROJECT_FILE_EXTENSION
         path, _ = QFileDialog.getSaveFileName(
             self._host, tr("project.save_project_title"), suggested, project_io.PROJECT_FILE_FILTER
         )
@@ -82,8 +89,13 @@ class ProjectController:
             return
         if not path.lower().endswith(project_io.PROJECT_FILE_EXTENSION):
             path += project_io.PROJECT_FILE_EXTENSION
-        state.name = os.path.splitext(os.path.basename(path))[0]
-        self._save_to(path, state)
+        with self._host.loading() as report:
+            report(10)
+            state = self.current_state()
+            report(60)
+            state.name = os.path.splitext(os.path.basename(path))[0]
+            self._save_to(path, state)
+            report(100)
 
     def _save_to(self, path: str, state: ProjectState) -> None:
         try:

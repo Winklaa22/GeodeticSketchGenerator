@@ -54,12 +54,16 @@ class DocumentController:
         _load_first_match(paths, ".dxf", self.load_dxf_file)
 
     def load_dxf_file(self, file_path: str) -> None:
-        ok, message = self._host.dxf_viewer.load_file(file_path)
-        self._after_dxf_load(ok, message, file_path)
+        with self._host.loading(render_band=(30, 95)) as report:
+            ok, message = self._host.dxf_viewer.load_file(file_path)
+            self._after_dxf_load(ok, message, file_path)
+            report(100)
 
     def load_dxf_from_text(self, content: str, file_path: str) -> None:
-        ok, message = self._host.dxf_viewer.load_from_text(content)
-        self._after_dxf_load(ok, message, file_path)
+        with self._host.loading(render_band=(30, 95)) as report:
+            ok, message = self._host.dxf_viewer.load_from_text(content)
+            self._after_dxf_load(ok, message, file_path)
+            report(100)
 
     def _after_dxf_load(self, ok: bool, message: str, file_path: str) -> None:
         if not ok:
