@@ -25,6 +25,15 @@ from core.detail_view import (
 from core.detail_view import apply_metadata as apply_detail_metadata
 from core.detail_view import metadata_from_entity as detail_metadata_from_entity
 from core.detail_view import transform_spec as transform_detail_spec
+from core.fonts import (
+    DEFAULT_FONT_ID,
+    ITALIC_OBLIQUE_ANGLE,
+    dxf_font_file,
+    ensure_font_renders_distinctly,
+    font_id_from_style_name,
+    is_italic_style_name,
+    text_style_name,
+)
 from core.multileader import (
     MULTILEADER_APPID,
     MultileaderSpec,
@@ -151,6 +160,16 @@ class DXFDocument:
         if name not in self.layers:
             self.layers.add(name, lineweight=DEFAULT_LAYER_LINEWEIGHT)
 
+    def ensure_text_style(self, font_id: str, italic: bool = False) -> str:
+        ensure_font_renders_distinctly(font_id, italic)
+        style_name = text_style_name(font_id, italic)
+        if style_name not in self._drawing.styles:
+            dxfattribs = {"font": dxf_font_file(font_id, italic)}
+            if italic:
+                dxfattribs["oblique"] = ITALIC_OBLIQUE_ANGLE
+            self._drawing.styles.new(style_name, dxfattribs=dxfattribs)
+        return style_name
+
     def add_point(self, location: Sequence[float], layer: str = "0") -> str:
         self.ensure_layer(layer)
         entity = self.modelspace.add_point(location, dxfattribs={"layer": layer})
@@ -175,10 +194,20 @@ class DXFDocument:
         rotation: float = 0.0,
         halign: str = "left",
         valign: str = "bottom",
+        font_id: str = DEFAULT_FONT_ID,
+        italic: bool = False,
+        lineweight_mm: Optional[float] = None,
     ) -> str:
         self.ensure_layer(layer)
+        style_name = self.ensure_text_style(font_id, italic)
+        dxfattribs = {"layer": layer, "insert": insert, "style": style_name}
+        if lineweight_mm is not None:
+            dxfattribs["lineweight"] = round(lineweight_mm * 100)
         entity = self.modelspace.add_text(
-            text, height=height, rotation=rotation, dxfattribs={"layer": layer, "insert": insert}
+            text,
+            height=height,
+            rotation=rotation,
+            dxfattribs=dxfattribs,
         )
         alignment = _TEXT_ALIGNMENTS.get((halign, valign))
         if alignment is not None and alignment is not TextEntityAlignment.BOTTOM_LEFT:
@@ -497,6 +526,29 @@ class DXFDocument:
     def set_text_rotation(self, handle: str, rotation: float) -> None:
         self._require_entity(handle).dxf.rotation = rotation
 
+    def get_text_font(self, handle: str) -> str:
+        return font_id_from_style_name(self._require_entity(handle).dxf.style)
+
+    def set_text_font(self, handle: str, font_id: str) -> None:
+        style_name = self.ensure_text_style(font_id, self.get_text_italic(handle))
+        self._require_entity(handle).dxf.style = style_name
+
+    def get_text_italic(self, handle: str) -> bool:
+        return is_italic_style_name(self._require_entity(handle).dxf.style)
+
+    def set_text_italic(self, handle: str, italic: bool) -> None:
+        style_name = self.ensure_text_style(self.get_text_font(handle), italic)
+        self._require_entity(handle).dxf.style = style_name
+
+    def get_text_lineweight_mm(self, handle: str) -> Optional[float]:
+        lineweight = self._require_entity(handle).dxf.lineweight
+        return None if lineweight < 0 else lineweight / 100.0
+
+    def set_text_lineweight_mm(self, handle: str, lineweight_mm: Optional[float]) -> None:
+        self._require_entity(handle).dxf.lineweight = (
+            -1 if lineweight_mm is None else round(lineweight_mm * 100)
+        )
+
     def get_entity_color(self, handle: str) -> Tuple[int, int, int]:
         entity = self._require_entity(handle)
         # A true color (group code 420) overrides BYLAYER/ACI regardless of what dxf.color
@@ -518,6 +570,9 @@ class DXFDocument:
 
     def layer_entity_handles(self, name: str) -> List[str]:
         return [entity.dxf.handle for entity in self.modelspace if entity.dxf.layer == name]
+
+    def all_text_handles(self) -> List[str]:
+        return [entity.dxf.handle for entity in self.modelspace if entity.dxftype() == "TEXT"]
 
     def entity_color_override(self, handle: str) -> Tuple[int, Optional[Tuple[int, int, int]]]:
         entity = self._require_entity(handle)

@@ -4,9 +4,10 @@ from typing import Optional, Tuple
 
 from PyQt6 import QtCore as qc, QtWidgets as qw
 
+from core.fonts import FONT_CATALOG
 from ui.i18n import tr
 from ui.theme import SPACE_SM, SPACE_XS
-from ui.widgets import ColorSwatchButton, NumericScrubField, decimal_validator
+from ui.widgets import ColorSwatchButton, Dropdown, NumericScrubField, decimal_validator
 
 
 class TextOptionsBar(qw.QFrame):
@@ -15,6 +16,7 @@ class TextOptionsBar(qw.QFrame):
     heightChanged = qc.pyqtSignal(str, float)
     rotationChanged = qc.pyqtSignal(str, float)
     colorChanged = qc.pyqtSignal(str, tuple)
+    fontChanged = qc.pyqtSignal(str, str)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -23,6 +25,7 @@ class TextOptionsBar(qw.QFrame):
         self._orig_text = ""
         self._orig_height = 0.0
         self._orig_rotation = 0.0
+        self._orig_font_id = ""
         self.hide()
 
         layout = qw.QHBoxLayout(self)
@@ -35,6 +38,14 @@ class TextOptionsBar(qw.QFrame):
         self._content.setToolTip(tr("text_options.content_tooltip"))
         self._content.editingFinished.connect(self._emit_content)
         layout.addWidget(self._content)
+
+        self._font = Dropdown()
+        self._font.setObjectName("textOptionsField")
+        self._font.setFixedWidth(110)
+        self._font.setToolTip(tr("text_options.font_tooltip"))
+        self._font.set_items([(spec.id, spec.label) for spec in FONT_CATALOG])
+        self._font.currentIndexChanged.connect(self._emit_font)
+        layout.addWidget(self._font)
 
         self._height = qw.QLineEdit()
         self._height.setObjectName("textOptionsField")
@@ -55,10 +66,14 @@ class TextOptionsBar(qw.QFrame):
         self._color.colorChanged.connect(self._emit_color)
         layout.addWidget(self._color)
 
-    def bind(self, handle: str, text: str, height: float, rotation: float, rgb: Tuple[int, int, int]) -> None:
+    def bind(
+        self, handle: str, text: str, height: float, rotation: float, rgb: Tuple[int, int, int], font_id: str
+    ) -> None:
         self.handle = handle
         self._orig_text, self._orig_height, self._orig_rotation = text, height, rotation
+        self._orig_font_id = font_id
         self._content.setText(text)
+        self._font.set_current_key(font_id)
         self._height.setText(f"{height:g}")
         self._rotation.set_value(rotation)
         self._color.set_color(rgb)
@@ -85,3 +100,8 @@ class TextOptionsBar(qw.QFrame):
     def _emit_color(self, rgb: Tuple[int, int, int]) -> None:
         if self.handle:
             self.colorChanged.emit(self.handle, rgb)
+
+    def _emit_font(self, _index: int) -> None:
+        font_id = self._font.current_key()
+        if self.handle and font_id and font_id != self._orig_font_id:
+            self.fontChanged.emit(self.handle, font_id)

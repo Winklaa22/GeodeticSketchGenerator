@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from core.commands.base import Command
 from core.commands.composite import CompositeCommand
@@ -123,10 +123,15 @@ def _stage_points(
             )
 
             def render(
-                pos: Point2D, point: Point = point, number: int = number, size: float = size, layer: str = layer
+                pos: Point2D, point: Point = point, number: int = number, size: float = size, layer: str = layer,
+                font_id: str = config.font_id, font_italic: bool = config.font_italic,
+                font_lineweight_mm: Optional[float] = config.font_lineweight_mm,
             ) -> AddTextCommand:
                 insert = (pos[0], pos[1], point.h)
-                return AddTextCommand(str(number), insert, size, layer, halign="center", valign="middle")
+                return AddTextCommand(
+                    str(number), insert, size, layer, halign="center", valign="middle", font_id=font_id,
+                    italic=font_italic, lineweight_mm=font_lineweight_mm,
+                )
 
             pending.append(_PendingLabel(request, render))
     return structural, pending
@@ -244,10 +249,14 @@ def _stage_heights(
 
         def render(
             pos: Point2D, point: Point = point, text: str = text, size: float = options.font_size,
-            layer: str = layer, rotation: float = rotation,
+            layer: str = layer, rotation: float = rotation, font_id: str = config.font_id,
+            font_italic: bool = config.font_italic, font_lineweight_mm: Optional[float] = config.font_lineweight_mm,
         ) -> AddTextCommand:
             insert = (pos[0], pos[1], point.h)
-            return AddTextCommand(text, insert, size, layer, rotation, halign="center", valign="middle")
+            return AddTextCommand(
+                text, insert, size, layer, rotation, halign="center", valign="middle", font_id=font_id,
+                italic=font_italic, lineweight_mm=font_lineweight_mm,
+            )
 
         pending.append(_PendingLabel(request, render))
     return [], pending
@@ -301,10 +310,14 @@ def _stage_cable_marks(
 
         def render(
             pos: Point2D, text: str = text, size: float = options.font_size, layer: str = layer,
-            rotation: float = rotation, z: float = z,
+            rotation: float = rotation, z: float = z, font_id: str = config.font_id,
+            font_italic: bool = config.font_italic, font_lineweight_mm: Optional[float] = config.font_lineweight_mm,
         ) -> AddTextCommand:
             insert = (pos[0], pos[1], z)
-            return AddTextCommand(text, insert, size, layer, rotation, halign="center", valign="middle")
+            return AddTextCommand(
+                text, insert, size, layer, rotation, halign="center", valign="middle", font_id=font_id,
+                italic=font_italic, lineweight_mm=font_lineweight_mm,
+            )
 
         pending.append(_PendingLabel(request, render))
     return [], pending
@@ -345,10 +358,14 @@ def _stage_measurements(
 
         def render(
             pos: Point2D, text: str = text, size: float = options.font_size, layer: str = layer,
-            rotation: float = rotation, z: float = z,
+            rotation: float = rotation, z: float = z, font_id: str = config.font_id,
+            font_italic: bool = config.font_italic, font_lineweight_mm: Optional[float] = config.font_lineweight_mm,
         ) -> AddTextCommand:
             insert = (pos[0], pos[1], z)
-            return AddTextCommand(text, insert, size, layer, rotation, halign="center", valign="middle")
+            return AddTextCommand(
+                text, insert, size, layer, rotation, halign="center", valign="middle", font_id=font_id,
+                italic=font_italic, lineweight_mm=font_lineweight_mm,
+            )
 
         pending.append(_PendingLabel(request, render))
     return [], pending

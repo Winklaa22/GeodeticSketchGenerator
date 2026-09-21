@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.exceptions import ProjectFileError
+from core.fonts import DEFAULT_FONT_ID
 from core.plot import PlotOptions
 from core.table_template import CellDef, ColumnDef, FieldDef, RowDef, TableTemplate, default_template
 
@@ -307,6 +308,9 @@ class ProjectState:
     layer: LayerState = field(default_factory=LayerState)
     layout: LayoutState = field(default_factory=LayoutState)
     table_template: TableTemplateState = field(default_factory=TableTemplateState)
+    default_font_id: str = DEFAULT_FONT_ID
+    default_font_italic: bool = False
+    default_font_lineweight_mm: Optional[float] = None
 
 
 def save_project(path: str, state: ProjectState) -> None:
@@ -354,6 +358,13 @@ def load_project(path: str) -> ProjectState:
             layer=_load_layer_state(payload.get("layer") or {}),
             layout=_load_layout_state(payload.get("layout") or {}),
             table_template=table_template_state_from_payload(payload.get("table_template") or {}),
+            default_font_id=str(payload.get("default_font_id", DEFAULT_FONT_ID)),
+            default_font_italic=bool(payload.get("default_font_italic", False)),
+            default_font_lineweight_mm=(
+                float(payload["default_font_lineweight_mm"])
+                if payload.get("default_font_lineweight_mm") is not None
+                else None
+            ),
         )
     except (TypeError, ValueError) as exc:
         raise ProjectFileError(f"Not a valid project file: {exc}") from exc

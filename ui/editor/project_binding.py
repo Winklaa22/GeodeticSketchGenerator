@@ -11,12 +11,14 @@ from core.project import (
     SelectionState,
     TableTemplateState,
 )
+from ui.editor.fonts_panel import FontsPanel
 from ui.editor.mode_registry import MODE_SPECS, options_from_state, state_from_tab
 from ui.editor.sections_panel import SectionsPanel
 
 
 def collect_project_state(
     panel: SectionsPanel,
+    fonts_panel: FontsPanel,
     *,
     name: str,
     txt_file_path: str,
@@ -27,6 +29,7 @@ def collect_project_state(
 ) -> ProjectState:
     separate_text, range_text = panel.selection_tab.get_expression_state()
     layers, default_name = panel.layer_tab.get_state()
+    font_id, font_italic, font_lineweight_mm = fonts_panel.get_state()
     mode_states = {
         spec.state_field: state_from_tab(spec, panel.mode_tabs[spec.key]) for spec in MODE_SPECS
     }
@@ -49,17 +52,21 @@ def collect_project_state(
         ),
         layout=layout,
         table_template=table_template,
+        default_font_id=font_id,
+        default_font_italic=font_italic,
+        default_font_lineweight_mm=font_lineweight_mm,
         **mode_states,
     )
 
 
-def apply_project_state(panel: SectionsPanel, state: ProjectState) -> None:
+def apply_project_state(panel: SectionsPanel, fonts_panel: FontsPanel, state: ProjectState) -> None:
     panel.delimiter_tab.set_state(state.delimiter.mode, state.delimiter.swap_xy)
     panel.draw_tab.set_mode_keys(state.draw_modes)
     panel.layer_tab.set_state(
         [(layer.name, tuple(layer.rgb)) for layer in state.layer.layers], state.layer.default_name
     )
     panel.sync_layer_dropdowns()
+    fonts_panel.set_state(state.default_font_id, state.default_font_italic, state.default_font_lineweight_mm)
     for spec in MODE_SPECS:
         mode_state = getattr(state, spec.state_field)
         tab = panel.mode_tabs[spec.key]

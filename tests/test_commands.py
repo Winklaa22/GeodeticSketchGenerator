@@ -19,6 +19,12 @@ from core.commands.edit import (
     ScaleCommand,
 )
 from core.commands.history import CommandHistory
+from core.commands.text import (
+    ApplyFontToAllTextCommand,
+    SetTextFontCommand,
+    SetTextItalicCommand,
+    SetTextLineweightCommand,
+)
 from core.dxf_document import DXFDocument
 
 
@@ -62,6 +68,94 @@ def test_add_text_command_execute_and_undo(doc: DXFDocument) -> None:
     assert doc.entity_count() == 1
     command.undo(doc)
     assert doc.entity_count() == 0
+
+
+def test_add_text_command_registers_the_requested_font(doc: DXFDocument) -> None:
+    command = AddTextCommand("42", (0.0, 0.0, 1.0), height=0.6, font_id="isocp")
+    command.execute(doc)
+    handle = command.handle
+    assert doc.get_text_font(handle) == "isocp"
+
+
+def test_set_text_font_command_execute_and_undo(doc: DXFDocument) -> None:
+    add_command = AddTextCommand("42", (0.0, 0.0), height=0.6, font_id="romans")
+    add_command.execute(doc)
+    handle = add_command.handle
+
+    command = SetTextFontCommand(handle, "times")
+    command.execute(doc)
+    assert doc.get_text_font(handle) == "times"
+    command.undo(doc)
+    assert doc.get_text_font(handle) == "romans"
+
+
+def test_add_text_command_registers_italic_and_lineweight(doc: DXFDocument) -> None:
+    command = AddTextCommand("42", (0.0, 0.0, 1.0), height=0.6, font_id="times", italic=True, lineweight_mm=0.25)
+    command.execute(doc)
+    handle = command.handle
+    assert doc.get_text_italic(handle) is True
+    assert doc.get_text_lineweight_mm(handle) == 0.25
+
+
+def test_set_text_italic_command_execute_and_undo(doc: DXFDocument) -> None:
+    add_command = AddTextCommand("42", (0.0, 0.0), height=0.6, font_id="times")
+    add_command.execute(doc)
+    handle = add_command.handle
+
+    command = SetTextItalicCommand(handle, True)
+    command.execute(doc)
+    assert doc.get_text_italic(handle) is True
+    command.undo(doc)
+    assert doc.get_text_italic(handle) is False
+
+
+def test_set_text_lineweight_command_execute_and_undo(doc: DXFDocument) -> None:
+    add_command = AddTextCommand("42", (0.0, 0.0), height=0.6)
+    add_command.execute(doc)
+    handle = add_command.handle
+
+    command = SetTextLineweightCommand(handle, 0.35)
+    command.execute(doc)
+    assert doc.get_text_lineweight_mm(handle) == 0.35
+    command.undo(doc)
+    assert doc.get_text_lineweight_mm(handle) is None
+
+
+def test_set_text_lineweight_command_undo_restores_an_explicit_previous_value(doc: DXFDocument) -> None:
+    add_command = AddTextCommand("42", (0.0, 0.0), height=0.6, lineweight_mm=0.13)
+    add_command.execute(doc)
+    handle = add_command.handle
+
+    command = SetTextLineweightCommand(handle, None)
+    command.execute(doc)
+    assert doc.get_text_lineweight_mm(handle) is None
+    command.undo(doc)
+    assert doc.get_text_lineweight_mm(handle) == 0.13
+
+
+def test_apply_font_to_all_text_command_execute_and_undo(doc: DXFDocument) -> None:
+    first = AddTextCommand("1", (0.0, 0.0), height=0.6, font_id="romans")
+    first.execute(doc)
+    second = AddTextCommand("2", (1.0, 0.0), height=0.6, font_id="isocp", italic=True, lineweight_mm=0.13)
+    second.execute(doc)
+    line = AddLineCommand((0.0, 0.0), (1.0, 1.0))
+    line.execute(doc)
+
+    command = ApplyFontToAllTextCommand("calibri", True, 0.35)
+    command.execute(doc)
+    for handle in (first.handle, second.handle):
+        assert doc.get_text_font(handle) == "calibri"
+        assert doc.get_text_italic(handle) is True
+        assert doc.get_text_lineweight_mm(handle) == 0.35
+    assert doc.entity_count() == 3
+
+    command.undo(doc)
+    assert doc.get_text_font(first.handle) == "romans"
+    assert doc.get_text_italic(first.handle) is False
+    assert doc.get_text_lineweight_mm(first.handle) is None
+    assert doc.get_text_font(second.handle) == "isocp"
+    assert doc.get_text_italic(second.handle) is True
+    assert doc.get_text_lineweight_mm(second.handle) == 0.13
 
 
 def test_add_polyline2d_command_execute_and_undo(doc: DXFDocument) -> None:
