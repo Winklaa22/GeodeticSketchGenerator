@@ -149,6 +149,7 @@ class CellDefState:
     show_label: bool = False
     align: str = "left"
     valign: str = "top"
+    font_id: str = ""
     font_size: float = 2.4
     bold: bool = False
     italic: bool = False
@@ -167,8 +168,8 @@ def _cell_def_state(cell: CellDef) -> CellDefState:
     return CellDefState(
         row=cell.row, col=cell.col, row_span=cell.row_span, col_span=cell.col_span, kind=cell.kind,
         label=cell.label, field_name=cell.field_name, show_label=cell.show_label, align=cell.align,
-        valign=cell.valign, font_size=cell.font_size, bold=cell.bold, italic=cell.italic,
-        image_path=cell.image_path,
+        valign=cell.valign, font_id=cell.font_id, font_size=cell.font_size, bold=cell.bold,
+        italic=cell.italic, image_path=cell.image_path,
     )
 
 
@@ -197,6 +198,7 @@ class TableTemplateState:
         default_factory=lambda: [_field_def_state(f) for f in _DEFAULT_TABLE_TEMPLATE.fields]
     )
     project_field_values: Dict[str, str] = field(default_factory=dict)
+    default_font_id: str = DEFAULT_FONT_ID
 
 
 def state_from_template(template: TableTemplate) -> TableTemplateState:
@@ -206,6 +208,7 @@ def state_from_template(template: TableTemplate) -> TableTemplateState:
         cells=[_cell_def_state(c) for c in template.cells],
         fields=[_field_def_state(f) for f in template.fields],
         project_field_values=dict(template.project_field_values),
+        default_font_id=template.default_font_id,
     )
 
 
@@ -217,8 +220,8 @@ def template_from_state(state: TableTemplateState) -> TableTemplate:
             CellDef(
                 row=c.row, col=c.col, row_span=c.row_span, col_span=c.col_span, kind=c.kind,
                 label=c.label, field_name=c.field_name, show_label=c.show_label, align=c.align,
-                valign=c.valign, font_size=c.font_size, bold=c.bold, italic=c.italic,
-                image_path=c.image_path,
+                valign=c.valign, font_id=c.font_id, font_size=c.font_size, bold=c.bold,
+                italic=c.italic, image_path=c.image_path,
             )
             for c in state.cells
         ],
@@ -227,6 +230,7 @@ def template_from_state(state: TableTemplateState) -> TableTemplate:
             for f in state.fields
         ],
         project_field_values=dict(state.project_field_values),
+        default_font_id=state.default_font_id,
     )
 
 
@@ -242,7 +246,9 @@ def table_template_state_from_payload(payload: Dict[str, Any]) -> TableTemplateS
     fields = [FieldDefState(**item) for item in fields_payload] if fields_payload is not None else default.fields
     project_field_values = {str(k): str(v) for k, v in (payload.get("project_field_values") or {}).items()}
     return TableTemplateState(
-        columns=columns, rows=rows, cells=cells, fields=fields, project_field_values=project_field_values
+        columns=columns, rows=rows, cells=cells, fields=fields,
+        project_field_values=project_field_values,
+        default_font_id=str(payload.get("default_font_id", default.default_font_id)),
     )
 
 
@@ -254,6 +260,7 @@ def table_template_payload(template: TableTemplate) -> Dict[str, Any]:
         "rows": [asdict(r) for r in state.rows],
         "cells": [asdict(c) for c in state.cells],
         "fields": [asdict(f) for f in state.fields],
+        "default_font_id": state.default_font_id,
     }
 
 

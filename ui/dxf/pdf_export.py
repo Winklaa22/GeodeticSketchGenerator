@@ -39,6 +39,7 @@ from ui.dxf.page_frame import PageFrame
 from ui.dxf.stamp_cache import stamp_cache
 from ui.i18n import tr
 from ui.loading_overlay import ProgressFn
+from ui.theme.qt_fonts import apply_font_family
 
 RECORD_BAND = 40
 RESOLUTION_DPI = 1200
@@ -238,7 +239,7 @@ def _cell_flags(cell: ResolvedCell) -> qc.Qt.AlignmentFlag:
 
 
 def _cell_font(cell: ResolvedCell, scale: float = 1.0) -> qg.QFont:
-    font = qg.QFont()
+    font = apply_font_family(qg.QFont(), cell.font_id)
     font.setPixelSize(max(1, round(cell.font_size * scale)))
     font.setBold(cell.bold)
     font.setItalic(cell.italic)

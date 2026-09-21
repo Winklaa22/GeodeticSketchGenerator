@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Dict, Iterable, List, Optional
 
+from core.fonts import DEFAULT_FONT_ID
+
 BORDER_WIDTH_MM = 0.35
 CELL_PADDING_MM = 1.5
 
@@ -69,6 +71,9 @@ class CellDef:
     show_label: bool = False
     align: str = "left"
     valign: str = "top"
+    # Empty means "use the table's default_font_id"; cell_layout() resolves it so renderers
+    # only ever see a concrete font id.
+    font_id: str = ""
     font_size: float = BODY_FONT_MM
     bold: bool = False
     italic: bool = False
@@ -92,6 +97,7 @@ class TableTemplate:
     cells: List[CellDef]
     fields: List[FieldDef] = field(default_factory=list)
     project_field_values: Dict[str, str] = field(default_factory=dict)
+    default_font_id: str = DEFAULT_FONT_ID
 
     def total_height_mm(self) -> float:
         return sum(row.height_mm for row in self.rows)
@@ -109,6 +115,7 @@ def _cell_kwargs(cell: CellDef) -> dict:
         "show_label": cell.show_label,
         "align": cell.align,
         "valign": cell.valign,
+        "font_id": cell.font_id,
         "font_size": cell.font_size,
         "bold": cell.bold,
         "italic": cell.italic,
@@ -136,6 +143,7 @@ def cell_layout(template: TableTemplate, table_width: float, scale: float = 1.0)
         y1 = row_edges[min(cell.row + cell.row_span, len(row_edges) - 1)]
         kwargs = _cell_kwargs(cell)
         kwargs["font_size"] = cell.font_size * scale
+        kwargs["font_id"] = cell.font_id or template.default_font_id
         placed.append(PlacedCell(**kwargs, rect=Rect(x0, y0, x1 - x0, y1 - y0)))
     return placed
 
