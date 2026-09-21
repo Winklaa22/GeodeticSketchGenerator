@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Iterable, List, Optional, Sequence
 
 from core.dxf_document import DXFDocument
+from core.fonts import DEFAULT_FONT_ID
 
 DEFAULT_LAYER = "0"
 
@@ -70,6 +71,9 @@ class AddTextCommand:
         rotation: float = 0.0,
         halign: str = "left",
         valign: str = "bottom",
+        font_id: str = DEFAULT_FONT_ID,
+        italic: bool = False,
+        lineweight_mm: Optional[float] = None,
     ) -> None:
         self._text = text
         self._insert = insert
@@ -78,6 +82,9 @@ class AddTextCommand:
         self._rotation = rotation
         self._halign = halign
         self._valign = valign
+        self._font_id = font_id
+        self._italic = italic
+        self._lineweight_mm = lineweight_mm
         self._handle: Optional[str] = None
 
     def execute(self, doc: DXFDocument) -> None:
@@ -92,6 +99,9 @@ class AddTextCommand:
                 self._rotation,
                 self._halign,
                 self._valign,
+                self._font_id,
+                self._italic,
+                self._lineweight_mm,
             )
 
     def undo(self, doc: DXFDocument) -> None:

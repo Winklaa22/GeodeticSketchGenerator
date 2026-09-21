@@ -61,6 +61,126 @@ def test_add_text_creates_text_entity_with_placement_and_rotation(doc: DXFDocume
     assert entity.dxf.layer == "LABELS"
 
 
+def test_add_text_defaults_to_calibri_style(doc: DXFDocument) -> None:
+    handle = doc.add_text("42", (0.0, 0.0), height=0.6)
+    entity = doc.get_entity(handle)
+    assert entity.dxf.style == "CALIBRI"
+    assert doc.drawing.styles.get("CALIBRI").dxf.font == "calibri.ttf"
+    assert doc.get_text_font(handle) == "calibri"
+
+
+def test_add_text_registers_the_requested_font_style(doc: DXFDocument) -> None:
+    handle = doc.add_text("42", (0.0, 0.0), height=0.6, font_id="times")
+    entity = doc.get_entity(handle)
+    assert entity.dxf.style == "TIMES"
+    assert doc.drawing.styles.get("TIMES").dxf.font == "times.ttf"
+    assert doc.get_text_font(handle) == "times"
+
+
+def test_add_text_renders_distinct_fonts_when_the_real_ones_are_unavailable(doc: DXFDocument) -> None:
+    from ezdxf.fonts import fonts as ezdxf_fonts
+
+    if ezdxf_fonts.find_best_match(family="Liberation Sans") is None:
+        pytest.skip("no fallback-capable fonts installed on this machine")
+
+    resolved_filenames = set()
+    for font_id in ("romans", "complex", "arial", "times", "calibri"):
+        handle = doc.add_text("A", (0.0, 0.0), height=1.0, font_id=font_id)
+        entity = doc.get_entity(handle)
+        face = ezdxf_fonts.get_entity_font_face(entity, doc.drawing)
+        resolved_filenames.add(face.filename)
+    # On a machine with none of the literal font files installed, ezdxf would silently
+    # collapse every unresolved font to the same single default - this is the bug this
+    # module works around, so at least some of the five must resolve differently.
+    assert len(resolved_filenames) > 1
+
+
+def test_italic_text_renders_a_genuinely_different_font_than_upright(doc: DXFDocument) -> None:
+    from ezdxf.fonts import fonts as ezdxf_fonts
+
+    if ezdxf_fonts.find_best_match(family="Liberation Sans") is None:
+        pytest.skip("no fallback-capable fonts installed on this machine")
+
+    # ezdxf's drawing add-on ignores the STYLE table's oblique angle for plain TEXT
+    # entities, so italic must resolve to an actually different font file to be visible.
+    for font_id in ("romans", "isocp", "simplex", "txt", "complex", "arial", "times", "calibri"):
+        upright = doc.add_text("A", (0.0, 0.0), height=1.0, font_id=font_id, italic=False)
+        italic = doc.add_text("A", (1.0, 0.0), height=1.0, font_id=font_id, italic=True)
+        upright_face = ezdxf_fonts.get_entity_font_face(doc.get_entity(upright), doc.drawing)
+        italic_face = ezdxf_fonts.get_entity_font_face(doc.get_entity(italic), doc.drawing)
+        assert upright_face.filename != italic_face.filename, font_id
+
+
+def test_ensure_text_style_is_idempotent(doc: DXFDocument) -> None:
+    doc.ensure_text_style("isocp")
+    doc.ensure_text_style("isocp")
+    assert len([s for s in doc.drawing.styles if s.dxf.name == "ISOCP"]) == 1
+
+
+def test_add_text_italic_uses_a_separate_style_with_an_oblique_angle(doc: DXFDocument) -> None:
+    handle = doc.add_text("42", (0.0, 0.0), height=0.6, font_id="times", italic=True)
+    entity = doc.get_entity(handle)
+    assert entity.dxf.style == "TIMES_ITALIC"
+    assert doc.drawing.styles.get("TIMES_ITALIC").dxf.oblique == 15.0
+    assert doc.get_text_font(handle) == "times"
+    assert doc.get_text_italic(handle) is True
+
+
+def test_set_text_font_preserves_the_italic_flag(doc: DXFDocument) -> None:
+    handle = doc.add_text("42", (0.0, 0.0), height=0.6, font_id="times", italic=True)
+    doc.set_text_font(handle, "arial")
+    assert doc.get_text_font(handle) == "arial"
+    assert doc.get_text_italic(handle) is True
+
+
+def test_set_text_italic_preserves_the_font(doc: DXFDocument) -> None:
+    handle = doc.add_text("42", (0.0, 0.0), height=0.6, font_id="times")
+    doc.set_text_italic(handle, True)
+    assert doc.get_text_font(handle) == "times"
+    assert doc.get_text_italic(handle) is True
+    doc.set_text_italic(handle, False)
+    assert doc.get_text_italic(handle) is False
+
+
+def test_add_text_lineweight_defaults_to_bylayer(doc: DXFDocument) -> None:
+    handle = doc.add_text("42", (0.0, 0.0), height=0.6)
+    assert doc.get_text_lineweight_mm(handle) is None
+
+
+def test_add_text_registers_the_requested_lineweight(doc: DXFDocument) -> None:
+    handle = doc.add_text("42", (0.0, 0.0), height=0.6, lineweight_mm=0.25)
+    assert doc.get_entity(handle).dxf.lineweight == 25
+    assert doc.get_text_lineweight_mm(handle) == 0.25
+
+
+def test_set_text_lineweight_mm_round_trips_and_clears_back_to_bylayer(doc: DXFDocument) -> None:
+    handle = doc.add_text("42", (0.0, 0.0), height=0.6)
+    doc.set_text_lineweight_mm(handle, 0.35)
+    assert doc.get_text_lineweight_mm(handle) == 0.35
+    doc.set_text_lineweight_mm(handle, None)
+    assert doc.get_text_lineweight_mm(handle) is None
+
+
+def test_all_text_handles_returns_only_text_entities(doc: DXFDocument) -> None:
+    text_handle = doc.add_text("42", (0.0, 0.0), height=0.6)
+    doc.add_line((0.0, 0.0), (1.0, 1.0))
+    doc.add_point((0.0, 0.0))
+    assert doc.all_text_handles() == [text_handle]
+
+
+def test_set_text_font_updates_the_entity_style(doc: DXFDocument) -> None:
+    handle = doc.add_text("42", (0.0, 0.0), height=0.6, font_id="romans")
+    doc.set_text_font(handle, "calibri")
+    assert doc.get_text_font(handle) == "calibri"
+    assert doc.get_entity(handle).dxf.style == "CALIBRI"
+
+
+def test_get_text_font_falls_back_to_default_for_an_unknown_style(doc: DXFDocument) -> None:
+    handle = doc.add_text("42", (0.0, 0.0), height=0.6)
+    doc.get_entity(handle).dxf.style = "Standard"
+    assert doc.get_text_font(handle) == "calibri"
+
+
 def test_add_lwpolyline_creates_2d_polyline_through_points(doc: DXFDocument) -> None:
     handle = doc.add_lwpolyline([(0.0, 0.0), (1.0, 1.0), (2.0, 0.0)], layer="SURVEY")
     entity = doc.get_entity(handle)

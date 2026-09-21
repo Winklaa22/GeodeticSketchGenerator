@@ -24,6 +24,7 @@ from core.commands.layers import (
 from core.commands.text import (
     SetEntityColorCommand,
     SetTextContentCommand,
+    SetTextFontCommand,
     SetTextHeightCommand,
     SetTextRotationCommand,
 )
@@ -226,6 +227,7 @@ class DxfViewer(qw.QWidget):
         self._text_options_bar.heightChanged.connect(self._on_text_height_changed)
         self._text_options_bar.rotationChanged.connect(self._on_text_rotation_changed)
         self._text_options_bar.colorChanged.connect(self._on_text_color_changed)
+        self._text_options_bar.fontChanged.connect(self._on_text_font_changed)
 
         self._detail_options_bar.modeChanged.connect(self._on_detail_mode_changed)
 
@@ -811,7 +813,12 @@ class DxfViewer(qw.QWidget):
             self._text_options_bar.hide()
             return
         self._text_options_bar.bind(
-            handle, entity.dxf.text, entity.dxf.height, entity.dxf.rotation, self._doc.get_entity_color(handle)
+            handle,
+            entity.dxf.text,
+            entity.dxf.height,
+            entity.dxf.rotation,
+            self._doc.get_entity_color(handle),
+            self._doc.get_text_font(handle),
         )
         self._reposition_text_options_bar()
 
@@ -897,6 +904,9 @@ class DxfViewer(qw.QWidget):
 
     def _on_text_color_changed(self, handle: str, rgb: Tuple[int, int, int]) -> None:
         self.execute_command(SetEntityColorCommand(handle, rgb))
+
+    def _on_text_font_changed(self, handle: str, font_id: str) -> None:
+        self.execute_command(SetTextFontCommand(handle, font_id))
 
     def _finish_tool(self) -> None:
         tool = self._active_tool

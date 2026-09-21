@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 from core.draw_modes import DrawMode
+from core.fonts import DEFAULT_FONT_ID
 
 
 @dataclass(frozen=True)
@@ -55,3 +56,6 @@ class GenerationConfig:
     measurements: MeasurementsOptions = field(default_factory=MeasurementsOptions)
     layer_rgb: Optional[Tuple[int, int, int]] = None
     quantum: float = 1.0
+    font_id: str = DEFAULT_FONT_ID
+    font_italic: bool = False
+    font_lineweight_mm: Optional[float] = None

@@ -79,6 +79,10 @@ TRANSLATIONS: Dict[str, str] = {
     "settings.language_heading": "Język aplikacji",
     "settings.language_label": "Język",
     "settings.language_hint": "Zastosowane przy następnym otwarciu okna.",
+    "settings.fonts_section": "Czcionki",
+    "settings.fonts_heading": "Domyślna czcionka dla nowych projektów",
+    "settings.fonts_label": "Czcionka",
+    "settings.fonts_hint": "Ustawia domyślną czcionkę każdego nowo utworzonego projektu. Istniejące projekty zachowują własną czcionkę.",
 
     # ---------- widgets ----------
     "widgets.choose_color_title": "Wybierz kolor",
@@ -93,6 +97,7 @@ TRANSLATIONS: Dict[str, str] = {
     # ---------- editor: sections panel ----------
     "sections.point_file": "Plik punktów",
     "sections.drawing_mode": "Tryb rysowania",
+    "sections.font": "Czcionka",
     "sections.selection": "Zaznaczenie",
 
     # ---------- editor: status bar ----------
@@ -107,6 +112,7 @@ TRANSLATIONS: Dict[str, str] = {
     # ---------- editor: main window ----------
     "window.tab_layers": "Warstwy",
     "window.tab_layout": "Układ",
+    "window.tab_fonts": "Fonty",
     "window.file_points_status": "{file_name} · {point_count} punktów",
     "window.could_not_draw": "Nie udało się narysować w pliku DXF: {error}",
     "window.open_dialog_title": "Otwórz",
@@ -142,6 +148,18 @@ TRANSLATIONS: Dict[str, str] = {
     "layout_panel.sheet_details_section": "Szczegóły arkusza",
     "layout_panel.project_fields_section": "Pola projektu",
     "layout_panel.page_setup_section": "Ustawienia strony",
+
+    # ---------- editor: fonts panel ----------
+    "fonts_panel.font_label": "Czcionka",
+    "fonts_panel.italic_checkbox": "Pochylona (kursywa)",
+    "fonts_panel.lineweight_label": "Grubość pióra tekstu",
+    "fonts_panel.lineweight_auto": "Auto (jak warstwa)",
+    "fonts_panel.lineweight_thin": "Cienka (0.13 mm)",
+    "fonts_panel.lineweight_normal": "Normalna (0.18 mm)",
+    "fonts_panel.lineweight_bold": "Gruba (0.25 mm)",
+    "fonts_panel.lineweight_extra_bold": "Bardzo gruba (0.35 mm)",
+    "fonts_panel.apply_button": "Dopasuj wszystkie istniejące teksty",
+    "fonts_panel.applied_status": "Zaktualizowano {count} obiektów tekstowych.",
 
     # ---------- editor: draw mode registry ----------
     "mode.points_title": "Punkty",
@@ -323,6 +341,7 @@ TRANSLATIONS: Dict[str, str] = {
     "text_options.height_tooltip": "Wysokość tekstu",
     "text_options.rotation_tooltip": "Obrót (stopnie) - kółko myszy lub przeciąganie zmienia wartość",
     "text_options.color_tooltip": "Kolor tekstu",
+    "text_options.font_tooltip": "Czcionka",
 
     # ---------- dxf: detail options bar ----------
     "detail_options.edit_tooltip": "Edytuj powiekszenie - kolko myszy zmienia zoom, przeciaganie przesuwa widok w ramce",

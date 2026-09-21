@@ -191,6 +191,31 @@ def test_load_rejects_unknown_table_template_field_types(tmp_path) -> None:
         load_project(str(path))
 
 
+def test_default_font_id_survives_a_project_round_trip(tmp_path) -> None:
+    state = ProjectState(
+        name="WithFont", default_font_id="times", default_font_italic=True, default_font_lineweight_mm=0.25
+    )
+    path = str(tmp_path / "with_font.gsgproj")
+    save_project(path, state)
+    assert load_project(path) == state
+
+
+def test_default_font_lineweight_none_survives_a_project_round_trip(tmp_path) -> None:
+    state = ProjectState(name="AutoWeight", default_font_lineweight_mm=None)
+    path = str(tmp_path / "auto_weight.gsgproj")
+    save_project(path, state)
+    assert load_project(path).default_font_lineweight_mm is None
+
+
+def test_load_defaults_the_font_for_projects_saved_before_this_feature(tmp_path) -> None:
+    path = tmp_path / "no_font.gsgproj"
+    path.write_text(json.dumps({"name": "Old"}), encoding="utf-8")
+    loaded = load_project(str(path))
+    assert loaded.default_font_id == "calibri"
+    assert loaded.default_font_italic is False
+    assert loaded.default_font_lineweight_mm is None
+
+
 def test_open_any_loads_a_gsgproj_as_is(tmp_path) -> None:
     state = ProjectState(name="Real", draw_modes=["pipe"])
     path = str(tmp_path / "real.gsgproj")

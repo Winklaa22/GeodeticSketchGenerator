@@ -52,6 +52,7 @@ class IconManager:
         "sheets_section": "mdi.file-multiple-outline",
         "page_setup_section": "mdi.page-layout-body",
         "table_section": "mdi.table",
+        "font_section": "mdi.format-font",
         "language_section": "mdi.translate",
         "sheet_add": "fa5s.plus",
 

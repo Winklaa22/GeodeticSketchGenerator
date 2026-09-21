@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
 from core.config import GenerationConfig
 from core.draw_modes import DrawMode
+from core.fonts import DEFAULT_FONT_ID
 from ui.editor.mode_registry import MODE_SPECS, SPEC_BY_DRAW_MODE
 from ui.editor.tabs.base import LayeredOptionsTab, SectionWidget
 from ui.editor.tabs.delimiter_tab import DelimiterTab
@@ -144,7 +145,14 @@ class SectionsPanel(QWidget):
         tab = self.tab_for_mode(draw_mode)
         return tab.get_layer_name() if tab is not None else self.layer_tab.default_layer_name()
 
-    def build_generation_config(self, draw_mode: DrawMode, quantum: float = 1.0) -> GenerationConfig:
+    def build_generation_config(
+        self,
+        draw_mode: DrawMode,
+        quantum: float = 1.0,
+        font_id: str = DEFAULT_FONT_ID,
+        font_italic: bool = False,
+        font_lineweight_mm: Optional[float] = None,
+    ) -> GenerationConfig:
         layer_name = self.layer_name_for_mode(draw_mode)
         options = {
             spec.config_field: self.mode_tabs[spec.key].get_options()
@@ -156,5 +164,8 @@ class SectionsPanel(QWidget):
             draw_mode=draw_mode,
             layer_rgb=self.layer_tab.get_rgb(layer_name),
             quantum=quantum,
+            font_id=font_id,
+            font_italic=font_italic,
+            font_lineweight_mm=font_lineweight_mm,
             **options,
         )

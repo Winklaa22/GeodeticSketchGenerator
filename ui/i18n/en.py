@@ -79,6 +79,10 @@ TRANSLATIONS: Dict[str, str] = {
     "settings.language_heading": "App language",
     "settings.language_label": "Language",
     "settings.language_hint": "Applies the next time a window is opened.",
+    "settings.fonts_section": "Fonts",
+    "settings.fonts_heading": "Default font for new projects",
+    "settings.fonts_label": "Font",
+    "settings.fonts_hint": "Used to seed the default font of every newly created project. Existing projects keep their own font.",
 
     # ---------- widgets ----------
     "widgets.choose_color_title": "Choose Color",
@@ -93,6 +97,7 @@ TRANSLATIONS: Dict[str, str] = {
     # ---------- editor: sections panel ----------
     "sections.point_file": "Point File",
     "sections.drawing_mode": "Drawing Mode",
+    "sections.font": "Font",
     "sections.selection": "Selection",
 
     # ---------- editor: status bar ----------
@@ -107,6 +112,7 @@ TRANSLATIONS: Dict[str, str] = {
     # ---------- editor: main window ----------
     "window.tab_layers": "Layers",
     "window.tab_layout": "Layout",
+    "window.tab_fonts": "Fonts",
     "window.file_points_status": "{file_name} · {point_count} points",
     "window.could_not_draw": "Could not draw into the DXF file: {error}",
     "window.open_dialog_title": "Open",
@@ -142,6 +148,18 @@ TRANSLATIONS: Dict[str, str] = {
     "layout_panel.sheet_details_section": "Sheet details",
     "layout_panel.project_fields_section": "Project fields",
     "layout_panel.page_setup_section": "Page setup",
+
+    # ---------- editor: fonts panel ----------
+    "fonts_panel.font_label": "Font",
+    "fonts_panel.italic_checkbox": "Italic (slanted)",
+    "fonts_panel.lineweight_label": "Text pen weight",
+    "fonts_panel.lineweight_auto": "Auto (same as layer)",
+    "fonts_panel.lineweight_thin": "Thin (0.13 mm)",
+    "fonts_panel.lineweight_normal": "Normal (0.18 mm)",
+    "fonts_panel.lineweight_bold": "Bold (0.25 mm)",
+    "fonts_panel.lineweight_extra_bold": "Extra bold (0.35 mm)",
+    "fonts_panel.apply_button": "Adjust all existing text",
+    "fonts_panel.applied_status": "Updated {count} text entities.",
 
     # ---------- editor: draw mode registry ----------
     "mode.points_title": "Points",
@@ -323,6 +341,7 @@ TRANSLATIONS: Dict[str, str] = {
     "text_options.height_tooltip": "Text height",
     "text_options.rotation_tooltip": "Rotation (degrees) - scroll or drag to change",
     "text_options.color_tooltip": "Text color",
+    "text_options.font_tooltip": "Font",
 
     # ---------- dxf: detail options bar ----------
     "detail_options.edit_tooltip": "Edit the magnified view - scroll to zoom, drag to pan inside the frame",

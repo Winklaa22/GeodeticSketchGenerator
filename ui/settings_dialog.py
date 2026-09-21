@@ -18,11 +18,18 @@ from PyQt6.QtWidgets import (
 from core.exceptions import ProjectFileError
 from core.project import TABLE_TEMPLATE_FILE_FILTER, load_table_template_file
 from core.table_template import TableTemplate
+from ui.editor.font_style_fields import FontStyleFields
 from ui.editor.table_structure_dialog import TableStructureDialog
 from ui.global_settings import (
+    default_font_id,
+    default_font_italic,
+    default_font_lineweight_mm,
     default_table_enabled,
     default_table_template,
     has_custom_default_table,
+    set_default_font_id,
+    set_default_font_italic,
+    set_default_font_lineweight_mm,
     set_default_table_enabled,
     set_default_table_template,
 )
@@ -69,6 +76,7 @@ class SettingsDialog(QDialog):
 
         pages = [
             ("table", tr("settings.table_section"), "table_section", self._build_table_section()),
+            ("fonts", tr("settings.fonts_section"), "font_section", self._build_fonts_section()),
             ("language", tr("settings.language_section"), "language_section", self._build_language_section()),
         ]
         self._nav = SidebarNav([(key, label, icon) for key, label, icon, _widget in pages])
@@ -120,6 +128,29 @@ class SettingsDialog(QDialog):
         column.addStretch(1)
         return page
 
+    def _build_fonts_section(self) -> QWidget:
+        page = QWidget()
+        column = SectionColumn(page)
+        column.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL)
+
+        heading = QLabel(tr("settings.fonts_heading"))
+        heading.setObjectName("startHeading")
+        column.addWidget(heading)
+
+        self._font_fields = FontStyleFields()
+        self._font_fields.set_state(
+            default_font_id(self._settings), default_font_italic(self._settings), default_font_lineweight_mm(self._settings)
+        )
+        self._font_fields.changed.connect(self._on_font_changed)
+        column.addWidget(self._font_fields)
+
+        hint = QLabel(tr("settings.fonts_hint"))
+        hint.setWordWrap(True)
+        column.addWidget(hint)
+
+        column.addStretch(1)
+        return page
+
     def _build_language_section(self) -> QWidget:
         page = QWidget()
         column = SectionColumn(page)
@@ -154,6 +185,12 @@ class SettingsDialog(QDialog):
     def _refresh_status(self) -> None:
         rows, cols = len(self._template.rows), len(self._template.columns)
         self._status_label.setText(tr("settings.table_status", rows=rows, cols=cols))
+
+    def _on_font_changed(self) -> None:
+        font_id, italic, lineweight_mm = self._font_fields.get_state()
+        set_default_font_id(self._settings, font_id)
+        set_default_font_italic(self._settings, italic)
+        set_default_font_lineweight_mm(self._settings, lineweight_mm)
 
     def _on_language_changed(self, _index: int) -> None:
         key = self._language_dropdown.current_key()

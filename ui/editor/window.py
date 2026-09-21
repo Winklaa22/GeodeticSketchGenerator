@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 from core import project as project_io
 from core.commands.base import Command
 from core.commands.composite import CompositeCommand
+from core.commands.text import ApplyFontToAllTextCommand
 from core.exceptions import AppError, ProjectFileError
 from core.project import ProjectState
 from core.session import AppState, EditorSession
@@ -26,6 +27,7 @@ from core.validation import ensure_draw_modes, ensure_has_data, ensure_selection
 from ui.app_identity import app_settings
 from ui.dxf.viewer import DxfViewer
 from ui.editor.document_controller import DocumentController
+from ui.editor.fonts_panel import FontsPanel
 from ui.editor.layout_controller import LayoutController
 from ui.editor.layout_panel import LayoutPanel
 from ui.editor.left_column import LeftColumn
@@ -88,11 +90,13 @@ class MainWindow(QMainWindow):
         self.dxf_viewer = DxfViewer()
         self.panel = SectionsPanel(self.settings)
         self.layout_panel = LayoutPanel()
+        self.fonts_panel = FontsPanel(self.settings)
         self.left_column = LeftColumn(
             [
                 ("point_file", tr("sections.point_file"), self.panel),
                 ("layers", tr("window.tab_layers"), self.dxf_viewer.layer_panel),
                 ("layout", tr("window.tab_layout"), self.layout_panel),
+                ("fonts", tr("window.tab_fonts"), self.fonts_panel),
             ]
         )
         self.preview_panel = PreviewPanel(self.dxf_viewer)
@@ -151,6 +155,8 @@ class MainWindow(QMainWindow):
         self.panel.delimiter_changed.connect(self._on_delimiter_changed)
         self.panel.file_requested.connect(self.documents.select_point_file)
         self.panel.files_dropped.connect(self.documents.on_point_files_dropped)
+        self.fonts_panel.optionsChanged.connect(self._on_config_changed)
+        self.fonts_panel.applyToAllRequested.connect(self._on_apply_font_to_all)
 
         source_row = self.left_column.dxf_source_row
         source_row.fileRequested.connect(self.documents.select_dxf_file)
@@ -250,7 +256,13 @@ class MainWindow(QMainWindow):
         ensure_selection(selected_numbers)
         draw_modes = self.panel.draw_tab.draw_modes
         ensure_draw_modes(draw_modes)
-        configs = [self.panel.build_generation_config(mode, self.session.quantum) for mode in draw_modes]
+        font_id, font_italic, font_lineweight_mm = self.fonts_panel.get_state()
+        configs = [
+            self.panel.build_generation_config(
+                mode, self.session.quantum, font_id, font_italic, font_lineweight_mm
+            )
+            for mode in draw_modes
+        ]
         commands = self.survey_draw_service.build_commands(self.session.data, selected_numbers, configs)
         return commands[0] if len(commands) == 1 else CompositeCommand(commands)
 
@@ -271,6 +283,15 @@ class MainWindow(QMainWindow):
             return
         self.session.mark_applied()
         self.documents.refresh_dxf_source()
+        self.refresh()
+
+    def _on_apply_font_to_all(self) -> None:
+        font_id, font_italic, font_lineweight_mm = self.fonts_panel.get_state()
+        doc = self.dxf_viewer.ensure_document()
+        count = len(doc.all_text_handles())
+        self.dxf_viewer.execute_command(ApplyFontToAllTextCommand(font_id, font_italic, font_lineweight_mm))
+        self.documents.refresh_dxf_source()
+        self.flash_status(tr("fonts_panel.applied_status", count=count))
         self.refresh()
 
     def refresh_table_template_bindings(self) -> None:

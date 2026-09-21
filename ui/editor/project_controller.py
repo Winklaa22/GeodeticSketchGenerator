@@ -43,6 +43,7 @@ class ProjectController:
         self._host.layouts.sync_model_view_for_save()
         return collect_project_state(
             self._host.panel,
+            self._host.fonts_panel,
             name=self.name or fallback,
             txt_file_path=session.file_path,
             dxf_file_path=session.dxf_path,
@@ -53,7 +54,7 @@ class ProjectController:
 
     def load_state(self, state: ProjectState) -> None:
         self.name = state.name
-        apply_project_state(self._host.panel, state)
+        apply_project_state(self._host.panel, self._host.fonts_panel, state)
         self._host.sheets.load_state(state.layout)
         self._host.table_template = template_from_state(state.table_template)
         self._host.refresh_table_template_bindings()
