@@ -112,7 +112,7 @@ TRANSLATIONS: Dict[str, str] = {
     # ---------- editor: main window ----------
     "window.tab_layers": "Warstwy",
     "window.tab_layout": "Układ",
-    "window.tab_fonts": "Fonty",
+    "window.tab_fonts": "Czcionka",
     "window.file_points_status": "{file_name} · {point_count} punktów",
     "window.could_not_draw": "Nie udało się narysować w pliku DXF: {error}",
     "window.open_dialog_title": "Otwórz",

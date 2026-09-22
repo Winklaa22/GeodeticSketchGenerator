@@ -509,7 +509,6 @@ QPushButton#btn::menu-indicator {{ image: none; width: 0px; }}
 
 /* ---------- start screen (project launcher) ---------- */
 #startSidebar {{
-    background: {c.SURFACE};
     border-right: 1px solid {c.BORDER};
 }}
 #startTitle {{ font-size: {TEXT_XL}px; font-weight: 600; color: {c.TEXT}; }}
