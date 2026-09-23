@@ -32,11 +32,13 @@ def detail_players(
     document: DXFDocument,
     config: Configuration,
     specs: Optional[Sequence[Tuple[str, DetailViewSpec]]] = None,
+    base: Optional[recorder.Player] = None,
 ) -> List[Tuple[str, DetailViewSpec, recorder.Player]]:
     entries = list(specs) if specs is not None else document.iter_detail_views()
     if not entries:
         return []
-    base = source_player(document, config)
+    if base is None:
+        base = source_player(document, config)
     players: List[Tuple[str, DetailViewSpec, recorder.Player]] = []
     for handle, spec in entries:
         player = base.copy()

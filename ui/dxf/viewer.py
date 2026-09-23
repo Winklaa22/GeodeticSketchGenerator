@@ -8,6 +8,7 @@ import ezdxf
 from ezdxf import bbox as ezdxf_bbox
 from ezdxf.addons.drawing import Frontend, RenderContext
 from ezdxf.addons.drawing.config import Configuration
+from ezdxf.addons.drawing.recorder import Player
 
 from core.commands.base import Command as EditCommand
 from core.commands.composite import CompositeCommand
@@ -52,7 +53,7 @@ from core.detail_view import (
     with_scale,
 )
 from core.detail_view import corner_points as detail_corner_points
-from ui.dxf.detail_render import detail_players
+from ui.dxf.detail_render import detail_players, source_player
 from ui.dxf.command_line import CommandLine
 from ui.dxf.compass import RotationCompass
 from ui.dxf.graphics_view import CadGraphicsView
@@ -89,6 +90,11 @@ from ui.theme.icons import icon_manager
 
 _DETAIL_ZOOM_STEP = 1.25
 _DETAIL_COMMIT_DELAY_MS = 400
+
+
+def _same_frame(a: DetailViewSpec, b: DetailViewSpec) -> bool:
+    return a.center == b.center and a.width == b.width and a.height == b.height and a.rotation == b.rotation
+
 
 _TOOL_KEYS = {
     PointToolSession: "point",
@@ -142,6 +148,7 @@ class DxfViewer(qw.QWidget):
         self._layout_label = ""
         self._layout_rotation = 0.0
         self._detail_gesture: Optional[Tuple[str, DetailViewSpec]] = None
+        self._detail_base_player: Optional[Player] = None
         self._detail_commit_timer = qc.QTimer(self)
         self._detail_commit_timer.setSingleShot(True)
         self._detail_commit_timer.setInterval(_DETAIL_COMMIT_DELAY_MS)
@@ -395,6 +402,7 @@ class DxfViewer(qw.QWidget):
             return
         self._layout_center = (center_x, center_y)
         self._install_page_frame()
+        self._view.set_content_rotation(self._layout_rotation, self._layout_center)
 
     def _install_page_frame(self) -> None:
         assert self._layout_options is not None and self._layout_center is not None
@@ -973,12 +981,38 @@ class DxfViewer(qw.QWidget):
             if spec is None:
                 return False
             self._detail_gesture = (handle, spec)
+            self._detail_base_player = source_player(self._doc, self._render_config())
         return True
 
     def _apply_detail_spec(self, handle: str, spec: DetailViewSpec) -> None:
         assert self._doc is not None
+        previous = self._doc.detail_view_spec(handle)
         self._doc.set_detail_view_spec(handle, spec)
+        # Mid-gesture, moving or zooming a frame's content leaves the frame outline and
+        # every other entity untouched, so re-laying just that frame is enough - and it
+        # keeps documentChanged (a full re-render plus a panel refresh that can resize
+        # the canvas) from firing on every mouse-move. _commit_detail_gesture() announces
+        # the edit once. Rotating or resizing the frame changes its outline, so those
+        # still go through the full render.
+        if self._detail_gesture is not None and previous is not None and _same_frame(previous, spec):
+            self._relay_detail_content(handle, spec)
+            return
         self._render(preserve_view=True)
+
+    def _relay_detail_content(self, handle: str, spec: DetailViewSpec) -> None:
+        assert self._doc is not None
+        scene = self._view.scene()
+        for item in scene.items():
+            if item.data(DETAIL_CONTENT_ROLE) and item.data(HANDLE_ROLE) == handle:
+                scene.removeItem(item)
+        stroke = self._stroke_style()
+        ground_color = self._detail_ground_color(scene, stroke)
+        for entry_handle, entry_spec, player in detail_players(
+            self._doc, self._render_config(), [(handle, spec)], base=self._detail_base_player
+        ):
+            self._add_detail_content(scene, entry_handle, entry_spec, player, stroke, ground_color)
+        if self._layout_options is not None:
+            self._view.set_content_rotation(self._layout_rotation, self._layout_center)
 
     def _on_detail_zoom(self, handle: str, notches: float, x: float, y: float) -> None:
         if not self._begin_detail_gesture(handle):
@@ -1023,6 +1057,7 @@ class DxfViewer(qw.QWidget):
             return
         handle, previous = self._detail_gesture
         self._detail_gesture = None
+        self._detail_base_player = None
         current = self._doc.detail_view_spec(handle)
         if current is None or current == previous:
             return
@@ -1048,15 +1083,26 @@ class DxfViewer(qw.QWidget):
         stroke = self._stroke_style()
         ground_color = self._detail_ground_color(scene, stroke)
         for handle, spec, player in detail_players(self._doc, self._render_config()):
-            polygon = qg.QPolygonF([qc.QPointF(x, y) for x, y in detail_corner_points(spec)])
-            ground = qw.QGraphicsPolygonItem(polygon)
-            ground.setPen(qg.QPen(qc.Qt.PenStyle.NoPen))
-            ground.setBrush(qg.QBrush(ground_color))
-            ground.setZValue(-1.0)
-            ground.setData(HANDLE_ROLE, handle)
-            ground.setData(DETAIL_CONTENT_ROLE, True)
-            scene.addItem(ground)
-            player.replay(DetailSceneBackend(scene, stroke, handle))
+            self._add_detail_content(scene, handle, spec, player, stroke, ground_color)
+
+    @staticmethod
+    def _add_detail_content(
+        scene: qw.QGraphicsScene,
+        handle: str,
+        spec: DetailViewSpec,
+        player: Player,
+        stroke: Optional[StrokeStyle],
+        ground_color: qg.QColor,
+    ) -> None:
+        polygon = qg.QPolygonF([qc.QPointF(x, y) for x, y in detail_corner_points(spec)])
+        ground = qw.QGraphicsPolygonItem(polygon)
+        ground.setPen(qg.QPen(qc.Qt.PenStyle.NoPen))
+        ground.setBrush(qg.QBrush(ground_color))
+        ground.setZValue(-1.0)
+        ground.setData(HANDLE_ROLE, handle)
+        ground.setData(DETAIL_CONTENT_ROLE, True)
+        scene.addItem(ground)
+        player.replay(DetailSceneBackend(scene, stroke, handle))
 
     def _render(self, *, preserve_view: bool) -> None:
         assert self._doc is not None

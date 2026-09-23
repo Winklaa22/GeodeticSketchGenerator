@@ -148,6 +148,7 @@ class LayoutController:
         self._capture_model_view_if_active()
 
     def activate(self, index: Optional[int]) -> None:
+        self._viewer.view.reset_wheel_gesture()
         # Switching between the Model tab and a sheet tab (or between two sheet
         # tabs) used to always re-fit the view, discarding whatever zoom/pan the
         # user had set on the tab they're leaving. Remember it here, keyed by the

@@ -130,11 +130,17 @@ class CadGraphicsView(qw.QGraphicsView):
         self._view_rotation = 0.0
         self._title_block_cells: List[ResolvedCell] = []
         self._title_block_scale = 1.0
+        self._centre_hint: Optional[qc.QPointF] = None
+        self._page_wheel_rest = 0
 
         self.setObjectName("dxfCanvas")
         self.setFocusPolicy(qc.Qt.FocusPolicy.StrongFocus)
-        self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setResizeAnchor(qw.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        # Never AnchorUnderMouse: Qt resolves it through QCursor::pos(), which Wayland does
+        # not expose - it reads back (0, 0) there, so every scale, rotate and resize would
+        # re-anchor on the screen corner and throw the view sideways. Cursor-anchored wheel
+        # zoom is done explicitly in zoom_by() instead.
+        self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setResizeAnchor(qw.QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setDragMode(qw.QGraphicsView.DragMode.NoDrag)
         self.setVerticalScrollBarPolicy(qc.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(qc.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -157,6 +163,7 @@ class CadGraphicsView(qw.QGraphicsView):
         self.setSceneRect(self.scene().itemsBoundingRect().united(padded))
         self.fitInView(padded, qc.Qt.AspectRatioMode.KeepAspectRatio)
         self._base_scale = x_scale(self.transform())
+        self._center_on(rect.center())
         self.viewportChanged.emit()
 
     def fit_to_scene(self) -> None:
@@ -171,31 +178,31 @@ class CadGraphicsView(qw.QGraphicsView):
             return
         self._refit_page(preserve_zoom=False)
 
-    def _refit_page(self, preserve_zoom: bool, recenter_delta: Tuple[float, float] = (0.0, 0.0)) -> None:
+    def _refit_page(
+        self,
+        preserve_zoom: bool,
+        recenter_delta: Tuple[float, float] = (0.0, 0.0),
+        center: Optional[qc.QPointF] = None,
+    ) -> None:
         assert self._page_frame is not None
         zoom_factor = self._current_zoom() if preserve_zoom else 1.0
         # fitInView below always recenters on the sheet's own geometric center, which would
-        # discard any off-center position the user reached by zooming with the mouse wheel
-        # (AnchorUnderMouse deliberately zooms toward the cursor, not the sheet center). Read
-        # where the view is actually centered now so it can be restored - shifted by
+        # discard any off-center position the user reached by zooming with the mouse wheel.
+        # Read where the view is actually centered now so it can be restored - shifted by
         # recenter_delta for a pan, unchanged for a resize - once the fit below is done.
         # Without this, every pan drag or window resize while zoomed in on a page snaps the
         # content back to dead-center, which reads as the view jumping sideways.
-        prior_center = self.mapToScene(self.viewport().rect().center()) if preserve_zoom else None
+        prior_center = (center if center is not None else self._viewport_centre()) if preserve_zoom else None
         sheet = self._page_frame.sheet_rect()
         self.setSceneRect(sheet)
         self.fitInView(sheet, qc.Qt.AspectRatioMode.KeepAspectRatio)
         self._base_scale = x_scale(self.transform())
         if abs(zoom_factor - 1.0) > 1e-9:
-            # Reapplying the preserved zoom must not re-anchor on the mouse cursor (the
-            # view's transformationAnchor is AnchorUnderMouse, needed for wheel-zoom) since
-            # the explicit recenter below is what should decide the final position.
-            anchor = self.transformationAnchor()
-            self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorViewCenter)
             self.scale(zoom_factor, zoom_factor)
-            self.setTransformationAnchor(anchor)
         if prior_center is not None:
-            self.centerOn(prior_center.x() + recenter_delta[0], prior_center.y() + recenter_delta[1])
+            self._center_on(qc.QPointF(prior_center.x() + recenter_delta[0], prior_center.y() + recenter_delta[1]))
+        else:
+            self._center_on(sheet.center())
         self.viewportChanged.emit()
 
     def zoom_by(self, factor: float, anchor_pos: Optional[qc.QPointF] = None) -> bool:
@@ -205,21 +212,21 @@ class CadGraphicsView(qw.QGraphicsView):
         if resulting_zoom < self._min_zoom or resulting_zoom > self._max_zoom:
             return False
         if anchor_pos is not None:
-            # Do the cursor-anchored zoom explicitly with a point the caller just read
-            # off the wheel event, rather than relying on the view's AnchorUnderMouse
-            # transformationAnchor: that anchors on Qt's own last-recorded mouse
-            # position, which is stale until the widget has processed a real mouse
-            # press (a plain hover, even with mouse tracking on, doesn't update it if
-            # the cursor was already sitting still over the view before the first
-            # scroll) - so the very first wheel-zoom after opening the view could
-            # anchor somewhere else on the drawing instead of under the cursor.
-            before = self.mapToScene(anchor_pos.toPoint())
+            # The wheel event's own position is the only trustworthy cursor position:
+            # AnchorUnderMouse goes through QCursor::pos(), which is stale on X11 until the
+            # widget has seen a real mouse press and simply (0, 0) on Wayland.
+            # Worked out from the view the previous step meant to leave rather than read
+            # back off the pixels: Qt stores the scroll position as whole pixels, so every
+            # read-back inherits that step's rounding. With survey coordinates in the
+            # millions the rounding is systematic, and a high-resolution wheel - several
+            # events per notch on Linux, one on Windows - adds it up into a visible slide.
+            before = self._scene_under(anchor_pos)
             self.scale(factor, factor)
-            after = self.mapToScene(anchor_pos.toPoint())
-            center = self.mapToScene(self.viewport().rect().center())
-            self.centerOn(center + (before - after))
+            self._pin_under(before, anchor_pos)
         else:
+            center = self._viewport_centre()
             self.scale(factor, factor)
+            self._center_on(center)
         self.viewportChanged.emit()
         return True
 
@@ -228,18 +235,20 @@ class CadGraphicsView(qw.QGraphicsView):
         if rect.width() <= 0 or rect.height() <= 0:
             return False
         self.fitInView(rect, qc.Qt.AspectRatioMode.KeepAspectRatio)
+        self._center_on(rect.center())
         return True
 
     def pan_by(self, dx: float, dy: float) -> None:
         if self._page_frame is not None:
+            dx, dy = self._to_world_delta(dx, dy)
             self._page_frame = self._page_frame.moved_to(
                 self._page_frame.center_x + dx, self._page_frame.center_y + dy
             )
             self._refit_page(preserve_zoom=True, recenter_delta=(dx, dy))
             self.pageFrameMoved.emit(self._page_frame.center_x, self._page_frame.center_y)
             return
-        center = self.mapToScene(self.viewport().rect().center())
-        self.centerOn(center.x() + dx, center.y() + dy)
+        center = self._viewport_centre()
+        self._center_on(qc.QPointF(center.x() + dx, center.y() + dy))
         self.viewportChanged.emit()
 
     def recenter_on(self, x: float, y: float) -> None:
@@ -251,8 +260,7 @@ class CadGraphicsView(qw.QGraphicsView):
         back towards the edge of (or past) that fitted rect silently falls short.
         """
         point = qc.QPointF(x, y)
-        self._widen_scene_rect_to(point)
-        self.centerOn(point)
+        self._center_on(point)
         self.viewportChanged.emit()
 
     def default_duplicate_offset(self) -> Tuple[float, float]:
@@ -262,7 +270,7 @@ class CadGraphicsView(qw.QGraphicsView):
             step = 1.0
         return step, step
 
-    def save_view(self) -> Tuple[qg.QTransform, qc.QPointF, float]:
+    def save_view(self) -> Tuple[qg.QTransform, qc.QPointF, float, float]:
         """The zoom, plus the scene point the viewport is centred on.
 
         Scroll bar values cannot stand in for that point. Every render installs a fresh
@@ -274,19 +282,67 @@ class CadGraphicsView(qw.QGraphicsView):
         # every save/restore round trip.
         return (
             self.transform(),
-            self.mapToScene(self.viewport().rect()).boundingRect().center(),
+            self._viewport_centre(),
             self._view_rotation,
+            self._base_scale,
         )
 
-    def restore_view(self, saved: Tuple[qg.QTransform, qc.QPointF, float]) -> None:
-        transform, center, rotation = saved
+    def restore_view(self, saved: Tuple[qg.QTransform, qc.QPointF, float, float]) -> None:
+        transform, center, rotation, base_scale = saved
         self.setTransform(transform)
         # The transform already carries the turn visually; the field has to agree with it,
         # or the next compass move would be measured against a stale angle.
         self._view_rotation = rotation
-        self._widen_scene_rect_to(center)
-        self.centerOn(center)
+        self._base_scale = base_scale
+        self._center_on(center)
         self.viewportChanged.emit()
+
+    def _center_on(self, point: qc.QPointF) -> None:
+        transform = self.transform()
+        self.setTransform(qg.QTransform(
+            transform.m11(), transform.m12(), transform.m21(), transform.m22(),
+            -transform.m11() * point.x() - transform.m21() * point.y(),
+            -transform.m12() * point.x() - transform.m22() * point.y(),
+        ))
+        self._widen_scene_rect_to(point)
+        self.centerOn(point)
+        self._centre_hint = qc.QPointF(point)
+
+    def _viewport_centre(self) -> qc.QPointF:
+        viewport = self.viewport()
+        middle = qc.QPointF(viewport.width() / 2.0, viewport.height() / 2.0)
+        hint = self._centre_hint
+        if hint is not None:
+            # centerOn() can only land within a pixel of what it was asked for; anything
+            # further away means something else has moved the view since.
+            shown = self.viewportTransform().map(hint)
+            if abs(shown.x() - middle.x()) <= 1.5 and abs(shown.y() - middle.y()) <= 1.5:
+                return qc.QPointF(hint)
+        return self._scene_at(middle)
+
+    def _scene_at(self, view_pos: qc.QPointF) -> qc.QPointF:
+        inverse, _invertible = self.viewportTransform().inverted()
+        return inverse.map(view_pos)
+
+    def _device_to_scene_delta(self, dx: float, dy: float) -> qc.QPointF:
+        t = self.transform()
+        inverse, _invertible = qg.QTransform(t.m11(), t.m12(), t.m21(), t.m22(), 0.0, 0.0).inverted()
+        return inverse.map(qc.QPointF(dx, dy))
+
+    def _scene_under(self, view_pos: qc.QPointF) -> qc.QPointF:
+        viewport = self.viewport()
+        return self._viewport_centre() + self._device_to_scene_delta(
+            view_pos.x() - viewport.width() / 2.0, view_pos.y() - viewport.height() / 2.0
+        )
+
+    def _pin_under(self, scene_point: qc.QPointF, view_pos: qc.QPointF) -> None:
+        viewport = self.viewport()
+        # centerOn() alone would clamp to sceneRect, which on a sheet is exactly the
+        # paper - and that silently undoes the anchoring along the slack axis.
+        target = scene_point + self._device_to_scene_delta(
+            viewport.width() / 2.0 - view_pos.x(), viewport.height() / 2.0 - view_pos.y()
+        )
+        self._center_on(target)
 
     def _widen_scene_rect_to(self, center: qc.QPointF) -> None:
         """Keep centerOn() from clamping when the new scene is smaller than the old view."""
@@ -295,6 +351,7 @@ class CadGraphicsView(qw.QGraphicsView):
         self.setSceneRect(self.sceneRect().united(wanted))
 
     def resizeEvent(self, event: qg.QResizeEvent) -> None:
+        center = self._centre_hint
         super().resizeEvent(event)
         if self._page_frame is not None:
             # Re-fit whenever the viewport's actual size changes, not just on request: the
@@ -303,7 +360,7 @@ class CadGraphicsView(qw.QGraphicsView):
             # leave the page stuck small and off to one side until something else forced
             # a re-fit. Preserving zoom keeps this a no-op for the common "just resizing
             # the window" case rather than fighting whatever zoom the user had set.
-            self._refit_page(preserve_zoom=True)
+            self._refit_page(preserve_zoom=True, center=center)
         else:
             self.viewportChanged.emit()
 
@@ -339,6 +396,7 @@ class CadGraphicsView(qw.QGraphicsView):
         anchor_point = self._world_point(event.position())
         detail = self._detail_target(anchor_point)
         if detail is not None:
+            self.reset_wheel_gesture()
             self.detailZoomRequested.emit(detail, notches, anchor_point.x(), anchor_point.y())
             event.accept()
             return
@@ -350,14 +408,36 @@ class CadGraphicsView(qw.QGraphicsView):
         # whole preview. On the model tab there is no sheet to rescale, so the wheel
         # keeps its plain view-zoom meaning.
         if ctrl or self._page_frame is None:
+            self.reset_wheel_gesture()
             self.zoom_by(factor, event.position())
+            event.accept()
             return
-        anchor = self._world_point(event.position())
-        self.pageScaleZoomRequested.emit(factor, anchor.x(), anchor.y())
+        event.accept()
+        # A high-resolution wheel (the usual case on Linux/Wayland) reports one notch as
+        # several fractional events, where Windows sends a single 120. Every sheet-scale
+        # step re-resolves and re-renders the whole sheet and rounds the scale to a whole
+        # denominator, so collect the fractions and step once per full notch - the same
+        # steps, renders and resulting scale on either platform.
+        delta = event.angleDelta().y()
+        if self._page_wheel_rest and (self._page_wheel_rest > 0) != (delta > 0):
+            self._page_wheel_rest = 0
+        self._page_wheel_rest += delta
+        steps = int(self._page_wheel_rest / 120)
+        if steps == 0:
+            return
+        self._page_wheel_rest -= steps * 120
+        position = event.position()
+        anchor = self._to_world(self._scene_under(position))
+        self.pageScaleZoomRequested.emit((1.0 + self._zoom_step) ** steps, anchor.x(), anchor.y())
+        if self._page_frame is not None:
+            # The re-render refits the page, which on its own would drop a Ctrl+wheel zoom
+            # back onto the sheet centre; keep the anchor under the cursor instead.
+            self._pin_under(self._to_scene(anchor), position)
+            self.viewportChanged.emit()
 
     def _world_point(self, view_pos: qc.QPointF) -> qc.QPointF:
         """Cursor position as a DXF/world point, undoing the scene's content rotation."""
-        return self._to_world(self.mapToScene(view_pos.toPoint()))
+        return self._to_world(self._scene_at(view_pos))
 
     def _to_world(self, scene_point: qc.QPointF) -> qc.QPointF:
         """A scene point as a DXF/world point, undoing the scene's content rotation."""
@@ -403,10 +483,9 @@ class CadGraphicsView(qw.QGraphicsView):
         """
         if factor <= 0 or abs(factor - 1.0) < 1e-9:
             return
-        anchor = self.transformationAnchor()
-        self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        center = self._viewport_centre()
         self.scale(factor, factor)
-        self.setTransformationAnchor(anchor)
+        self._center_on(center)
         self.viewportChanged.emit()
 
     def set_zoom_factor(self, factor: float) -> None:
@@ -423,10 +502,9 @@ class CadGraphicsView(qw.QGraphicsView):
         current = self._current_zoom()
         if current <= 0 or abs(factor - current) < 1e-9:
             return
-        anchor = self.transformationAnchor()
-        self.setTransformationAnchor(qw.QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        center = self._viewport_centre()
         self.scale(factor / current, factor / current)
-        self.setTransformationAnchor(anchor)
+        self._center_on(center)
         self.viewportChanged.emit()
 
     def set_tool(self, tool: Optional["ToolSession"]) -> None:
@@ -501,8 +579,13 @@ class CadGraphicsView(qw.QGraphicsView):
         self.viewport().update()
 
     def set_page_frame(self, frame: Optional[PageFrame]) -> None:
+        if (frame is None) != (self._page_frame is None):
+            self.reset_wheel_gesture()
         self._page_frame = frame
         self.viewport().update()
+
+    def reset_wheel_gesture(self) -> None:
+        self._page_wheel_rest = 0
 
     def set_title_block(self, cells: List[ResolvedCell], scale: float = 1.0) -> None:
         self._title_block_cells = cells
@@ -546,7 +629,9 @@ class CadGraphicsView(qw.QGraphicsView):
         delta = degrees - self._view_rotation
         if abs(delta) < 1e-9:
             return
+        center = self._viewport_centre()
         self.rotate(delta)
+        self._center_on(center)
         self._view_rotation = degrees
         self.viewportChanged.emit()
 
