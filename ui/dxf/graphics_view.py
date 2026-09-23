@@ -597,13 +597,21 @@ class CadGraphicsView(qw.QGraphicsView):
     ) -> None:
         origin = qc.QPointF(*pivot) if pivot is not None else qc.QPointF(0.0, 0.0)
         scene = self.scene()
+        applied = scene.property(CONTENT_ROTATION_PROPERTY)
         scene.setProperty(CONTENT_ROTATION_PROPERTY, rotation_degrees)
         scene.setProperty(CONTENT_PIVOT_PROPERTY, origin)
-        for item in scene.items():
-            if item.data(HANDLE_ROLE) is None:
-                continue
-            item.setTransformOriginPoint(origin)
-            item.setRotation(rotation_degrees)
+        if not rotation_degrees and not applied:
+            return
+        index_method = scene.itemIndexMethod()
+        scene.setItemIndexMethod(qw.QGraphicsScene.ItemIndexMethod.NoIndex)
+        try:
+            for item in scene.items():
+                if item.data(HANDLE_ROLE) is None:
+                    continue
+                item.setTransformOriginPoint(origin)
+                item.setRotation(rotation_degrees)
+        finally:
+            scene.setItemIndexMethod(index_method)
 
     def _content_rotation(self) -> Tuple[float, Optional[qc.QPointF]]:
         if self._page_frame is None or not self._page_frame.rotation:

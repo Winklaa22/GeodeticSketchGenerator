@@ -105,7 +105,7 @@ class QtSceneBackend(Backend):
             pen.setCosmetic(True)
         else:
             pen.setWidthF(self._stroke.pen_width(properties.lineweight))
-            pen.setCapStyle(qc.Qt.PenCapStyle.RoundCap)
+            pen.setCapStyle(qc.Qt.PenCapStyle.SquareCap)
         return pen
 
     def _fill_brush(self, color: Color) -> qg.QBrush:

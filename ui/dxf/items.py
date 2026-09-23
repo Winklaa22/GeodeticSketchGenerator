@@ -46,6 +46,12 @@ class PointItem(qw.QAbstractGraphicsShapeItem):
         painter.setPen(qc.Qt.PenStyle.NoPen)
         painter.drawEllipse(self._pos, radius, radius)
 
+    def rescale_radius(self, ratio: float) -> None:
+        if self._radius_units is None:
+            return
+        self.prepareGeometryChange()
+        self._radius_units *= ratio
+
     def boundingRect(self) -> qc.QRectF:
         r = self._radius_units if self._radius_units is not None else 0.01
         return qc.QRectF(self._pos.x() - r, self._pos.y() - r, r * 2, r * 2)
