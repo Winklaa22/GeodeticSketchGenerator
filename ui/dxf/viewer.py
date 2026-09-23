@@ -58,7 +58,7 @@ from ui.dxf.command_line import CommandLine
 from ui.dxf.compass import RotationCompass
 from ui.dxf.graphics_view import CadGraphicsView
 from ui.dxf.interpreter import DxfCommandInterpreter
-from ui.dxf.items import DETAIL_CONTENT_ROLE, HANDLE_ROLE
+from ui.dxf.items import DETAIL_CONTENT_ROLE, HANDLE_ROLE, PointItem
 from ui.dxf.layer_panel import LayerPanel
 from ui.dxf.page_frame import page_frame_for
 from ui.dxf.pdf_export import PlotJob, export_sheets
@@ -155,6 +155,7 @@ class DxfViewer(qw.QWidget):
         self._detail_commit_timer.timeout.connect(self._commit_detail_gesture)
         self._layout_table_height_mm = 0.0
         self._layout_table_width_mm = 0.0
+        self._content_bbox_cache: Optional[Tuple[DXFDocument, object]] = None
 
     def _build_ui(self) -> None:
         outer = qw.QHBoxLayout(self)
@@ -383,8 +384,9 @@ class DxfViewer(qw.QWidget):
             # zoom/pan too, so it's deliberately not part of this check
             # (previously it was, which meant drawing so much as a single new
             # line snapped the view back to a fresh fit-to-page every time).
-            if preserve_view and self._layout_options is not None:
-                preserve_view = sheet_size_in_units(self._layout_options) == sheet_size_in_units(options)
+            previous = self._layout_options
+            if preserve_view and previous is not None:
+                preserve_view = sheet_size_in_units(previous) == sheet_size_in_units(options)
             self._view.reset_view_rotation()
             self._layout_options = options
             self._layout_center = new_center
@@ -394,8 +396,46 @@ class DxfViewer(qw.QWidget):
             self._layout_table_width_mm = table_width_mm
             self._install_page_frame()
             self._compass.set_angle(rotation)
+            if previous is not None and self._restyle_for_scale(previous, options, preserve_view):
+                return
         if self._doc is not None:
             self._render(preserve_view=preserve_view)
+
+    def _restyle_for_scale(self, previous: PlotOptions, options: PlotOptions, preserve_view: bool) -> bool:
+        if self._doc is None or render_configuration(previous) != render_configuration(options):
+            return False
+        old, new = model_stroke_style(previous), model_stroke_style(options)
+        if old.min_lineweight_mm != new.min_lineweight_mm or old.units_per_mm <= 0.0:
+            return False
+        ratio = new.units_per_mm / old.units_per_mm
+        if abs(ratio - 1.0) < 1e-12:
+            return False
+        self._rescale_strokes(ratio)
+        self._view.set_content_rotation(self._layout_rotation, self._layout_center)
+        if not preserve_view:
+            self._view.fit_to_page()
+        return True
+
+    def _rescale_strokes(self, ratio: float) -> None:
+        scene = self._view.scene()
+        index_method = scene.itemIndexMethod()
+        scene.setItemIndexMethod(qw.QGraphicsScene.ItemIndexMethod.NoIndex)
+        try:
+            for item in scene.items():
+                if item.data(HANDLE_ROLE) is None:
+                    continue
+                if isinstance(item, PointItem):
+                    item.rescale_radius(ratio)
+                    continue
+                if not isinstance(item, (qw.QAbstractGraphicsShapeItem, qw.QGraphicsLineItem)):
+                    continue
+                pen = item.pen()
+                if pen.style() == qc.Qt.PenStyle.NoPen or pen.isCosmetic():
+                    continue
+                pen.setWidthF(pen.widthF() * ratio)
+                item.setPen(pen)
+        finally:
+            scene.setItemIndexMethod(index_method)
 
     def move_page_frame(self, center_x: float, center_y: float) -> None:
         if self._layout_options is None:
@@ -508,8 +548,13 @@ class DxfViewer(qw.QWidget):
     def content_bbox(self):
         if self._doc is None:
             return None
+        cached = self._content_bbox_cache
+        if cached is not None and cached[0] is self._doc:
+            return cached[1]
         box = ezdxf_bbox.extents(self._doc.modelspace)
-        return box if box.has_data else None
+        result = box if box.has_data else None
+        self._content_bbox_cache = (self._doc, result)
+        return result
 
     def content_center(self) -> Optional[Tuple[float, float]]:
         box = self.content_bbox()
@@ -988,6 +1033,7 @@ class DxfViewer(qw.QWidget):
         assert self._doc is not None
         previous = self._doc.detail_view_spec(handle)
         self._doc.set_detail_view_spec(handle, spec)
+        self._content_bbox_cache = None
         # Mid-gesture, moving or zooming a frame's content leaves the frame outline and
         # every other entity untouched, so re-laying just that frame is enough - and it
         # keeps documentChanged (a full re-render plus a panel refresh that can resize
@@ -1106,6 +1152,7 @@ class DxfViewer(qw.QWidget):
 
     def _render(self, *, preserve_view: bool) -> None:
         assert self._doc is not None
+        self._content_bbox_cache = None
         self._view.set_document(self._doc)
         saved = self._view.save_view() if preserve_view else None
         scene = qw.QGraphicsScene()
