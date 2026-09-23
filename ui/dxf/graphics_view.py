@@ -346,7 +346,7 @@ class CadGraphicsView(qw.QGraphicsView):
 
     def _widen_scene_rect_to(self, center: qc.QPointF) -> None:
         """Keep centerOn() from clamping when the new scene is smaller than the old view."""
-        wanted = self.mapToScene(self.viewport().rect()).boundingRect()
+        wanted = self.mapToScene(self.viewport().rect().adjusted(-1, -1, 1, 1)).boundingRect()
         wanted.moveCenter(center)
         self.setSceneRect(self.sceneRect().united(wanted))
 
