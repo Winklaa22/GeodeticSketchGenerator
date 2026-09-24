@@ -7,6 +7,7 @@ from PyQt6 import QtCore as qc, QtWidgets as qw
 from ui.i18n import tr
 from ui.theme import Color as UiColor, ICON_SM, SPACE_XS
 from ui.theme.icons import icon_manager
+from ui.widgets import pin_menu_to_screen
 
 _NAME_MAX_WIDTH = 160
 
@@ -76,6 +77,7 @@ class SheetTabBar(qw.QWidget):
         menu.addAction(tr("common.duplicate"), lambda: self.duplicateRequested.emit(index))
         menu.addSeparator()
         menu.addAction(tr("common.delete"), lambda: self.deleteRequested.emit(index))
+        pin_menu_to_screen(menu, tab)
         menu.exec(tab.mapToGlobal(pos))
 
 

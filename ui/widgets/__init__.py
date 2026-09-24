@@ -19,6 +19,7 @@ from ui.widgets.primitives import (
     field_label,
     make_button,
     make_field,
+    pin_menu_to_screen,
     restyle,
     styled_line_edit,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "field_label",
     "make_button",
     "make_field",
+    "pin_menu_to_screen",
     "restyle",
     "styled_line_edit",
 ]
