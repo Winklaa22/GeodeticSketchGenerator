@@ -1210,9 +1210,14 @@ class CadGraphicsView(qw.QGraphicsView):
 
     @staticmethod
     def _paint_snap_indicator(painter: qg.QPainter, point: qc.QPointF, scale: float, color: qg.QColor) -> None:
-        pen = qg.QPen(color, 1.6)
+        # A translucent tinted fill, not just an outline: at this size a hairline square
+        # all but disappears against a busy drawing or the white sheet background, and a
+        # solid fill would hide the very point/line it's marking as the snap target.
+        pen = qg.QPen(color, 2.0)
         pen.setCosmetic(True)
         painter.setPen(pen)
-        painter.setBrush(qc.Qt.BrushStyle.NoBrush)
+        fill_color = qg.QColor(color)
+        fill_color.setAlpha(90)
+        painter.setBrush(qg.QBrush(fill_color, qc.Qt.BrushStyle.SolidPattern))
         half = 4.5 / scale
         painter.drawRect(qc.QRectF(point.x() - half, point.y() - half, half * 2, half * 2))
