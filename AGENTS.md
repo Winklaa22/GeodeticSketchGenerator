@@ -47,7 +47,16 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
 - `survey_draw_service.py` — `SurveyDrawService.build_command()` (single mode) and
   `build_commands()` (several modes at once, needed so label classes get solved together) are the
   entry points from parsed points + `GenerationConfig`(s) to `Command`(s), dispatching through
-  `commands/survey.py::build_survey_commands`.
+  `commands/survey.py::build_survey_commands`. Every batch is bracketed by
+  `commands/generated.py`: a leading `DeleteGeneratedCommand` clears what an earlier run drew for
+  the modes being generated, and each mode's draw command is wrapped in `MarkGeneratedCommand` so
+  its output is stamped for the run after that. Generating twice therefore updates the sketch
+  instead of stacking a second copy on it; modes not in the batch keep their entities, and so does
+  anything the user drew by hand.
+- `generated.py` — the stamp itself: `GSG_GENERATED` xdata naming the `DrawMode` that drew an
+  entity, in the same shape as `multileader.py`/`detail_view.py` metadata. It lives in the drawing
+  rather than in memory because it has to outlive both the undo history and a project save/reopen.
+  `DXFDocument.mark_generated()` writes it, `generated_handles()` reads it back.
 - `label_placement.py` — `solve_label_positions(labels, obstacles, marker_radius)` is the label
   coordinate solver: given every pending `LabelRequest` (across all label classes) plus
   `Obstacles` (marker circles, route segments) it returns a centre point and a hard-collision
