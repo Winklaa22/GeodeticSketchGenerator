@@ -24,6 +24,7 @@ from ui.dxf.tools.transform import (
     ScaleEachToolSession,
     ScaleToolSession,
     TextOnLineToolSession,
+    glyph_middle_rise,
 )
 
 __all__ = [
@@ -43,6 +44,7 @@ __all__ = [
     "TextToolSession",
     "ToolSession",
     "angle_degrees",
+    "glyph_middle_rise",
     "offset_segment_perpendicular",
     "parse_coordinate",
     "point_distance",
