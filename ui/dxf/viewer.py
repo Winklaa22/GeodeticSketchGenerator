@@ -79,6 +79,7 @@ from ui.dxf.tools import (
     RotateToolSession,
     ScaleEachToolSession,
     ScaleToolSession,
+    TextOnLineToolSession,
     TextToolSession,
     ToolSession,
 )
@@ -99,6 +100,7 @@ def _same_frame(a: DetailViewSpec, b: DetailViewSpec) -> bool:
 _TOOL_KEYS = {
     PointToolSession: "point",
     TextToolSession: "text",
+    TextOnLineToolSession: "text_on_line",
     DetailViewToolSession: "detail",
     LineToolSession: "line",
     CircleToolSession: "circle",
@@ -250,6 +252,7 @@ class DxfViewer(qw.QWidget):
     def _wire_toolbar(self) -> None:
         self._toolbar.pointRequested.connect(lambda: self._start_draw_tool(PointToolSession))
         self._toolbar.textRequested.connect(lambda: self._start_draw_tool(self._text_tool))
+        self._toolbar.textOnLineRequested.connect(self.start_text_on_line_tool)
         self._toolbar.lineRequested.connect(lambda: self._start_draw_tool(LineToolSession))
         self._toolbar.circleRequested.connect(lambda: self._start_draw_tool(CircleToolSession))
         self._toolbar.pipeRequested.connect(lambda: self._start_draw_tool(PipeToolSession))
@@ -297,6 +300,7 @@ class DxfViewer(qw.QWidget):
 
         self._add_shortcut("P,O", lambda: self._start_draw_tool(PointToolSession), parent=self._view)
         self._add_shortcut("T", lambda: self._start_draw_tool(self._text_tool), parent=self._view)
+        self._add_shortcut("T,L", self.start_text_on_line_tool, parent=self._view)
         self._add_shortcut("L", lambda: self._start_draw_tool(LineToolSession), parent=self._view)
         self._add_shortcut("C", lambda: self._start_draw_tool(CircleToolSession), parent=self._view)
         self._add_shortcut("R,U", lambda: self._start_draw_tool(PipeToolSession), parent=self._view)
@@ -691,6 +695,7 @@ class DxfViewer(qw.QWidget):
         self._view.set_annotation_grips([])
         self._toolbar.set_erase_enabled(False)
         self._toolbar.set_each_tools_visible(False)
+        self._toolbar.set_text_tools_visible(False)
         self._sync_text_options_bar()
         self._sync_detail_options_bar()
 
@@ -715,6 +720,7 @@ class DxfViewer(qw.QWidget):
         self._selected_handles = list(dict.fromkeys(item.data(HANDLE_ROLE) for item in items))
         self._toolbar.set_erase_enabled(bool(items))
         self._toolbar.set_each_tools_visible(len(self._selected_handles) > 1)
+        self._toolbar.set_text_tools_visible(self._selected_text_handle() is not None)
         self._sync_text_options_bar()
         self._sync_detail_options_bar()
         self._sync_multileader_grips()
@@ -786,6 +792,18 @@ class DxfViewer(qw.QWidget):
             self._toolbar.set_active_tool(None)
             return
         self.start_tool(ScaleEachToolSession(list(self._selected_handles)))
+
+    def start_text_on_line_tool(self) -> None:
+        handle = self._selected_text_handle()
+        if handle is None or self._doc is None:
+            self._echo(tr("viewer.select_text_first"))
+            self._toolbar.set_active_tool(None)
+            return
+        entity = self._doc.get_entity(handle)
+        insert = (entity.dxf.insert.x, entity.dxf.insert.y)
+        self.start_tool(
+            TextOnLineToolSession(handle, insert, entity.dxf.rotation, entity.dxf.height)
+        )
 
     def copy_selected(self) -> str:
         if not self._selected_handles:
@@ -877,20 +895,26 @@ class DxfViewer(qw.QWidget):
         self._selected_handles = self._doc.expand_annotation_handles(handles) if self._doc is not None else list(handles)
         self.execute_command(MoveCommand(self._selected_handles, dx, dy))
 
-    def _sync_text_options_bar(self) -> None:
+    def _selected_text_handle(self) -> Optional[str]:
+        """The one TEXT entity the selection is about, if it is about one at all."""
         if self._doc is None:
-            self._text_options_bar.hide()
-            return
+            return None
         handle = self._doc.multileader_text_handle(self._selected_handles)
         if handle is None and len(self._selected_handles) == 1:
             handle = self._selected_handles[0]
         if handle is None:
+            return None
+        entity = self._doc.get_entity(handle)
+        if entity is None or entity.dxftype() != "TEXT":
+            return None
+        return handle
+
+    def _sync_text_options_bar(self) -> None:
+        handle = self._selected_text_handle()
+        if self._doc is None or handle is None:
             self._text_options_bar.hide()
             return
         entity = self._doc.get_entity(handle)
-        if entity is None or entity.dxftype() != "TEXT":
-            self._text_options_bar.hide()
-            return
         self._text_options_bar.bind(
             handle,
             entity.dxf.text,

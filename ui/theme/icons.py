@@ -22,6 +22,7 @@ class IconManager:
         "select_tool": "mdi.cursor-default-outline",
         "point_tool": "fa5s.dot-circle",
         "text_tool": "mdi.format-text-variant",
+        "text_on_line_tool": "mdi.format-text-rotation-angle-up",
         "line_tool": "mdi.vector-line",
         "circle_tool": "mdi.vector-circle",
         "pipe_tool": "mdi.pipe",

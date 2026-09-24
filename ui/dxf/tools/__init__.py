@@ -23,6 +23,7 @@ from ui.dxf.tools.transform import (
     RotateToolSession,
     ScaleEachToolSession,
     ScaleToolSession,
+    TextOnLineToolSession,
 )
 
 __all__ = [
@@ -38,6 +39,7 @@ __all__ = [
     "RotateToolSession",
     "ScaleEachToolSession",
     "ScaleToolSession",
+    "TextOnLineToolSession",
     "TextToolSession",
     "ToolSession",
     "angle_degrees",

@@ -54,6 +54,17 @@ def _distance_to_segment(point: qc.QPointF, line: qc.QLineF) -> float:
     return math.hypot(point.x() - proj_x, point.y() - proj_y)
 
 
+def _closest_point_on_segment(point: qc.QPointF, line: qc.QLineF) -> qc.QPointF:
+    p1, p2 = line.p1(), line.p2()
+    dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+    length_sq = dx * dx + dy * dy
+    if length_sq == 0:
+        return p1
+    t = ((point.x() - p1.x()) * dx + (point.y() - p1.y()) * dy) / length_sq
+    t = max(0.0, min(1.0, t))
+    return qc.QPointF(p1.x() + t * dx, p1.y() + t * dy)
+
+
 def _distance_to_item(point: qc.QPointF, item: qw.QGraphicsItem) -> float:
     transform = item.sceneTransform()
     if isinstance(item, PointItem):
@@ -578,6 +589,56 @@ class CadGraphicsView(qw.QGraphicsView):
             return best_point, True
         return raw_scene_point, False
 
+    def _segments_of(self, item: qw.QGraphicsItem) -> List[qc.QLineF]:
+        """An item's drawn geometry as scene-space straight segments.
+
+        Curved stretches (polyline bulges, splines) come back flattened, because that is
+        the geometry the user is actually pointing at on screen.
+        """
+        transform = item.sceneTransform()
+        if isinstance(item, qw.QGraphicsLineItem):
+            line = item.line()
+            return [qc.QLineF(transform.map(line.p1()), transform.map(line.p2()))]
+        if isinstance(item, qw.QGraphicsPathItem):
+            segments: List[qc.QLineF] = []
+            for polygon in item.path().toSubpathPolygons(qg.QTransform()):
+                points = [transform.map(point) for point in polygon]
+                segments.extend(qc.QLineF(a, b) for a, b in zip(points, points[1:]))
+            return segments
+        return []
+
+    def _line_hover(
+        self, view_pos: qc.QPoint, ignore_handle: Optional[str]
+    ) -> Optional[Tuple[qc.QPointF, float]]:
+        """The point on the nearest drawn line under the cursor, and its world angle."""
+        rect = qc.QRect(
+            view_pos.x() - _SNAP_TOLERANCE_PX,
+            view_pos.y() - _SNAP_TOLERANCE_PX,
+            _SNAP_TOLERANCE_PX * 2,
+            _SNAP_TOLERANCE_PX * 2,
+        )
+        cursor = self.mapToScene(view_pos)
+        # Segments are read off the scene, where the sheet's own rotation is already baked
+        # into the item - undo it to get angles in the drawing's own frame.
+        sheet_rotation = self._content_rotation()[0]
+        best: Optional[Tuple[qc.QPointF, float]] = None
+        best_distance = float(_SNAP_TOLERANCE_PX)
+        for item in self.items(rect):
+            handle = item.data(HANDLE_ROLE)
+            if handle is None or handle == ignore_handle or item.data(DETAIL_CONTENT_ROLE):
+                continue
+            for segment in self._segments_of(item):
+                point = _closest_point_on_segment(cursor, segment)
+                device_point = self.mapFromScene(point)
+                distance = math.hypot(device_point.x() - view_pos.x(), device_point.y() - view_pos.y())
+                if distance < best_distance:
+                    best_distance = distance
+                    scene_angle = math.degrees(
+                        math.atan2(segment.p2().y() - segment.p1().y(), segment.p2().x() - segment.p1().x())
+                    )
+                    best = (point, scene_angle - sheet_rotation)
+        return best
+
     def _set_snap_indicator(self, point: Optional[qc.QPointF]) -> None:
         if self._snap_indicator == point:
             return
@@ -794,6 +855,17 @@ class CadGraphicsView(qw.QGraphicsView):
         if self._tool is not None:
             view_pos = event.position().toPoint()
             raw_point = self.mapToScene(view_pos)
+            if getattr(self._tool, "wants_line_hover", False):
+                hover = self._line_hover(view_pos, getattr(self._tool, "ignore_handle", None))
+                self._set_snap_indicator(hover[0] if hover is not None else None)
+                point = hover[0] if hover is not None else raw_point
+                world = self._to_world(point)
+                self._tool.update_preview(
+                    (world.x(), world.y()),
+                    self.scene(),
+                    angle=hover[1] if hover is not None else None,
+                )
+                return
             if self._tool_dragging:
                 # Snapping mid-drag would make the scale factor jump between whatever
                 # geometry happens to be near the cursor.
@@ -910,6 +982,16 @@ class CadGraphicsView(qw.QGraphicsView):
         self._press_pos = None
         if self._tool is not None:
             raw_point = self.mapToScene(release_pos)
+            if getattr(self._tool, "wants_line_hover", False):
+                hover = self._line_hover(release_pos, getattr(self._tool, "ignore_handle", None))
+                scene_point = hover[0] if hover is not None else raw_point
+                world_point = self._to_world(scene_point)
+                self._tool.on_click(
+                    (world_point.x(), world_point.y()),
+                    angle=hover[1] if hover is not None else None,
+                )
+                self.toolPointPlaced.emit()
+                return
             scene_point = raw_point if self._tool_dragging else self._snap_point(release_pos, raw_point)[0]
             self._tool_dragging = False
             world_point = self._to_world(scene_point)
