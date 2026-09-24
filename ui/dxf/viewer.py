@@ -82,6 +82,7 @@ from ui.dxf.tools import (
     TextOnLineToolSession,
     TextToolSession,
     ToolSession,
+    glyph_middle_rise,
 )
 from ui.i18n import tr
 from ui.loading_overlay import ProgressFn
@@ -799,11 +800,10 @@ class DxfViewer(qw.QWidget):
             self._echo(tr("viewer.select_text_first"))
             self._toolbar.set_active_tool(None)
             return
-        entity = self._doc.get_entity(handle)
-        insert = (entity.dxf.insert.x, entity.dxf.insert.y)
-        self.start_tool(
-            TextOnLineToolSession(handle, insert, entity.dxf.rotation, entity.dxf.height)
-        )
+        anchor = self._doc.text_anchor(handle)
+        rotation = self._doc.get_text_rotation(handle)
+        rise = glyph_middle_rise(self._find_item(handle), anchor, rotation)
+        self.start_tool(TextOnLineToolSession(handle, anchor, rotation, rise))
 
     def copy_selected(self) -> str:
         if not self._selected_handles:

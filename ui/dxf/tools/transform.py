@@ -548,6 +548,26 @@ class ScaleEachToolSession(ToolSession):
         self._preview_targets = None
 
 
+def glyph_middle_rise(
+    item: qw.QGraphicsItem, anchor: Tuple[float, float], rotation: float
+) -> float:
+    """How far the middle of a text's drawn glyphs sits above the point it hangs from.
+
+    Measured off the rendered outlines rather than derived from the alignment, because
+    where an anchor lands depends on font metrics the drawing does not carry: "bottom"
+    aligned text hangs from the descender, "top" from the ascender.
+    """
+    if not isinstance(item, qw.QGraphicsPathItem):
+        return 0.0
+    # An entity's path is built in drawing coordinates, so undoing the text's own
+    # rotation about its anchor leaves the glyphs sitting upright around the origin.
+    frame = qg.QTransform()
+    frame.rotate(-rotation)
+    frame.translate(-anchor[0], -anchor[1])
+    glyphs = frame.map(item.path()).boundingRect()
+    return (glyphs.top() + glyphs.bottom()) / 2.0
+
+
 def upright_angle(angle_deg: float) -> float:
     """A direction angle turned around when it would leave text reading upside down."""
     angle_deg %= 360
@@ -569,29 +589,31 @@ class TextOnLineToolSession(ToolSession):
     wants_line_hover = True
 
     def __init__(
-        self, handle: str, insert: Tuple[float, float], rotation: float, height: float
+        self, handle: str, anchor: Tuple[float, float], rotation: float, rise: float
     ) -> None:
         super().__init__()
         self.prompt = tr("tool.specify_text_on_line_point")
         self.ignore_handle = handle
         self._handle = handle
-        self._insert = insert
+        self._anchor = anchor
         self._rotation = rotation
-        self._height = height
+        self._rise = rise
         self._placement: Optional[Tuple[Tuple[float, float], float]] = None
         self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
 
     def _place(self, point: Tuple[float, float], angle: float) -> Tuple[Tuple[float, float], float]:
-        """Where the baseline has to start for the line to run through the text's waist.
+        """Where the text has to hang from for the line to run through its middle.
 
-        Text sits on its baseline, so an insertion point dropped straight on the line
-        would leave the whole label hanging above it; half a cap height along the text's
-        own "down" direction puts the line through the middle instead.
+        A text pinned by its baseline would otherwise stand on the line rather than sit
+        across it, so the anchor drops by however far the middle of the glyphs rises
+        above it - along the text's own "down", which turns with the line.
         """
         upright = upright_angle(angle)
         radians = math.radians(upright)
-        offset = self._height / 2.0
-        return (point[0] + math.sin(radians) * offset, point[1] - math.cos(radians) * offset), upright
+        return (
+            point[0] + math.sin(radians) * self._rise,
+            point[1] - math.cos(radians) * self._rise,
+        ), upright
 
     def on_click(self, point: Tuple[float, float], angle: Optional[float] = None) -> None:
         if angle is None:
@@ -610,7 +632,7 @@ class TextOnLineToolSession(ToolSession):
             _clear_preview_transforms(self._preview_targets)
             return
         target, upright = self._place(point, angle)
-        origin = to_scene_point(scene, self._insert)
+        origin = to_scene_point(scene, self._anchor)
         destination = to_scene_point(scene, target)
         placement = qg.QTransform()
         placement.translate(destination.x() - origin.x(), destination.y() - origin.y())
@@ -630,8 +652,8 @@ class TextOnLineToolSession(ToolSession):
             [
                 MoveCommand(
                     [self._handle],
-                    target[0] - self._insert[0],
-                    target[1] - self._insert[1],
+                    target[0] - self._anchor[0],
+                    target[1] - self._anchor[1],
                 ),
                 SetTextRotationCommand(self._handle, upright),
             ]

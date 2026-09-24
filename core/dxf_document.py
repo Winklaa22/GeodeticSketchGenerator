@@ -520,6 +520,19 @@ class DXFDocument:
     def set_text_height(self, handle: str, height: float) -> None:
         self._require_entity(handle).dxf.height = height
 
+    def text_anchor(self, handle: str) -> Tuple[float, float]:
+        """The point a text hangs from - and turns around.
+
+        Only plain baseline-left text uses its insertion point; give it any other
+        alignment and the alignment point takes over.
+        """
+        entity = self._require_entity(handle)
+        halign, valign = entity.dxf.get("halign", 0), entity.dxf.get("valign", 0)
+        point = entity.dxf.insert if halign == 0 and valign == 0 else entity.dxf.get(
+            "align_point", entity.dxf.insert
+        )
+        return point.x, point.y
+
     def get_text_rotation(self, handle: str) -> float:
         return self._require_entity(handle).dxf.rotation
 
