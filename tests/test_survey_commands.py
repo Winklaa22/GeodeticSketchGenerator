@@ -12,6 +12,7 @@ from core.config import CableOptions, GenerationConfig, HeightsOptions, PipeOpti
 from core.draw_modes import DrawMode
 from core.dxf_document import DXFDocument
 from core.exceptions import InvalidLayerNameError, NoDataError, NoSelectionError
+from core.generated import mode_from_entity
 from core.survey_draw_service import SurveyDrawService
 from models.point import Point
 
@@ -796,3 +797,81 @@ def test_whole_batch_undoes_as_one_step(service: SurveyDrawService, points, doc:
     assert doc.entity_count() == 6
     command.undo(doc)
     assert doc.entity_count() == 0
+
+
+def _points_config(diameter: float = 0.1) -> GenerationConfig:
+    return GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.POINTS,
+        points=PointsOptions(numbers_enabled=True, diameter=diameter),
+    )
+
+
+def test_generated_entities_are_stamped_with_their_mode(
+    service: SurveyDrawService, points, doc: DXFDocument
+) -> None:
+    service.build_command(points, [1, 2, 3], _points_config()).execute(doc)
+    assert {mode_from_entity(entity) for entity in doc.modelspace} == {DrawMode.POINTS.name}
+    assert len(doc.generated_handles([DrawMode.POINTS.name])) == doc.entity_count()
+
+
+def test_generating_again_replaces_its_own_output(
+    service: SurveyDrawService, points, doc: DXFDocument
+) -> None:
+    service.build_command(points, [1, 2, 3], _points_config()).execute(doc)
+    first = {entity.dxf.handle for entity in doc.modelspace}
+
+    service.build_command(points, [1, 2, 3], _points_config(diameter=0.5)).execute(doc)
+
+    assert doc.entity_count() == len(first), "the second run stacked on top of the first"
+    assert not (first & {entity.dxf.handle for entity in doc.modelspace})
+    assert {e.dxf.radius for e in doc.modelspace if e.dxftype() == "CIRCLE"} == {0.25}
+
+
+def test_generating_leaves_hand_drawn_entities_alone(
+    service: SurveyDrawService, points, doc: DXFDocument
+) -> None:
+    service.build_command(points, [1, 2, 3], _points_config()).execute(doc)
+    hand_drawn = doc.add_line((-5.0, -5.0), (-1.0, -1.0), layer="0")
+
+    service.build_command(points, [1, 2, 3], _points_config(diameter=0.5)).execute(doc)
+
+    assert doc.get_entity(hand_drawn) is not None
+    assert hand_drawn in {entity.dxf.handle for entity in doc.modelspace}
+
+
+def test_generating_one_mode_leaves_another_modes_output(
+    service: SurveyDrawService, points, doc: DXFDocument
+) -> None:
+    lines_config = GenerationConfig(layer_name="0", draw_mode=DrawMode.LINES)
+    service.build_command(points, [1, 2, 3], lines_config).execute(doc)
+    service.build_command(points, [1, 2, 3], _points_config()).execute(doc)
+    lines = set(doc.generated_handles([DrawMode.LINES.name]))
+    assert lines
+
+    service.build_command(points, [1, 2, 3], _points_config(diameter=0.5)).execute(doc)
+
+    assert set(doc.generated_handles([DrawMode.LINES.name])) == lines
+
+
+def test_undoing_a_regeneration_brings_the_previous_one_back(
+    service: SurveyDrawService, points, doc: DXFDocument
+) -> None:
+    service.build_command(points, [1, 2, 3], _points_config()).execute(doc)
+    first = {entity.dxf.handle for entity in doc.modelspace}
+
+    again = service.build_command(points, [1, 2, 3], _points_config(diameter=0.5))
+    again.execute(doc)
+    again.undo(doc)
+
+    assert {entity.dxf.handle for entity in doc.modelspace} == first
+
+
+def test_stamps_survive_a_save_and_reopen(service: SurveyDrawService, points, doc: DXFDocument) -> None:
+    service.build_command(points, [1, 2, 3], _points_config()).execute(doc)
+    reopened = DXFDocument.from_text(doc.to_text())
+    assert len(reopened.generated_handles([DrawMode.POINTS.name])) == doc.entity_count()
+
+    service.build_command(points, [1, 2, 3], _points_config(diameter=0.5)).execute(reopened)
+
+    assert reopened.entity_count() == doc.entity_count(), "reopening lost track of earlier output"

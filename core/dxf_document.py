@@ -34,6 +34,9 @@ from core.fonts import (
     is_italic_style_name,
     text_style_name,
 )
+from core.generated import GENERATED_APPID
+from core.generated import apply_metadata as apply_generated_metadata
+from core.generated import mode_from_entity as generated_mode_from_entity
 from core.multileader import (
     MULTILEADER_APPID,
     MultileaderSpec,
@@ -270,6 +273,23 @@ class DXFDocument:
             role = "text" if handle == text_handle else "arrow" if handle != route_handle else "leader"
             apply_metadata(entity, spec.identifier, role, spec)
         return handles, text_handle
+
+    def mark_generated(self, handle: str, mode: str) -> None:
+        """Record that the generator drew this entity for `mode`."""
+        if GENERATED_APPID not in self._drawing.appids:
+            self._drawing.appids.add(GENERATED_APPID)
+        apply_generated_metadata(self._require_entity(handle), mode)
+
+    def generated_handles(self, modes: Iterable[str]) -> List[str]:
+        """Everything the generator drew for any of `modes`, in drawing order."""
+        wanted = set(modes)
+        if not wanted:
+            return []
+        return [
+            entity.dxf.handle
+            for entity in self.modelspace
+            if generated_mode_from_entity(entity) in wanted
+        ]
 
     def multileader_metadata(self, handle: str):
         entity = self.get_entity(handle)
