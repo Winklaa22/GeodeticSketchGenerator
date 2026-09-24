@@ -135,6 +135,12 @@ class CadGraphicsView(qw.QGraphicsView):
 
         self.setObjectName("dxfCanvas")
         self.setFocusPolicy(qc.Qt.FocusPolicy.StrongFocus)
+        # Without this, Qt only calls mouseMoveEvent() while a button is held - every
+        # hover-driven bit of feedback (draw-tool preview, the snap indicator, the cursor
+        # change near a gizmo handle) would otherwise go stale the moment the mouse stops
+        # dragging, and only catch up again on the next click-drag.
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
         # Never AnchorUnderMouse: Qt resolves it through QCursor::pos(), which Wayland does
         # not expose - it reads back (0, 0) there, so every scale, rotate and resize would
         # re-anchor on the screen corner and throw the view sideways. Cursor-anchored wheel
