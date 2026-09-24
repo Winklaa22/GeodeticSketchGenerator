@@ -8,6 +8,8 @@ from ui.i18n import tr
 from ui.theme import Color as UiColor, ICON_MD, SPACE_XS
 from ui.theme.icons import icon_manager
 
+_EACH_TOOL_KEYS = ("rotate_each", "scale_each")
+
 
 class DxfToolbar(qw.QWidget):
 
@@ -97,6 +99,7 @@ class DxfToolbar(qw.QWidget):
         self._add_plain_button(layout, "zoom_out_tool", tr("toolbar.zoom_out_tooltip"), self.zoomOutRequested)
         layout.addStretch(1)
 
+        self._each_tools_enabled = False
         self.set_active_tool(None)
         self._erase_btn.setEnabled(False)
 
@@ -148,6 +151,21 @@ class DxfToolbar(qw.QWidget):
             btn.setChecked(checked)
             color = UiColor.ACCENT if checked else UiColor.TEXT_MUTED
             btn.setIcon(icon_manager.get(self._tool_icon_names[name], size=ICON_MD, color=color))
+        self._sync_each_tools_visibility()
 
     def set_erase_enabled(self, enabled: bool) -> None:
         self._erase_btn.setEnabled(enabled)
+
+    def set_each_tools_visible(self, visible: bool) -> None:
+        """Rotate Each/Scale Each only mean anything with several items selected -
+        with one (or none), each of them rotates/scales exactly like its "whole
+        selection" counterpart, so the separate tool has nothing to add."""
+        self._each_tools_enabled = visible
+        self._sync_each_tools_visibility()
+
+    def _sync_each_tools_visibility(self) -> None:
+        for key in _EACH_TOOL_KEYS:
+            # Starting one of these tools clears the selection that justified showing
+            # it, so keep it visible for as long as it's the active tool too - otherwise
+            # its own button would vanish out from under the user the moment they click it.
+            self._tool_buttons[key].setVisible(self._each_tools_enabled or key == self._active_key)

@@ -690,6 +690,7 @@ class DxfViewer(qw.QWidget):
         self._view.set_selected_items([])
         self._view.set_annotation_grips([])
         self._toolbar.set_erase_enabled(False)
+        self._toolbar.set_each_tools_visible(False)
         self._sync_text_options_bar()
         self._sync_detail_options_bar()
 
@@ -713,6 +714,7 @@ class DxfViewer(qw.QWidget):
         self._view.set_selected_items(items)
         self._selected_handles = list(dict.fromkeys(item.data(HANDLE_ROLE) for item in items))
         self._toolbar.set_erase_enabled(bool(items))
+        self._toolbar.set_each_tools_visible(len(self._selected_handles) > 1)
         self._sync_text_options_bar()
         self._sync_detail_options_bar()
         self._sync_multileader_grips()
