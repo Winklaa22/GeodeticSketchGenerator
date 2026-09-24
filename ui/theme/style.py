@@ -571,6 +571,19 @@ QPushButton#settingsNavBtn:checked {{
 }}
 QPushButton#settingsNavBtn:disabled {{ color: {c.TEXT_FAINT}; }}
 
+/* ---------- crash dialog ---------- */
+#crashDescription {{ color: {c.TEXT_MUTED}; font-size: {TEXT_SM}px; }}
+#crashSummary {{ color: {c.ERROR}; font-size: {TEXT_SM}px; font-weight: 600; }}
+QPlainTextEdit#crashDetails {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-radius: {RADIUS}px;
+    color: {c.TEXT_MUTED};
+    font-family: "{MONO_FONT_FAMILY}", "Consolas", monospace;
+    font-size: {TEXT_XS}px;
+    padding: {SPACE_SM}px;
+}}
+
 /* ---------- loading overlay ---------- */
 QWidget#loadingOverlay {{ background: transparent; }}
 QLabel#loadingPercent {{
