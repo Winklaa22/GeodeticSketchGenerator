@@ -449,4 +449,15 @@ TRANSLATIONS: Dict[str, str] = {
     "interpreter.point_not_specified": "Point not specified.",
     "interpreter.multileader_options": "MLEADER options: [Straight/Spline] [Closed/Open/Dot] [NoLanding] [Left/Right].",
     "viewer.detail_hint": "Detail view placed - scroll inside it to zoom, drag to pan, while it stays selected.",
+
+    # ---------- crash dialog ----------
+    "crash.title": "Unexpected error",
+    "crash.heading": "Something went wrong",
+    "crash.description": (
+        "The application hit an unexpected error and cannot continue safely. You can copy "
+        "the details below for a bug report before closing."
+    ),
+    "crash.copy_details": "Copy details",
+    "crash.copied": "Copied",
+    "crash.close_program": "Close program",
 }

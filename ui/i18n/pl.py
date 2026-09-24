@@ -449,4 +449,15 @@ TRANSLATIONS: Dict[str, str] = {
     "interpreter.point_not_specified": "Nie podano punktu.",
     "interpreter.multileader_options": "Opcje MLEADER: [Straight/Spline] [Closed/Open/Dot] [NoLanding] [Left/Right].",
     "viewer.detail_hint": "Powiekszenie wstawione - scroll w srodku zmienia zoom, przeciaganie przesuwa, dopoki jest zaznaczone.",
+
+    # ---------- crash dialog ----------
+    "crash.title": "Nieoczekiwany błąd",
+    "crash.heading": "Coś poszło nie tak",
+    "crash.description": (
+        "Aplikacja napotkała nieoczekiwany błąd i nie może bezpiecznie kontynuować działania. "
+        "Możesz skopiować poniższe szczegóły do zgłoszenia błędu przed zamknięciem."
+    ),
+    "crash.copy_details": "Kopiuj szczegóły",
+    "crash.copied": "Skopiowano",
+    "crash.close_program": "Zamknij program",
 }
