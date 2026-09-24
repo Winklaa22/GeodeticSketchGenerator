@@ -51,7 +51,6 @@ class IconManager:
         "cable_marks_section": "mdi.cable-data",
         "pipe_section": "mdi.pipe",
         "measurements_section": "mdi.ruler",
-        "selection_section": "mdi.selection",
         "sheets_section": "mdi.file-multiple-outline",
         "page_setup_section": "mdi.page-layout-body",
         "table_section": "mdi.table",

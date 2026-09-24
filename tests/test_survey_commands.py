@@ -750,11 +750,13 @@ def test_build_commands_solves_every_label_class_together_unlike_separate_build_
     points_config = GenerationConfig(
         layer_name="Numbers",
         draw_mode=DrawMode.POINTS,
+        selected_numbers=(1, 2),
         points=PointsOptions(numbers_enabled=True, font_size=0.6, diameter=0.1),
     )
     heights_config = GenerationConfig(
         layer_name="Heights",
         draw_mode=DrawMode.HEIGHTS,
+        selected_numbers=(1, 2),
         heights=HeightsOptions(font_size=0.6, frequency=1),
     )
 
@@ -773,7 +775,7 @@ def test_build_commands_solves_every_label_class_together_unlike_separate_build_
     )
 
     combined_doc = DXFDocument.new()
-    for command in service.build_commands(points, [1, 2], [points_config, heights_config]):
+    for command in service.build_commands(points, [points_config, heights_config]):
         command.execute(combined_doc)
     combined_labels = _entities_of_type(combined_doc, "TEXT")
     combined_overlaps = sum(

@@ -49,6 +49,9 @@ class GenerationConfig:
 
     layer_name: str
     draw_mode: DrawMode
+    # Which survey points this mode draws. Each mode picks its own, so one run can put
+    # markers on everything while the pipe follows only the stretch that has one.
+    selected_numbers: Tuple[int, ...] = ()
     points: PointsOptions = field(default_factory=PointsOptions)
     heights: HeightsOptions = field(default_factory=HeightsOptions)
     cable: CableOptions = field(default_factory=CableOptions)

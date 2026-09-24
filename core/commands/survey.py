@@ -51,6 +51,11 @@ def _route_segments(
     return segments
 
 
+def _pooled_selection(configs: List[GenerationConfig]) -> List[int]:
+    """Every point any of these modes draws, in order and without repeats."""
+    return list(dict.fromkeys(number for config in configs for number in config.selected_numbers))
+
+
 def _build_obstacles(points: Dict[int, Point], selected_numbers: List[int], marker_radius: float) -> Obstacles:
     markers = [(points[n].x, points[n].y, marker_radius) for n in selected_numbers if n in points]
     return Obstacles(markers=markers, segments=_route_segments(points, selected_numbers))
@@ -412,17 +417,19 @@ def get_survey_builder(draw_mode: DrawMode) -> SurveyBuilder:
 
 def build_survey_commands(
     points: Dict[int, Point],
-    selected_numbers: List[int],
     configs: List[GenerationConfig],
     layer_names: List[str],
 ) -> List[CompositeCommand]:
     if not configs:
         return []
     marker_radius = max(configs[0].points.diameter / 2.0, 0.0)
-    obstacles = _build_obstacles(points, selected_numbers, marker_radius)
+    # Labels have to dodge every point being drawn in this run, not just the ones their
+    # own mode selected, so the obstacles are pooled across the modes.
+    obstacles = _build_obstacles(points, _pooled_selection(configs), marker_radius)
 
     per_config: List[Tuple[List[Command], List[_PendingLabel]]] = []
     for config, layer in zip(configs, layer_names):
+        selected_numbers = list(config.selected_numbers)
         stage = _LABEL_STAGE_BUILDERS.get(config.draw_mode)
         if stage is not None:
             per_config.append(stage(points, selected_numbers, config, layer))

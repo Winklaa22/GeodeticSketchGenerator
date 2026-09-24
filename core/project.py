@@ -36,6 +36,7 @@ class PointsState:
     cabinet_font_size: float = 0.6
     diameter: float = 0.05
     layer_name: str = ""
+    selection: "SelectionState" = field(default_factory=lambda: SelectionState())
 
 
 @dataclass
@@ -43,6 +44,7 @@ class HeightsState:
     font_size: float = 0.6
     frequency: int = 5
     layer_name: str = ""
+    selection: "SelectionState" = field(default_factory=lambda: SelectionState())
 
 
 @dataclass
@@ -51,18 +53,21 @@ class CableState:
     frequency: int = 5
     marks_text: str = "eN"
     layer_name: str = ""
+    selection: "SelectionState" = field(default_factory=lambda: SelectionState())
 
 
 @dataclass
 class PipeState:
     width: float = 0.16
     layer_name: str = ""
+    selection: "SelectionState" = field(default_factory=lambda: SelectionState())
 
 
 @dataclass
 class LayerOnlyState:
 
     layer_name: str = ""
+    selection: "SelectionState" = field(default_factory=lambda: SelectionState())
 
 
 @dataclass
@@ -70,6 +75,7 @@ class MeasurementsState:
     font_size: float = 0.6
     offset: float = 0.3
     layer_name: str = ""
+    selection: "SelectionState" = field(default_factory=lambda: SelectionState())
 
 
 _DEFAULT_PLOT = PlotOptions()
@@ -311,7 +317,6 @@ class ProjectState:
     cable: CableState = field(default_factory=CableState)
     pipe: PipeState = field(default_factory=PipeState)
     measurements: MeasurementsState = field(default_factory=MeasurementsState)
-    selection: SelectionState = field(default_factory=SelectionState)
     layer: LayerState = field(default_factory=LayerState)
     layout: LayoutState = field(default_factory=LayoutState)
     table_template: TableTemplateState = field(default_factory=TableTemplateState)
@@ -353,15 +358,14 @@ def load_project(path: str) -> ProjectState:
             dxf_content=str(dxf_content) if dxf_content is not None else None,
             draw_modes=[str(mode) for mode in draw_modes] or ["plines"],
             delimiter=DelimiterState(**(payload.get("delimiter") or {})),
-            points=PointsState(**(payload.get("points") or {})),
-            lines=LayerOnlyState(**(payload.get("lines") or {})),
-            plines=LayerOnlyState(**(payload.get("plines") or {})),
-            poly3d=LayerOnlyState(**(payload.get("poly3d") or {})),
-            heights=HeightsState(**(payload.get("heights") or {})),
-            cable=CableState(**(payload.get("cable") or {})),
-            pipe=PipeState(**(payload.get("pipe") or {})),
-            measurements=MeasurementsState(**(payload.get("measurements") or {})),
-            selection=SelectionState(**(payload.get("selection") or {})),
+            points=_load_mode_state(PointsState, payload, "points"),
+            lines=_load_mode_state(LayerOnlyState, payload, "lines"),
+            plines=_load_mode_state(LayerOnlyState, payload, "plines"),
+            poly3d=_load_mode_state(LayerOnlyState, payload, "poly3d"),
+            heights=_load_mode_state(HeightsState, payload, "heights"),
+            cable=_load_mode_state(CableState, payload, "cable"),
+            pipe=_load_mode_state(PipeState, payload, "pipe"),
+            measurements=_load_mode_state(MeasurementsState, payload, "measurements"),
             layer=_load_layer_state(payload.get("layer") or {}),
             layout=_load_layout_state(payload.get("layout") or {}),
             table_template=table_template_state_from_payload(payload.get("table_template") or {}),
@@ -375,6 +379,17 @@ def load_project(path: str) -> ProjectState:
         )
     except (TypeError, ValueError) as exc:
         raise ProjectFileError(f"Not a valid project file: {exc}") from exc
+
+
+def _load_mode_state(state_cls: Any, payload: Dict[str, Any], field_name: str) -> Any:
+    """One mode's saved settings, including the points it draws.
+
+    Projects written before the selection moved into each mode carry a single one for
+    the whole drawing; it becomes every mode's own, which is what those projects meant.
+    """
+    mode_payload = dict(payload.get(field_name) or {})
+    selection = mode_payload.pop("selection", None) or payload.get("selection") or {}
+    return state_cls(**mode_payload, selection=SelectionState(**selection))
 
 
 def _load_layer_state(layer_payload: Dict[str, Any]) -> LayerState:
