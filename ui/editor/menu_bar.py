@@ -12,7 +12,7 @@ from ui.recent_projects import list_recent_projects
 from ui.theme import Color, ICON_SM, SPACE_MD, SPACE_SM
 from ui.theme.assets import ICON_PATH
 from ui.theme.icons import icon_manager
-from ui.widgets import make_button
+from ui.widgets import make_button, pin_menu_to_screen
 
 LOGO_SIZE = 24
 
@@ -71,6 +71,7 @@ class MenuBar(QWidget):
         button.setIcon(icon_manager.get("menu_chevron", size=ICON_SM, color=Color.TEXT))
         menu = QMenu(button)
         menu.setObjectName(object_name)
+        menu.aboutToShow.connect(lambda: pin_menu_to_screen(menu, button))
         button.setMenu(menu)
         return button, menu
 

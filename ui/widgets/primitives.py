@@ -4,7 +4,7 @@ from typing import Optional
 
 from PyQt6.QtCore import QLocale, QSize, Qt
 from PyQt6.QtGui import QDoubleValidator
-from PyQt6.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QLineEdit, QMenu, QPushButton, QVBoxLayout, QWidget
 
 from ui.theme import Color, ICON_SM, SPACE_LG, SPACE_XS
 from ui.theme.icons import icon_manager
@@ -32,6 +32,24 @@ def decimal_validator(bottom: float, top: float, decimals: int) -> QDoubleValida
     validator = QDoubleValidator(bottom, top, decimals)
     validator.setLocale(QLocale(QLocale.Language.C))
     return validator
+
+
+def pin_menu_to_screen(menu: QMenu, anchor: QWidget) -> None:
+    """Keep a popup menu on the monitor its anchor widget is actually on.
+
+    Qt otherwise resolves a popup's screen from its computed global position, and on a
+    multi-monitor setup with mismatched DPI scaling that position can land a pixel or two
+    into the neighbouring monitor's virtual-desktop range - which sends the whole menu
+    there instead of dropping it under the button. Call this before the menu becomes
+    visible (on QMenu.aboutToShow, or right before exec()/popup()).
+    """
+    screen = anchor.screen()
+    if screen is None:
+        return
+    menu.winId()
+    handle = menu.windowHandle()
+    if handle is not None:
+        handle.setScreen(screen)
 
 
 def make_button(text: str, variant: str, slot=None) -> QPushButton:
