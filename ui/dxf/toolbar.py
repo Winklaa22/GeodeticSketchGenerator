@@ -9,12 +9,14 @@ from ui.theme import Color as UiColor, ICON_MD, SPACE_XS
 from ui.theme.icons import icon_manager
 
 _EACH_TOOL_KEYS = ("rotate_each", "scale_each")
+_TEXT_TOOL_KEYS = ("text_on_line",)
 
 
 class DxfToolbar(qw.QWidget):
 
     pointRequested = qc.pyqtSignal()
     textRequested = qc.pyqtSignal()
+    textOnLineRequested = qc.pyqtSignal()
     lineRequested = qc.pyqtSignal()
     circleRequested = qc.pyqtSignal()
     pipeRequested = qc.pyqtSignal()
@@ -43,6 +45,7 @@ class DxfToolbar(qw.QWidget):
         self._tool_signals = {
             "point": self.pointRequested,
             "text": self.textRequested,
+            "text_on_line": self.textOnLineRequested,
             "line": self.lineRequested,
             "circle": self.circleRequested,
             "pipe": self.pipeRequested,
@@ -58,6 +61,7 @@ class DxfToolbar(qw.QWidget):
             "select": "select_tool",
             "point": "point_tool",
             "text": "text_tool",
+            "text_on_line": "text_on_line_tool",
             "line": "line_tool",
             "circle": "circle_tool",
             "pipe": "pipe_tool",
@@ -77,6 +81,9 @@ class DxfToolbar(qw.QWidget):
         layout.addWidget(self._separator())
         self._add_tool_button(layout, "point", "point_tool", tr("toolbar.point_tooltip"))
         self._add_tool_button(layout, "text", "text_tool", tr("toolbar.text_tooltip"))
+        self._add_tool_button(
+            layout, "text_on_line", "text_on_line_tool", tr("toolbar.text_on_line_tooltip")
+        )
         self._add_tool_button(layout, "line", "line_tool", tr("toolbar.line_tooltip"))
         self._add_tool_button(layout, "circle", "circle_tool", tr("toolbar.circle_tooltip"))
         self._add_tool_button(layout, "pipe", "pipe_tool", tr("toolbar.pipe_tooltip"))
@@ -100,6 +107,7 @@ class DxfToolbar(qw.QWidget):
         layout.addStretch(1)
 
         self._each_tools_enabled = False
+        self._text_tools_enabled = False
         self.set_active_tool(None)
         self._erase_btn.setEnabled(False)
 
@@ -163,9 +171,17 @@ class DxfToolbar(qw.QWidget):
         self._each_tools_enabled = visible
         self._sync_each_tools_visibility()
 
+    def set_text_tools_visible(self, visible: bool) -> None:
+        """Text on Line works on the text that is already selected, so it has nothing
+        to act on until one is."""
+        self._text_tools_enabled = visible
+        self._sync_each_tools_visibility()
+
     def _sync_each_tools_visibility(self) -> None:
+        # Starting one of these tools clears the selection that justified showing
+        # it, so keep it visible for as long as it's the active tool too - otherwise
+        # its own button would vanish out from under the user the moment they click it.
         for key in _EACH_TOOL_KEYS:
-            # Starting one of these tools clears the selection that justified showing
-            # it, so keep it visible for as long as it's the active tool too - otherwise
-            # its own button would vanish out from under the user the moment they click it.
             self._tool_buttons[key].setVisible(self._each_tools_enabled or key == self._active_key)
+        for key in _TEXT_TOOL_KEYS:
+            self._tool_buttons[key].setVisible(self._text_tools_enabled or key == self._active_key)

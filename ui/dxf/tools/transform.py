@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import List, Optional, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
@@ -7,6 +8,7 @@ from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 from core.commands.base import Command as EditCommand
 from core.commands.composite import CompositeCommand
 from core.commands.edit import MoveCommand, RotateCommand, ScaleCommand
+from core.commands.text import SetTextRotationCommand
 from core.dxf_document import DXFDocument
 from core.transform_gizmo import (
     Box,
@@ -542,5 +544,99 @@ class ScaleEachToolSession(ToolSession):
         if self._preview_item is not None:
             scene.removeItem(self._preview_item)
             self._preview_item = None
+        _clear_preview_transforms(self._preview_targets)
+        self._preview_targets = None
+
+
+def upright_angle(angle_deg: float) -> float:
+    """A direction angle turned around when it would leave text reading upside down."""
+    angle_deg %= 360
+    if angle_deg < 0:
+        angle_deg += 360
+    if 90 < angle_deg < 270:
+        angle_deg -= 180
+    return angle_deg
+
+
+class TextOnLineToolSession(ToolSession):
+    """Drop the selected text onto a line, turned to run along it.
+
+    The view feeds this the point under the cursor on whatever line, polyline or
+    curve is there, plus that spot's direction; the real text item follows the
+    cursor as the preview, so what is on screen is what the click commits.
+    """
+
+    wants_line_hover = True
+
+    def __init__(
+        self, handle: str, insert: Tuple[float, float], rotation: float, height: float
+    ) -> None:
+        super().__init__()
+        self.prompt = tr("tool.specify_text_on_line_point")
+        self.ignore_handle = handle
+        self._handle = handle
+        self._insert = insert
+        self._rotation = rotation
+        self._height = height
+        self._placement: Optional[Tuple[Tuple[float, float], float]] = None
+        self._preview_targets: Optional[List[qw.QGraphicsItem]] = None
+
+    def _place(self, point: Tuple[float, float], angle: float) -> Tuple[Tuple[float, float], float]:
+        """Where the baseline has to start for the line to run through the text's waist.
+
+        Text sits on its baseline, so an insertion point dropped straight on the line
+        would leave the whole label hanging above it; half a cap height along the text's
+        own "down" direction puts the line through the middle instead.
+        """
+        upright = upright_angle(angle)
+        radians = math.radians(upright)
+        offset = self._height / 2.0
+        return (point[0] + math.sin(radians) * offset, point[1] - math.cos(radians) * offset), upright
+
+    def on_click(self, point: Tuple[float, float], angle: Optional[float] = None) -> None:
+        if angle is None:
+            return
+        self._placement = self._place(point, angle)
+
+    def on_text(self, text: str) -> Optional[str]:
+        return tr("tool.click_line_first")
+
+    def update_preview(
+        self, point: Tuple[float, float], scene: qw.QGraphicsScene, angle: Optional[float] = None
+    ) -> None:
+        if self._preview_targets is None:
+            self._preview_targets = _preview_targets(scene, [self._handle])
+        if angle is None:
+            _clear_preview_transforms(self._preview_targets)
+            return
+        target, upright = self._place(point, angle)
+        origin = to_scene_point(scene, self._insert)
+        destination = to_scene_point(scene, target)
+        placement = qg.QTransform()
+        placement.translate(destination.x() - origin.x(), destination.y() - origin.y())
+        placement.translate(origin.x(), origin.y())
+        placement.rotate(upright - self._rotation)
+        placement.translate(-origin.x(), -origin.y())
+        for item in self._preview_targets:
+            item.setTransform(placement)
+
+    def is_done(self) -> bool:
+        return self._placement is not None
+
+    def build_command(self, doc: DXFDocument) -> EditCommand:
+        assert self._placement is not None
+        target, upright = self._placement
+        return CompositeCommand(
+            [
+                MoveCommand(
+                    [self._handle],
+                    target[0] - self._insert[0],
+                    target[1] - self._insert[1],
+                ),
+                SetTextRotationCommand(self._handle, upright),
+            ]
+        )
+
+    def cleanup(self, scene: qw.QGraphicsScene) -> None:
         _clear_preview_transforms(self._preview_targets)
         self._preview_targets = None
