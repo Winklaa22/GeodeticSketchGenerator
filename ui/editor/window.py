@@ -24,7 +24,7 @@ from core.session import AppState, EditorSession
 from core.sheets import SheetSet
 from core.survey_draw_service import SurveyDrawService
 from core.table_template import default_template
-from core.validation import ensure_draw_modes, ensure_has_data, ensure_selection
+from core.validation import ensure_draw_modes, ensure_has_data
 from ui.app_identity import app_settings
 from ui.dxf.viewer import DxfViewer
 from ui.editor.document_controller import DocumentController
@@ -291,18 +291,16 @@ class MainWindow(QMainWindow):
 
     def _build_draw_command(self) -> Command:
         ensure_has_data(self.session.data, self.session.file_path)
-        selected_numbers = self.panel.selection_tab.get_selected_numbers(self.session.data)
-        ensure_selection(selected_numbers)
         draw_modes = self.panel.draw_tab.draw_modes
         ensure_draw_modes(draw_modes)
         font_id, font_italic, font_lineweight_mm = self.fonts_panel.get_state()
         configs = [
             self.panel.build_generation_config(
-                mode, self.session.quantum, font_id, font_italic, font_lineweight_mm
+                mode, self.session.data, self.session.quantum, font_id, font_italic, font_lineweight_mm
             )
             for mode in draw_modes
         ]
-        commands = self.survey_draw_service.build_commands(self.session.data, selected_numbers, configs)
+        commands = self.survey_draw_service.build_commands(self.session.data, configs)
         return commands[0] if len(commands) == 1 else CompositeCommand(commands)
 
     def apply_to_dxf(self) -> None:

@@ -155,7 +155,11 @@ SPEC_BY_DRAW_MODE: Dict[DrawMode, ModeSpec] = {spec.draw_mode: spec for spec in 
 
 
 def state_from_tab(spec: ModeSpec, tab: LayeredOptionsTab) -> Any:
-    return spec.state_cls(**asdict(tab.get_options()), layer_name=tab.get_layer_name())
+    return spec.state_cls(
+        **asdict(tab.get_options()),
+        layer_name=tab.get_layer_name(),
+        selection=tab.get_selection_state(),
+    )
 
 
 def options_from_state(spec: ModeSpec, state: Any) -> Any:

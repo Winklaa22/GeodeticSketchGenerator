@@ -38,11 +38,16 @@ def test_save_then_load_round_trips_every_field(tmp_path) -> None:
         dxf_content="0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
         draw_modes=["lines", "heights"],
         delimiter=DelimiterState(mode="tab", swap_xy=False, cabinet_mode=True),
-        points=PointsState(numbers_enabled=True, font_size=0.8, diameter=0.1, layer_name="RURA"),
-        heights=HeightsState(font_size=0.5, frequency=3, layer_name="RZEDNE"),
+        points=PointsState(
+            numbers_enabled=True, font_size=0.8, diameter=0.1, layer_name="RURA",
+            selection=SelectionState(mode="range", separate_text="1,2,3", range_text="1-10"),
+        ),
+        heights=HeightsState(
+            font_size=0.5, frequency=3, layer_name="RZEDNE",
+            selection=SelectionState(mode="separately", separate_text="4,5"),
+        ),
         cable=CableState(font_size=0.7, frequency=2, marks_text="CBL"),
         pipe=PipeState(width=0.2),
-        selection=SelectionState(mode="range", separate_text="1,2,3", range_text="1-10"),
         layer=LayerState(
             layers=[LayerDefState(name="RURA", rgb=(200, 30, 40)), LayerDefState(name="RZEDNE", rgb=(30, 200, 40))],
             default_name="RURA",

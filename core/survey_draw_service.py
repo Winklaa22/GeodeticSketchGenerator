@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Dict, List
 
 from core.commands.base import Command
@@ -16,15 +17,17 @@ class SurveyDrawService:
     def build_command(
         self, points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig
     ) -> Command:
-        return CompositeCommand(self.build_commands(points, selected_numbers, [config]))
+        """One mode, drawing the points given here - the selection every mode carries itself."""
+        config = replace(config, selected_numbers=tuple(selected_numbers))
+        return CompositeCommand(self.build_commands(points, [config]))
 
-    def build_commands(
-        self, points: Dict[int, Point], selected_numbers: List[int], configs: List[GenerationConfig]
-    ) -> List[Command]:
+    def build_commands(self, points: Dict[int, Point], configs: List[GenerationConfig]) -> List[Command]:
         ensure_has_data(points)
         layer_names = [resolve_layer_name(config.layer_name) for config in configs]
-        ensure_selection(selected_numbers)
-        draw_commands = build_survey_commands(points, selected_numbers, configs, layer_names)
+        # A run is worth making as long as some mode has points to draw; a mode that
+        # selected none simply contributes nothing.
+        ensure_selection([number for config in configs for number in config.selected_numbers])
+        draw_commands = build_survey_commands(points, configs, layer_names)
 
         # Whatever an earlier run left for these modes goes first, so that generating
         # again updates the sketch instead of drawing a second copy over it. Modes not

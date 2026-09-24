@@ -8,12 +8,12 @@ from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 from core.config import GenerationConfig
 from core.draw_modes import DrawMode
 from core.fonts import DEFAULT_FONT_ID
+from models.point import Point
 from ui.editor.mode_registry import MODE_SPECS, SPEC_BY_DRAW_MODE
 from ui.editor.tabs.base import LayeredOptionsTab, SectionWidget
 from ui.editor.tabs.delimiter_tab import DelimiterTab
 from ui.editor.tabs.draw_tab import DrawTab
 from ui.editor.tabs.layer_tab import LayerTab
-from ui.editor.tabs.selection_tab import SelectionTab
 from ui.i18n import tr
 from ui.theme import SPACE_LG
 from ui.widgets import Accordion, AccordionSection, DropZone, FileCard
@@ -51,7 +51,6 @@ class SectionsPanel(QWidget):
         self.delimiter_tab = DelimiterTab()
         self.draw_tab = DrawTab()
         self.layer_tab = LayerTab(settings)
-        self.selection_tab = SelectionTab()
         self.mode_tabs: Dict[str, LayeredOptionsTab] = {
             spec.key: spec.tab_factory() for spec in MODE_SPECS
         }
@@ -71,7 +70,6 @@ class SectionsPanel(QWidget):
         for spec in MODE_SPECS:
             section = self._add_section(spec.icon, spec.title, self.mode_tabs[spec.key])
             self._mode_section_keys[section] = spec.key
-        self._add_section("selection_section", tr("sections.selection"), self.selection_tab)
 
         self.sync_layer_dropdowns()
         self._wire_signals()
@@ -97,7 +95,6 @@ class SectionsPanel(QWidget):
         self.delimiter_tab.swap_xy_toggled.connect(lambda _enabled: self.option_changed.emit())
         self.delimiter_tab.delimiter_changed.connect(self.delimiter_changed.emit)
         self.draw_tab.modes_changed.connect(self.option_changed.emit)
-        self.selection_tab.selection_changed.connect(self.option_changed.emit)
         self.layer_tab.layers_changed.connect(self._on_layers_changed)
         for tab in self.mode_tabs.values():
             tab.option_changed.connect(self.option_changed.emit)
@@ -148,12 +145,14 @@ class SectionsPanel(QWidget):
     def build_generation_config(
         self,
         draw_mode: DrawMode,
+        data: Dict[int, Point],
         quantum: float = 1.0,
         font_id: str = DEFAULT_FONT_ID,
         font_italic: bool = False,
         font_lineweight_mm: Optional[float] = None,
     ) -> GenerationConfig:
         layer_name = self.layer_name_for_mode(draw_mode)
+        tab = self.tab_for_mode(draw_mode)
         options = {
             spec.config_field: self.mode_tabs[spec.key].get_options()
             for spec in MODE_SPECS
@@ -162,6 +161,7 @@ class SectionsPanel(QWidget):
         return GenerationConfig(
             layer_name=layer_name,
             draw_mode=draw_mode,
+            selected_numbers=tuple(tab.get_selected_numbers(data)) if tab is not None else (),
             layer_rgb=self.layer_tab.get_rgb(layer_name),
             quantum=quantum,
             font_id=font_id,

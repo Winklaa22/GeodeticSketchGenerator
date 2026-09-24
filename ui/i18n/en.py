@@ -98,7 +98,6 @@ TRANSLATIONS: Dict[str, str] = {
     "sections.point_file": "Point File",
     "sections.drawing_mode": "Drawing Mode",
     "sections.font": "Font",
-    "sections.selection": "Selection",
 
     # ---------- editor: status bar ----------
     "status.empty": "Empty",
@@ -294,10 +293,8 @@ TRANSLATIONS: Dict[str, str] = {
     "tabs.selection_separately": "Separately…",
     "tabs.selection_range": "In range…",
     "tabs.select_points_field": "Select points",
-    "tabs.select_points_title": "Select Points",
-    "tabs.select_points_label": "Enter points (e.g. 1,2,3):",
-    "tabs.select_range_title": "Select Range",
-    "tabs.select_range_label": "Enter range (e.g. 1-7):",
+    "tabs.select_points_label": "Enter points (e.g. 1,2,3)",
+    "tabs.select_range_label": "Enter range (e.g. 1-7)",
 
     # ---------- dxf: command line ----------
     "command_line.prompt": "Command:",

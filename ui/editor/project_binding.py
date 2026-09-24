@@ -8,7 +8,6 @@ from core.project import (
     LayerState,
     LayoutState,
     ProjectState,
-    SelectionState,
     TableTemplateState,
 )
 from ui.editor.fonts_panel import FontsPanel
@@ -27,7 +26,6 @@ def collect_project_state(
     layout: LayoutState,
     table_template: TableTemplateState,
 ) -> ProjectState:
-    separate_text, range_text = panel.selection_tab.get_expression_state()
     layers, default_name = panel.layer_tab.get_state()
     font_id, font_italic, font_lineweight_mm = fonts_panel.get_state()
     mode_states = {
@@ -42,9 +40,6 @@ def collect_project_state(
         delimiter=DelimiterState(
             mode=panel.delimiter_tab.gap_key,
             swap_xy=panel.delimiter_tab.swap_xy_enabled,
-        ),
-        selection=SelectionState(
-            mode=panel.selection_tab.mode_key, separate_text=separate_text, range_text=range_text
         ),
         layer=LayerState(
             layers=[LayerDefState(name=layer_name, rgb=rgb) for layer_name, rgb in layers],
@@ -72,6 +67,4 @@ def apply_project_state(panel: SectionsPanel, fonts_panel: FontsPanel, state: Pr
         tab = panel.mode_tabs[spec.key]
         tab.set_options(options_from_state(spec, mode_state))
         tab.set_layer_name(mode_state.layer_name)
-    panel.selection_tab.set_state(
-        state.selection.mode, state.selection.separate_text, state.selection.range_text
-    )
+        tab.set_selection_state(mode_state.selection)
