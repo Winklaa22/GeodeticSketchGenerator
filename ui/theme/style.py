@@ -193,6 +193,31 @@ QToolButton#dxfToolBtn:checked {{
 QToolButton#dxfToolBtn:disabled {{ color: {c.TEXT_FAINT}; }}
 QFrame#dxfToolbarSeparator {{ background: {c.BORDER}; max-width: 1px; margin: {SPACE_XS}px {SPACE_XS}px; }}
 
+/* ---------- blocks palette ---------- */
+QToolButton#blockTile {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-radius: {RADIUS_SM}px;
+    padding: {SPACE_XS}px;
+    color: {c.TEXT_MUTED};
+    font-size: {TEXT_XS}px;
+}}
+QToolButton#blockTile:hover {{ border-color: {c.BORDER_STRONG}; color: {c.TEXT}; }}
+QToolButton#blockTile:checked {{
+    border: 1px solid {c.ACCENT_BORDER};
+    background: {c.ACCENT_SOFT};
+    color: {c.TEXT};
+}}
+QLabel#blockPreview {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-radius: {RADIUS_SM}px;
+    color: {c.TEXT_FAINT};
+    font-size: {TEXT_XS}px;
+}}
+QLabel#blockPanelEmpty {{ color: {c.TEXT_FAINT}; font-size: {TEXT_XS}px; padding: {SPACE_SM}px; }}
+QLabel#blockPanelName {{ color: {c.TEXT}; font-size: {TEXT_SM}px; font-weight: 600; }}
+
 /* ---------- layers panel ---------- */
 #layerPanelTitle {{ color: {c.TEXT_MUTED}; font-weight: 600; font-size: {TEXT_SM}px; }}
 QFrame#layerRow {{

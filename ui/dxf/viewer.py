@@ -29,6 +29,7 @@ from core.commands.text import (
     SetTextHeightCommand,
     SetTextRotationCommand,
 )
+from core.blocks import file_is_paper_sized, read_block_file
 from core.dxf_document import DXFDocument
 from core.plot import (
     ANNOTATION_TEXT_MM,
@@ -59,6 +60,9 @@ from ui.dxf.compass import RotationCompass
 from ui.dxf.graphics_view import CadGraphicsView
 from ui.dxf.interpreter import DxfCommandInterpreter
 from ui.dxf.items import DETAIL_CONTENT_ROLE, HANDLE_ROLE, PointItem
+from ui.dxf.block_panel import BlockEntry, BlockPanel
+from ui.dxf.block_render import Shape
+from ui.dxf.block_render import outline as block_outline
 from ui.dxf.layer_panel import LayerPanel
 from ui.dxf.page_frame import page_frame_for
 from ui.dxf.pdf_export import PlotJob, export_sheets
@@ -70,6 +74,7 @@ from ui.dxf.tools import (
     CircleToolSession,
     DetailArrowToolSession,
     DetailViewToolSession,
+    InsertBlockToolSession,
     LineToolSession,
     MoveToolSession,
     MultileaderToolSession,
@@ -86,7 +91,9 @@ from ui.dxf.tools import (
 )
 from ui.i18n import tr
 from ui.loading_overlay import ProgressFn
+from ui.app_identity import user_blocks_dir
 from ui.theme import Color as UiColor, SPACE_MD, SPACE_SM, SPACE_XS
+from ui.theme.assets import BLOCKS_DIR
 from ui.theme.icons import icon_manager
 
 
@@ -199,6 +206,7 @@ class DxfViewer(qw.QWidget):
 
         outer.addWidget(canvas_column, 1)
         self._layer_panel = LayerPanel()
+        self._block_panel = BlockPanel([BLOCKS_DIR], user_blocks_dir())
 
     @staticmethod
     def _build_empty_page() -> qw.QWidget:
@@ -245,6 +253,8 @@ class DxfViewer(qw.QWidget):
         self._text_options_bar.fontChanged.connect(self._on_text_font_changed)
 
         self._detail_options_bar.modeChanged.connect(self._on_detail_mode_changed)
+
+        self._block_panel.insertRequested.connect(self._on_block_insert_requested)
 
         self._command_line.commandEntered.connect(self._on_command_entered)
         self._command_line.undoRequested.connect(lambda: self._echo(self.undo()))
@@ -336,6 +346,10 @@ class DxfViewer(qw.QWidget):
     @property
     def layer_panel(self) -> LayerPanel:
         return self._layer_panel
+
+    @property
+    def block_panel(self) -> BlockPanel:
+        return self._block_panel
 
     @property
     def sheet_tabs(self) -> SheetTabBar:
@@ -606,6 +620,7 @@ class DxfViewer(qw.QWidget):
         self._imported_layer_names = None
         self._layer_panel.refresh([])
         self._layer_panel.set_prune_available(False)
+        self._block_panel.set_document(None)
         self.show_empty()
 
     def load_file(self, file_path: str) -> Tuple[bool, str]:
@@ -793,6 +808,33 @@ class DxfViewer(qw.QWidget):
             self._toolbar.set_active_tool(None)
             return
         self.start_tool(ScaleEachToolSession(list(self._selected_handles)))
+
+    def _on_block_insert_requested(
+        self, entry: BlockEntry, shapes: List[Shape], rotation: float, scale: float
+    ) -> None:
+        doc = self.ensure_document()
+        self.start_tool(
+            InsertBlockToolSession(
+                entry.name,
+                block_outline(shapes),
+                rotation,
+                scale * self._natural_block_scale(doc, entry),
+                entry.source_path,
+            )
+        )
+
+    def _natural_block_scale(self, doc: DXFDocument, entry: BlockEntry) -> float:
+        """How big a block goes in at scale 1: a paper symbol at its millimetre size on the
+        sheet, anything else at its true size in the drawing."""
+        if doc.has_block(entry.name):
+            paper_sized = doc.block_is_paper_sized(entry.name)
+        elif entry.source_path is not None:
+            paper_sized = file_is_paper_sized(read_block_file(entry.source_path))
+        else:
+            paper_sized = False
+        if not paper_sized:
+            return 1.0
+        return units_per_mm(self._layout_options or PlotOptions())
 
     def start_text_on_line_tool(self) -> None:
         handle = self._selected_text_handle()
@@ -1203,6 +1245,7 @@ class DxfViewer(qw.QWidget):
         self.layer_count = self._doc.layer_count()
         self._layer_panel.refresh(self._doc.iter_layers())
         self._layer_panel.set_prune_available(self._imported_layer_names is not None)
+        self._block_panel.set_document(self._doc)
         self._report_loading(self._loading_hi)
         self.documentChanged.emit()
 

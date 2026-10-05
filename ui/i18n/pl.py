@@ -110,6 +110,7 @@ TRANSLATIONS: Dict[str, str] = {
 
     # ---------- editor: main window ----------
     "window.tab_layers": "Warstwy",
+    "window.tab_blocks": "Bloki",
     "window.tab_layout": "Układ",
     "window.tab_fonts": "Czcionka",
     "window.file_points_status": "{file_name} · {point_count} punktów",
@@ -313,6 +314,27 @@ TRANSLATIONS: Dict[str, str] = {
     "layer_panel.visibility_tooltip": "Pokaż/ukryj tę warstwę",
     "layer_panel.color_dialog_title": "Kolor warstwy",
     "layer_panel.title": "Warstwy",
+
+    # ---------- dxf: blocks palette ----------
+    "block_panel.tab_library": "Biblioteka",
+    "block_panel.tab_drawing": "Bieżący rysunek",
+    "block_panel.search": "Szukaj",
+    "block_panel.add_tooltip": "Dodaj blok do biblioteki z pliku DXF…",
+    "block_panel.add_title": "Dodaj blok z pliku DXF",
+    "block_panel.add_filter": "Pliki DXF (*.dxf)",
+    "block_panel.add_failed": "Nie udało się dodać bloku: {error}",
+    "block_panel.properties": "Właściwości bloku",
+    "block_panel.pick_hint": "Wybierz blok, aby zobaczyć podgląd",
+    "block_panel.rotation": "Obrót (°)",
+    "block_panel.scale": "Skala",
+    "block_panel.scale_tooltip": (
+        "1 = rozmiar naturalny: symbole rysowane w milimetrach dopasowują się do skali arkusza, "
+        "pozostałe bloki wchodzą w rzeczywistym rozmiarze"
+    ),
+    "block_panel.insert": "Wstaw",
+    "block_panel.no_match": "Żaden blok nie pasuje do wyszukiwania",
+    "block_panel.drawing_empty": "Ten rysunek nie zawiera bloków",
+    "block_panel.library_empty": "Biblioteka jest pusta - dodaj blok przyciskiem +",
     "layer_panel.prune_tooltip_available": (
         "Usuń zaimportowane warstwy niezaczynające się od 994, 211 lub 219\n"
         "(warstwy dodane po imporcie nigdy nie są ruszane)"
@@ -375,6 +397,7 @@ TRANSLATIONS: Dict[str, str] = {
     "tool.specify_point": "Podaj punkt: ",
     "tool.specify_text_point": "Podaj punkt wstawienia tekstu: ",
     "tool.specify_text_on_line_point": "Wskaż miejsce na linii i kliknij, aby ustawić tam tekst: ",
+    "tool.specify_block_insertion_point": "Wskaż punkt wstawienia bloku „{name}”: ",
     "tool.click_line_first": "Wskaż kursorem miejsce na linii i kliknij.",
     "tool.enter_text": "Wpisz tekst: ",
     "tool.text_empty": "Tekst nie może być pusty.",

@@ -112,6 +112,7 @@ class MainWindow(QMainWindow):
             [
                 ("point_file", tr("sections.point_file"), self.panel),
                 ("layers", tr("window.tab_layers"), self.dxf_viewer.layer_panel),
+                ("blocks", tr("window.tab_blocks"), self.dxf_viewer.block_panel),
                 ("layout", tr("window.tab_layout"), self.layout_panel),
                 ("fonts", tr("window.tab_fonts"), self.fonts_panel),
             ]

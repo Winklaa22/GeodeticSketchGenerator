@@ -57,6 +57,15 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
   entity, in the same shape as `multileader.py`/`detail_view.py` metadata. It lives in the drawing
   rather than in memory because it has to outlive both the undo history and a project save/reopen.
   `DXFDocument.mark_generated()` writes it, `generated_handles()` reads it back.
+- `blocks.py` — the block library: one DXF file per block, its modelspace being the block and its
+  `$INSBASE` the base point (what AutoCAD's WBLOCK writes), the file name being the block's name.
+  `library_blocks(dirs)` lists them (earlier folders win a name clash, so the shipped ones in
+  `assets/blocks/` can't be shadowed by the user's own, kept under `ui/app_identity.py::user_blocks_dir`).
+  `DXFDocument.import_block()` defines one in a drawing (an existing definition wins, as in AutoCAD)
+  and `commands/blocks.py::InsertBlockCommand` places a reference. A block drawn in millimetres
+  (`$INSUNITS` 4) is a paper symbol and goes in scaled by the sheet (`units_per_mm`); anything else
+  goes in at true size. `assets/blocks/Strzałka północy.dxf` is the north arrow, traced from a
+  real sketch - keep its geometry as is (`tests/test_blocks.py` pins its shape).
 - `label_placement.py` — `solve_label_positions(labels, obstacles, marker_radius)` is the label
   coordinate solver: given every pending `LabelRequest` (across all label classes) plus
   `Obstacles` (marker circles, route segments) it returns a centre point and a hard-collision
@@ -95,6 +104,12 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
   `backend.py::QtSceneBackend`, and hosts the AutoCAD-style command line
   (`dxf/command_line.py` + `dxf/interpreter.py::DxfCommandInterpreter`, e.g. `LINE`, `MOVE`,
   `ROTATE`, `ZOOM`) alongside click-driven tool sessions (`dxf/tools/`) for the same operations.
+- `dxf/block_panel.py::BlockPanel` — the Blocks palette (a left-column page, owned by the viewer
+  like the layer panel): library blocks and the open drawing's own blocks as thumbnails, with
+  rotation/scale, starting `dxf/tools/blocks.py::InsertBlockToolSession`. Thumbnails and the
+  insertion ghost come from `dxf/block_render.py`, which draws a block through the same ezdxf
+  front end as the canvas. A placed block is one `INSERT` - selection, move, rotate, scale,
+  copy and delete all work on it unchanged, since the backend stamps its items with the INSERT's handle.
 - `dxf/pdf_export.py` — renders sheets (page frame + title-block table) to PDF using the plot
   options from `core/plot.py`.
 - `theme/` — design tokens (`tokens.py`), a qtawesome-based `IconManager`, and the app stylesheet;

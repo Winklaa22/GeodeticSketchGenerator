@@ -13,6 +13,7 @@ class IconManager:
         "layer": "fa5s.layer-group",
         "layer_add": "mdi.layers-plus",
         "layer_remove": "mdi.layers-off",
+        "block_add": "mdi.plus",
         "point": "msc.debug-breakpoint-disabled",
         "new_dfx_file_icon": "ei.file-new",
         "change_dxf_file_icon": "ei.file-edit",
