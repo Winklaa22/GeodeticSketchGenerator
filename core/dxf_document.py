@@ -10,6 +10,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import ezdxf
 from ezdxf import bbox as ezdxf_bbox, colors as ezdxf_colors, recover
+from ezdxf.addons import Importer
 from ezdxf.document import Drawing
 from ezdxf.entities import DXFGraphic
 from ezdxf.enums import TextEntityAlignment
@@ -62,6 +63,8 @@ _TEXT_ALIGNMENTS = {
 }
 
 DEFAULT_LAYER_NAME = "0"
+# $INSUNITS / BLOCK_RECORD insertion-unit code for millimetres.
+INSUNITS_MILLIMETERS = 4
 # DXF layers with no explicit lineweight resolve to AutoCAD's own default (0.25mm), which
 # renders noticeably heavier than intended once plotted at true scale (min_lineweight_mm in
 # core/plot.py defaults to 0.13). New layers this app creates get that same 0.13mm instead,
@@ -215,6 +218,61 @@ class DXFDocument:
         alignment = _TEXT_ALIGNMENTS.get((halign, valign))
         if alignment is not None and alignment is not TextEntityAlignment.BOTTOM_LEFT:
             entity.set_placement(insert, align=alignment)
+        return entity.dxf.handle
+
+    def block_names(self) -> List[str]:
+        """The blocks a user could place from this drawing, by name.
+
+        Layouts, anonymous blocks (hatch patterns, dimensions) and external references
+        are the drawing's own plumbing rather than something to insert, so they are left out.
+        """
+        names = [
+            block.name
+            for block in self._drawing.blocks
+            if not block.name.startswith("*")
+            and not block.is_any_layout
+            and not block.block.is_anonymous
+            and not block.block.is_xref
+        ]
+        return sorted(names, key=str.casefold)
+
+    def has_block(self, name: str) -> bool:
+        return name in self._drawing.blocks
+
+    def import_block(self, name: str, source: Drawing) -> None:
+        """Define `name` from a block file, unless the drawing already defines it.
+
+        A block file is a drawing whose modelspace is the block and whose $INSBASE is its
+        base point - what AutoCAD's WBLOCK writes. An existing definition wins, as it does
+        in AutoCAD, so blocks already placed from it never change shape underneath the user.
+        """
+        if self.has_block(name):
+            return
+        block = self._drawing.blocks.new(name=name, base_point=source.header.get("$INSBASE", (0.0, 0.0, 0.0)))
+        block.block_record.dxf.units = int(source.header.get("$INSUNITS", 0))
+        importer = Importer(source, self._drawing)
+        importer.import_entities(source.modelspace(), block)
+        importer.finalize()
+
+    def block_is_paper_sized(self, name: str) -> bool:
+        """Whether a block is drawn in paper millimetres - a symbol sized for the sheet
+        rather than an object at its true size on the ground."""
+        return self._drawing.blocks[name].block_record.dxf.get("units", 0) == INSUNITS_MILLIMETERS
+
+    def add_block_reference(
+        self,
+        name: str,
+        insert: Sequence[float],
+        rotation: float = 0.0,
+        scale: float = 1.0,
+        layer: str = "0",
+    ) -> str:
+        self.ensure_layer(layer)
+        entity = self.modelspace.add_blockref(
+            name,
+            insert,
+            dxfattribs={"layer": layer, "rotation": rotation, "xscale": scale, "yscale": scale, "zscale": scale},
+        )
         return entity.dxf.handle
 
     def add_lwpolyline(self, points: Iterable[Sequence[float]], layer: str = "0", closed: bool = False) -> str:

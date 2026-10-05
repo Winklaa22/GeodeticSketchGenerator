@@ -110,6 +110,7 @@ TRANSLATIONS: Dict[str, str] = {
 
     # ---------- editor: main window ----------
     "window.tab_layers": "Layers",
+    "window.tab_blocks": "Blocks",
     "window.tab_layout": "Layout",
     "window.tab_fonts": "Fonts",
     "window.file_points_status": "{file_name} · {point_count} points",
@@ -313,6 +314,27 @@ TRANSLATIONS: Dict[str, str] = {
     "layer_panel.visibility_tooltip": "Show/hide this layer",
     "layer_panel.color_dialog_title": "Layer Color",
     "layer_panel.title": "Layers",
+
+    # ---------- dxf: blocks palette ----------
+    "block_panel.tab_library": "Library",
+    "block_panel.tab_drawing": "Current drawing",
+    "block_panel.search": "Search",
+    "block_panel.add_tooltip": "Add a block to the library from a DXF file…",
+    "block_panel.add_title": "Add block from DXF file",
+    "block_panel.add_filter": "DXF files (*.dxf)",
+    "block_panel.add_failed": "Could not add the block: {error}",
+    "block_panel.properties": "Block properties",
+    "block_panel.pick_hint": "Pick a block to preview it",
+    "block_panel.rotation": "Rotation (°)",
+    "block_panel.scale": "Scale",
+    "block_panel.scale_tooltip": (
+        "1 = natural size: symbols drawn in millimetres fit the sheet's scale, "
+        "other blocks go in at their true size"
+    ),
+    "block_panel.insert": "Insert",
+    "block_panel.no_match": "No block matches the search",
+    "block_panel.drawing_empty": "This drawing has no blocks",
+    "block_panel.library_empty": "The library is empty - add a block with +",
     "layer_panel.prune_tooltip_available": (
         "Remove imported layers not starting with 994, 211, or 219\n"
         "(layers added since importing are never touched)"
@@ -375,6 +397,7 @@ TRANSLATIONS: Dict[str, str] = {
     "tool.specify_point": "Specify point: ",
     "tool.specify_text_point": "Specify text insertion point: ",
     "tool.specify_text_on_line_point": "Point at a spot on a line and click to place the text: ",
+    "tool.specify_block_insertion_point": "Specify insertion point for block \"{name}\": ",
     "tool.click_line_first": "Point at a spot on a line and click.",
     "tool.enter_text": "Enter text: ",
     "tool.text_empty": "Text cannot be empty.",

@@ -8,6 +8,7 @@ from ui.dxf.tools.base import (
     point_distance,
     preview_pen,
 )
+from ui.dxf.tools.blocks import InsertBlockToolSession
 from ui.dxf.tools.detail import DetailArrowToolSession, DetailViewToolSession
 from ui.dxf.tools.draw import (
     CircleToolSession,
@@ -31,6 +32,7 @@ __all__ = [
     "CircleToolSession",
     "DetailArrowToolSession",
     "DetailViewToolSession",
+    "InsertBlockToolSession",
     "LineToolSession",
     "MultileaderToolSession",
     "MoveToolSession",
