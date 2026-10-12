@@ -44,7 +44,7 @@ class WindowRouter:
         if self._loading:
             return
         self._loading = True
-        overlay = LoadingOverlay(self._owner)
+        overlay = LoadingOverlay(self._owner, fullscreen=True)
         overlay.begin()
         try:
             overlay.report(5)
