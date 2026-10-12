@@ -27,27 +27,42 @@ SPINNER_SIZE = 64
 
 
 def blurred_snapshot(widget: QWidget, radius: float = BLUR_RADIUS) -> QPixmap:
-    source = widget.grab()
+    return blurred_pixmap(widget.grab(), radius)
+
+
+def blurred_pixmap(source: QPixmap, radius: float = BLUR_RADIUS) -> QPixmap:
     scene = QGraphicsScene()
     item = QGraphicsPixmapItem(source)
     effect = QGraphicsBlurEffect()
     effect.setBlurRadius(radius)
     item.setGraphicsEffect(effect)
     scene.addItem(item)
+    logical = source.deviceIndependentSize()
+    area = QRectF(0.0, 0.0, logical.width(), logical.height())
     blurred = QPixmap(source.size())
+    blurred.setDevicePixelRatio(source.devicePixelRatio())
     blurred.fill(Qt.GlobalColor.transparent)
     painter = QPainter(blurred)
-    scene.render(painter, QRectF(blurred.rect()), QRectF(source.rect()))
+    scene.render(painter, area, area)
     painter.end()
     return blurred
 
 
 class LoadingOverlay(QWidget):
 
-    def __init__(self, owner: QWidget) -> None:
-        super().__init__(owner)
+    def __init__(self, owner: QWidget, fullscreen: bool = False) -> None:
+        if fullscreen:
+            super().__init__(
+                None,
+                Qt.WindowType.FramelessWindowHint
+                | Qt.WindowType.WindowStaysOnTopHint
+                | Qt.WindowType.Tool,
+            )
+        else:
+            super().__init__(owner)
         self.setObjectName("loadingOverlay")
         self._owner = owner
+        self._fullscreen = fullscreen
         self._backdrop: Optional[QPixmap] = None
         self._delay_ms = 0
         self._elapsed = QElapsedTimer()
@@ -61,6 +76,7 @@ class LoadingOverlay(QWidget):
         self._spinner = qta.IconWidget()
         self._spinner.setIconSize(QSize(SPINNER_SIZE, SPINNER_SIZE))
         self._spinner.setFixedSize(QSize(SPINNER_SIZE, SPINNER_SIZE))
+        self._spinner.setStyleSheet("background: transparent;")
         self._spinner.setIcon(
             icon_manager.get(
                 "loading", size=SPINNER_SIZE, color=Color.ACCENT, animation=qta.Spin(self._spinner)
@@ -75,9 +91,14 @@ class LoadingOverlay(QWidget):
         layout.addStretch(1)
 
     def begin(self, delay_ms: int = 0) -> None:
-        self._backdrop = blurred_snapshot(self._owner)
-        self.setGeometry(self._owner.rect())
-        self._owner.installEventFilter(self)
+        if self._fullscreen:
+            screen = self._owner.screen()
+            self._backdrop = blurred_pixmap(screen.grabWindow(0))
+            self.setGeometry(screen.geometry())
+        else:
+            self._backdrop = blurred_snapshot(self._owner)
+            self.setGeometry(self._owner.rect())
+            self._owner.installEventFilter(self)
         self._delay_ms = delay_ms
         self._elapsed.start()
         if delay_ms <= 0:
