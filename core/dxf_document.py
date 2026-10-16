@@ -49,8 +49,12 @@ from core.generated import GENERATED_APPID
 from core.generated import apply_metadata as apply_generated_metadata
 from core.generated import mode_from_entity as generated_mode_from_entity
 from core.multileader import (
+    ANGLE_CONSTRAINTS,
     ARROW_BLOCK_NAMES,
+    DEFAULT_CONNECTION,
+    HORIZONTAL_CONNECTIONS,
     MULTILEADER_APPID,
+    VERTICAL_CONNECTIONS,
     MultileaderSpec,
     MultileaderStyle,
     apply_metadata,
@@ -404,10 +408,58 @@ class DXFDocument:
             point = point + leader.dogleg_vector * leader.dogleg_length
         return Vec2(point)
 
+    @staticmethod
+    def _native_color(raw: Optional[int]) -> Optional[Tuple[int, int, int]]:
+        if raw is None:
+            return None
+        color_type, value = ezdxf_colors.decode_raw_color(raw)
+        if color_type == ezdxf_colors.COLOR_TYPE_RGB:
+            return tuple(value)
+        if color_type == ezdxf_colors.COLOR_TYPE_ACI:
+            rgb = ezdxf_colors.aci2rgb(value)
+            return rgb.r, rgb.g, rgb.b
+        return None
+
+    def _native_arrow(self, handle: Optional[str]) -> Tuple[str, str]:
+        record = self._drawing.entitydb.get(handle) if handle else None
+        if record is None:
+            return "closed", ""
+        block_name = record.dxf.name
+        by_block = {ARROWS.block_name(name).upper(): key for key, name in ARROW_BLOCK_NAMES.items() if name}
+        arrowhead = by_block.get(block_name.upper())
+        if arrowhead is not None:
+            return arrowhead, ""
+        return "closed", block_name
+
+    def _native_text_style(self, handle: Optional[str]) -> Tuple[str, bool]:
+        text_style = self._drawing.entitydb.get(handle) if handle else None
+        if text_style is None:
+            return DEFAULT_FONT_ID, False
+        name = text_style.dxf.name
+        return font_id_from_style_name(name), is_italic_style_name(name)
+
+    @staticmethod
+    def _native_connection(value: int, names: Sequence[str], enum, fallback: str) -> str:
+        try:
+            name = enum(int(value)).name
+        except ValueError:
+            return fallback
+        return name if name in names else fallback
+
+    @staticmethod
+    def _native_angle(radians: float) -> int:
+        degrees = round(math.degrees(float(radians)))
+        return min(ANGLE_CONSTRAINTS, key=lambda step: abs(step - degrees))
+
     def _style_from_native(self, name: str, style) -> MultileaderStyle:
         dxf = style.dxf
+        arrowhead, arrow_block = self._native_arrow(dxf.get("arrow_head_handle"))
+        font, italic = self._native_text_style(dxf.get("text_style_handle"))
+        linetype = self._drawing.entitydb.get(dxf.get("leader_linetype_handle"))
         return MultileaderStyle(
             name=name,
+            arrowhead=arrowhead,
+            arrow_block=arrow_block,
             line_type="spline" if dxf.get("leader_type", 1) == 2 else "straight",
             height=float(dxf.get("char_height", 0.6)) or 0.6,
             gap=float(dxf.get("landing_gap_size", 0.18)),
@@ -415,8 +467,39 @@ class DXFDocument:
             scale=float(dxf.get("scale", 1.0)) or 1.0,
             annotative=bool(dxf.get("is_annotative", 0)),
             arrow_size=float(dxf.get("arrow_head_size", 0.0)),
+            leader_color=self._native_color(dxf.get("leader_line_color")),
+            leader_lineweight=int(dxf.get("leader_lineweight", -2)),
+            leader_linetype=linetype.dxf.name if linetype is not None else "ByBlock",
+            text_color=self._native_color(dxf.get("text_color")),
+            text_frame=bool(dxf.get("has_text_frame", 0)),
+            font=font,
+            italic=italic,
+            direction="vertical" if dxf.get("text_attachment_direction", 0) == 1 else "horizontal",
+            left_connection=self._native_connection(
+                dxf.get("text_left_attachment_type", 1), HORIZONTAL_CONNECTIONS, HorizontalConnection, DEFAULT_CONNECTION
+            ),
+            right_connection=self._native_connection(
+                dxf.get("text_right_attachment_type", 1), HORIZONTAL_CONNECTIONS, HorizontalConnection, DEFAULT_CONNECTION
+            ),
+            top_connection=self._native_connection(
+                dxf.get("text_top_attachment_type", 9), VERTICAL_CONNECTIONS, VerticalConnection, "center"
+            ),
+            bottom_connection=self._native_connection(
+                dxf.get("text_bottom_attachment_type", 9), VERTICAL_CONNECTIONS, VerticalConnection, "center"
+            ),
             landing_enabled=bool(dxf.get("has_dogleg", 1)),
+            first_angle=self._native_angle(dxf.get("first_segment_angle_constraint", 0.0)),
+            second_angle=self._native_angle(dxf.get("second_segment_angle_constraint", 0.0)),
         ).normalized()
+
+    def drawing_multileader_style(self, name: str) -> Optional[MultileaderStyle]:
+        defined = self.defined_multileader_style(name)
+        if defined is not None:
+            return defined
+        native = self._drawing.mleader_styles.get(name)
+        if native is None or name == "Standard":
+            return None
+        return self._style_from_native(name, native)
 
     def multileader_styles(self) -> Dict[str, MultileaderStyle]:
         styles: Dict[str, MultileaderStyle] = {}

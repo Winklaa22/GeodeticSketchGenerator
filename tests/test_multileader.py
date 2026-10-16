@@ -556,3 +556,34 @@ def test_style_referenced_only_by_imported_multileader_is_in_use() -> None:
     DefineMultileaderStyleCommand(MultileaderStyle(name="Imported", arrowhead="dot")).execute(doc)
     assert _native_state(entity)[1:] == before[1:]
     assert not entity.has_xdata(MULTILEADER_APPID)
+
+
+def test_imported_style_is_loaded_for_drawing() -> None:
+    from core.multileader import apply_style
+
+    doc = DXFDocument.new()
+    native = doc.drawing.mleader_styles.duplicate_entry("Standard", "Survey")
+    native.dxf.arrow_head_handle = ARROWS.arrow_handle(doc.drawing.blocks, ARROWS.integral)
+    native.dxf.arrow_head_size = 0.4
+    native.dxf.char_height = 1.25
+    native.dxf.leader_line_color = -1023410175
+    native.dxf.text_attachment_direction = 1
+    native.dxf.text_top_attachment_type = 10
+    native.dxf.text_left_attachment_type = 2
+    native.dxf.has_text_frame = 1
+    native.dxf.first_segment_angle_constraint = math.radians(45)
+
+    style = doc.drawing_multileader_style("Survey")
+
+    assert style is not None
+    assert (style.arrowhead, style.arrow_size, style.height) == ("integral", 0.4, 1.25)
+    assert style.leader_color == (255, 0, 0)
+    assert (style.direction, style.top_connection, style.left_connection) == ("vertical", "center_overline", "middle_of_text")
+    assert style.text_frame is True
+    assert style.first_angle == 45
+    assert doc.drawing_multileader_style("Standard") is None
+
+    handle = doc.add_multileader(apply_style(_spec(), style))
+    entity = doc.get_entity(handle)
+    assert entity.dxf.style_handle == native.dxf.handle
+    assert entity.dxf.arrow_head_handle == native.dxf.arrow_head_handle
