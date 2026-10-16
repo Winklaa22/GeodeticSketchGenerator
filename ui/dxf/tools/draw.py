@@ -230,7 +230,7 @@ class MultileaderToolSession(ToolSession):
             landing=landing if landing_enabled else None,
             text_position=text_position,
             landing_enabled=landing_enabled,
-            landing_length=0.0,
+            landing_length=self._base.landing_length if landing_enabled and self._fixed_landing() else 0.0,
             text=values.text,
             bold=values.bold if text else self._base.bold,
             italic=values.italic if text else self._base.italic,
