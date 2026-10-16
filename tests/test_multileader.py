@@ -587,3 +587,61 @@ def test_imported_style_is_loaded_for_drawing() -> None:
     entity = doc.get_entity(handle)
     assert entity.dxf.style_handle == native.dxf.handle
     assert entity.dxf.arrow_head_handle == native.dxf.arrow_head_handle
+
+
+def _style_state(native):
+    attribs = {key: value for key, value in native.dxf.all_existing_dxf_attribs().items() if key != "handle"}
+    xdata = list(native.get_xdata(MULTILEADER_APPID)) if native.has_xdata(MULTILEADER_APPID) else None
+    return attribs, xdata
+
+
+def _imported_style(doc: DXFDocument):
+    native = doc.drawing.mleader_styles.duplicate_entry("Standard", "Imported")
+    native.dxf.block_color = 5
+    native.dxf.text_style_handle = doc.drawing.styles.new("SOMEFONT", dxfattribs={"font": "custom.shx"}).dxf.handle
+    native.dxf.leader_line_color = -1023410175
+    native.dxf.text_left_attachment_type = 7
+    native.dxf.break_gap_size = 0.42
+    return native
+
+
+def test_defining_a_style_leaves_other_imported_styles_untouched() -> None:
+    doc = DXFDocument.new()
+    imported = _imported_style(doc)
+    standard = doc.drawing.mleader_styles.get("Standard")
+    imported_before, standard_before = _style_state(imported), _style_state(standard)
+    history = CommandHistory()
+
+    history.execute(DefineMultileaderStyleCommand(MultileaderStyle(name="New", arrowhead="dot")), doc)
+    assert _style_state(imported) == imported_before
+    assert _style_state(standard) == standard_before
+    assert history.undo(doc)
+    assert "New" not in doc.multileader_styles()
+    assert _style_state(imported) == imported_before
+
+
+def test_editing_an_imported_style_undoes_to_its_exact_original() -> None:
+    doc = DXFDocument.new()
+    imported = _imported_style(doc)
+    before = _style_state(imported)
+    history = CommandHistory()
+
+    history.execute(DefineMultileaderStyleCommand(MultileaderStyle(name="Imported", height=3.0)), doc)
+    assert imported.dxf.char_height == pytest.approx(3.0)
+    assert history.undo(doc)
+
+    assert _style_state(imported) == before
+    assert history.redo(doc)
+    assert imported.dxf.char_height == pytest.approx(3.0)
+
+
+def test_deleting_an_imported_style_undoes_to_its_exact_original() -> None:
+    doc = DXFDocument.new()
+    before = _style_state(_imported_style(doc))
+    command = DeleteMultileaderStyleCommand("Imported")
+
+    command.execute(doc)
+    assert doc.drawing.mleader_styles.get("Imported") is None
+    command.undo(doc)
+
+    assert _style_state(doc.drawing.mleader_styles.get("Imported")) == before
