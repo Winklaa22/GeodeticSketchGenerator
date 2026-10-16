@@ -511,14 +511,48 @@ class DXFDocument:
         return styles
 
     def set_multileader_styles(self, styles: Dict[str, MultileaderStyle]) -> None:
+        existing = self.multileader_styles()
+        for name in existing:
+            if name not in styles:
+                self.delete_multileader_style(name)
+        for style in styles.values():
+            style = style.normalized()
+            if existing.get(style.name) != style:
+                self.set_multileader_style(style)
+
+    def set_multileader_style(self, style: MultileaderStyle) -> None:
         if MULTILEADER_APPID not in self._drawing.appids:
             self._drawing.appids.add(MULTILEADER_APPID)
+        self._write_native_style(style.normalized())
+
+    def delete_multileader_style(self, name: str) -> None:
+        if name != "Standard" and name in self._drawing.mleader_styles:
+            self._drawing.mleader_styles.delete(name)
+
+    def snapshot_multileader_style(self, name: str):
+        native = self._drawing.mleader_styles.get(name)
+        return native.copy() if native is not None else None
+
+    def restore_multileader_style(self, name: str, snapshot) -> None:
         table = self._drawing.mleader_styles
-        for name in [name for name, _style in table]:
-            if name not in styles and name != "Standard":
-                table.delete(name)
-        for style in styles.values():
-            self._write_native_style(style.normalized())
+        if snapshot is None:
+            self.delete_multileader_style(name)
+            return
+        native = table.get(name)
+        if native is None:
+            native = table.new(name)
+        kept = {"handle", "owner", "name"}
+        original = snapshot.dxf.all_existing_dxf_attribs()
+        for key in list(native.dxf.all_existing_dxf_attribs()):
+            if key not in kept and key not in original:
+                native.dxf.discard(key)
+        for key, value in original.items():
+            if key not in kept:
+                native.dxf.set(key, value)
+        if snapshot.has_xdata(MULTILEADER_APPID):
+            native.set_xdata(MULTILEADER_APPID, list(snapshot.get_xdata(MULTILEADER_APPID)))
+        else:
+            native.discard_xdata(MULTILEADER_APPID)
 
     def _write_native_style(self, style: MultileaderStyle) -> None:
         table = self._drawing.mleader_styles

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 from core.dxf_document import DXFDocument
 from core.exceptions import MultileaderError
@@ -62,48 +62,43 @@ class _RebuildMultileadersCommand:
 class DefineMultileaderStyleCommand:
     def __init__(self, style: MultileaderStyle) -> None:
         self._style = style.normalized()
-        self._previous: Optional[Dict[str, MultileaderStyle]] = None
+        self._snapshot: Any = None
         self._rebuild: Optional[ApplyMultileaderStyleCommand] = None
 
     def execute(self, doc: DXFDocument) -> None:
         if not self._style.name:
             raise MultileaderError("Multileader style needs a name")
-        styles = doc.multileader_styles()
-        if self._previous is None:
-            self._previous = dict(styles)
+        if self._rebuild is None:
+            self._snapshot = doc.snapshot_multileader_style(self._style.name)
             self._rebuild = ApplyMultileaderStyleCommand(self._style.name, self._style)
-        styles[self._style.name] = self._style
-        doc.set_multileader_styles(styles)
-        assert self._rebuild is not None
+        doc.set_multileader_style(self._style)
         self._rebuild.execute(doc)
 
     def undo(self, doc: DXFDocument) -> None:
-        assert self._previous is not None and self._rebuild is not None
+        assert self._rebuild is not None
         self._rebuild.undo(doc)
-        doc.set_multileader_styles(self._previous)
+        doc.restore_multileader_style(self._style.name, self._snapshot)
 
 
 class DeleteMultileaderStyleCommand:
     def __init__(self, name: str) -> None:
         self._name = name
-        self._previous: Optional[Dict[str, MultileaderStyle]] = None
+        self._snapshot: Any = None
 
     def execute(self, doc: DXFDocument) -> None:
         if self._name == "Standard":
             raise MultileaderError("The Standard multileader style cannot be deleted")
         if doc.multileader_style_in_use(self._name):
             raise MultileaderError(f"Multileader style {self._name} is in use")
-        styles = doc.multileader_styles()
-        if self._name not in styles:
+        snapshot = doc.snapshot_multileader_style(self._name)
+        if snapshot is None:
             raise MultileaderError(f"Unknown multileader style: {self._name}")
-        if self._previous is None:
-            self._previous = dict(styles)
-        del styles[self._name]
-        doc.set_multileader_styles(styles)
+        self._snapshot = snapshot
+        doc.delete_multileader_style(self._name)
 
     def undo(self, doc: DXFDocument) -> None:
-        assert self._previous is not None
-        doc.set_multileader_styles(self._previous)
+        assert self._snapshot is not None
+        doc.restore_multileader_style(self._name, self._snapshot)
 
 
 class ApplyMultileaderStyleCommand(_RebuildMultileadersCommand):
