@@ -645,3 +645,17 @@ def test_deleting_an_imported_style_undoes_to_its_exact_original() -> None:
     command.undo(doc)
 
     assert _style_state(doc.drawing.mleader_styles.get("Imported")) == before
+
+
+def test_fixed_landing_follows_annotative_scale() -> None:
+    doc = DXFDocument.new()
+    doc.set_multileader_style(MultileaderStyle(name="Fixed", landing_length=2.0, annotative=True))
+    handle = _add(doc, tip=(0.0, 0.0), landing=(5.0, 3.0), text_position=(7.0, 3.0), landing_length=2.0, style_name="Fixed")
+
+    RescaleAnnotativeCommand(2.0).execute(doc)
+
+    spec = doc.multileader_spec(handle)
+    assert spec.landing_length == 2.0
+    assert spec.text_position == pytest.approx((7.0, 3.0))
+    assert spec.landing == pytest.approx((3.0, 3.0))
+    assert _connection(doc.get_entity(handle)) == pytest.approx((7.0, 3.0))
