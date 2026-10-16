@@ -43,3 +43,7 @@ class NoDrawModeError(ScriptGenerationError):
 
 class ProjectFileError(AppError):
     pass
+
+
+class MultileaderError(AppError):
+    pass

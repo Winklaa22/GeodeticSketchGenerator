@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+from dataclasses import dataclass, replace
 from typing import List, Optional, Tuple
 
 from ezdxf.math import fit_points_to_cad_cv
@@ -10,7 +12,15 @@ from core.commands.composite import CompositeCommand
 from core.commands.draw import AddCircleCommand, AddLineCommand, AddPointCommand, AddTextCommand
 from core.commands.multileader import AddMultileaderCommand
 from core.dxf_document import DXFDocument
-from core.multileader import MultileaderSpec, arrow_points, leader_points, spline_fit_points
+from core.multileader import (
+    MultileaderSpec,
+    MultileaderStyle,
+    apply_style,
+    arrow_points,
+    constrain_angle,
+    leader_points,
+    spline_fit_points,
+)
 from ui.dxf.tools.base import (
     ToolSession,
     add_preview_item,
@@ -48,6 +58,12 @@ class PointToolSession(ToolSession):
 
 _DEFAULT_TEXT_HEIGHT = 0.6
 _PREVIEW_SPLINE_SEGMENTS = 32
+_FILLED_ARROWS = {"closed", "datum_triangle_filled"}
+_TRIANGLE_ARROWS = {"closed", "closed_blank", "closed_outline", "datum_triangle", "datum_triangle_filled"}
+_OPEN_ARROWS = {"open", "open_30", "right_angle"}
+_TICK_ARROWS = {"oblique", "architectural_tick"}
+_BOX_ARROWS = {"box", "box_blank"}
+_SMALL_DOTS = {"dot_small", "dot_small_blank"}
 
 
 def leader_curve(spec: MultileaderSpec) -> List[Tuple[float, float]]:
@@ -76,25 +92,54 @@ def add_polyline_preview(
     _add_preview(scene, qw.QGraphicsPathItem(path), sink)
 
 
+def _add_polygon_preview(
+    scene: qw.QGraphicsScene, points: List[Tuple[float, float]], filled: bool, sink: List[qw.QGraphicsItem]
+) -> None:
+    item = qw.QGraphicsPolygonItem(qg.QPolygonF([qc.QPointF(*point) for point in points]))
+    if filled:
+        item.setBrush(qg.QBrush(preview_pen().color()))
+    _add_preview(scene, item, sink)
+
+
 def add_leader_preview(
     scene: qw.QGraphicsScene, spec: MultileaderSpec, sink: List[qw.QGraphicsItem]
 ) -> None:
-    """Draws the leader route and its arrowhead, appending every item to ``sink``."""
     add_polyline_preview(scene, leader_curve(spec), sink)
-    tip, left, right = arrow_points(spec)
-    if spec.arrowhead == "closed":
-        polygon = qg.QPolygonF([qc.QPointF(*tip), qc.QPointF(*left), qc.QPointF(*right)])
-        item = qw.QGraphicsPolygonItem(polygon)
-        item.setBrush(qg.QBrush(preview_pen().color()))
-        _add_preview(scene, item, sink)
+    arrowhead = spec.arrowhead
+    if arrowhead == "none" and not spec.arrow_block:
         return
-    if spec.arrowhead == "open":
+    tip, left, right = arrow_points(spec)
+    if arrowhead in _TRIANGLE_ARROWS:
+        _add_polygon_preview(scene, [tip, left, right], arrowhead in _FILLED_ARROWS, sink)
+        return
+    if arrowhead in _OPEN_ARROWS:
         add_polyline_preview(scene, [left, tip, right], sink)
         return
-    radius = max(spec.height * 0.28, 0.04)
-    _add_preview(
-        scene, qw.QGraphicsEllipseItem(tip[0] - radius, tip[1] - radius, radius * 2, radius * 2), sink
-    )
+    base = ((left[0] + right[0]) / 2.0, (left[1] + right[1]) / 2.0)
+    half = math.hypot(left[0] - right[0], left[1] - right[1]) / 2.0
+    angle = math.atan2(base[1] - tip[1], base[0] - tip[0])
+    px, py = -math.sin(angle) * half, math.cos(angle) * half
+    if arrowhead in _TICK_ARROWS:
+        add_polyline_preview(scene, [(tip[0] - px - (base[0] - tip[0]) / 2, tip[1] - py - (base[1] - tip[1]) / 2), (tip[0] + px + (base[0] - tip[0]) / 2, tip[1] + py + (base[1] - tip[1]) / 2)], sink)
+        return
+    if arrowhead in _BOX_ARROWS:
+        corners = [(tip[0] + px, tip[1] + py), (tip[0] - px, tip[1] - py), (base[0] - px, base[1] - py), (base[0] + px, base[1] + py)]
+        _add_polygon_preview(scene, corners, arrowhead == "box", sink)
+        return
+    radius = spec.effective_arrow_size * (0.2 if arrowhead in _SMALL_DOTS else 0.5)
+    item = qw.QGraphicsEllipseItem(tip[0] - radius, tip[1] - radius, radius * 2, radius * 2)
+    if arrowhead == "dot":
+        item.setBrush(qg.QBrush(preview_pen().color()))
+    _add_preview(scene, item, sink)
+
+
+@dataclass(frozen=True)
+class MTextValues:
+    text: str
+    bold: bool = False
+    italic: bool = False
+    underline: bool = False
+    alignment: str = "auto"
 
 
 class MultileaderToolSession(ToolSession):
@@ -102,53 +147,107 @@ class MultileaderToolSession(ToolSession):
     def __init__(
         self,
         height: float = _DEFAULT_TEXT_HEIGHT,
-        line_type: str = "straight",
-        arrowhead: str = "closed",
-        landing_enabled: bool = True,
+        line_type: Optional[str] = None,
+        arrowhead: Optional[str] = None,
+        landing_enabled: Optional[bool] = None,
         attachment: Optional[str] = None,
+        style: Optional[MultileaderStyle] = None,
+        annotation_scale: float = 1.0,
+        direction: Optional[str] = None,
+        text_frame: Optional[bool] = None,
     ) -> None:
         super().__init__()
         self.prompt = tr("tool.multileader_tip")
-        self._height = height
-        self._line_type = line_type
-        self._arrowhead = arrowhead
-        self._landing_enabled = landing_enabled
-        self._attachment = attachment
+        base = MultileaderSpec(tip=(0.0, 0.0), landing=None, text_position=(0.0, 0.0), text="", height=height, gap=height * 0.3)
+        self._first_angle = 0
+        if style is not None:
+            base = apply_style(base, style)
+            self._first_angle = style.first_angle
+            if style.annotative:
+                base = replace(base, scale=annotation_scale)
+        overrides = {
+            key: value
+            for key, value in (
+                ("line_type", line_type),
+                ("arrowhead", arrowhead),
+                ("attachment", attachment),
+                ("direction", direction),
+                ("text_frame", text_frame),
+            )
+            if value is not None
+        }
+        self._base = replace(base, **overrides)
+        if landing_enabled is None:
+            landing_enabled = style.landing_enabled if style is not None else True
+        self._landing_enabled = landing_enabled and self._base.direction == "horizontal"
         self._tip: Optional[Tuple[float, float]] = None
         self._landing: Optional[Tuple[float, float]] = None
         self._text_position: Optional[Tuple[float, float]] = None
-        self._text: Optional[str] = None
+        self._text: Optional[MTextValues] = None
         self._preview_items: List[qw.QGraphicsItem] = []
 
-    def _landed_text_position(self, point: Tuple[float, float]) -> Tuple[float, float]:
-        if self._landing_enabled and self._landing is not None:
-            return point[0], self._landing[1]
-        return point
+    @property
+    def wants_text_editor(self) -> bool:
+        return self._text_position is not None and self._text is None
 
-    def _spec(self, text: str = "") -> Optional[MultileaderSpec]:
-        return self._spec_for(self._text_position, text)
+    @property
+    def text_defaults(self) -> MTextValues:
+        return MTextValues(
+            "",
+            self._base.bold,
+            self._base.italic,
+            self._base.underline,
+            self._base.alignment,
+        )
 
-    def _spec_for(self, text_position: Optional[Tuple[float, float]], text: str = "") -> Optional[MultileaderSpec]:
-        if self._tip is None or text_position is None:
-            return None
-        anchor = self._landing if self._landing_enabled and self._landing is not None else self._tip
-        text_position = self._landed_text_position(text_position)
-        attachment = self._attachment or ("left" if text_position[0] >= anchor[0] else "right")
-        return MultileaderSpec(
+    def _fixed_landing(self) -> bool:
+        return self._landing_enabled and self._base.landing_length > 0.0
+
+    def _constrained(self, point: Tuple[float, float]) -> Tuple[float, float]:
+        if self._tip is None:
+            return point
+        return constrain_angle(self._tip, point, self._first_angle)
+
+    def _text_after_landing(self, landing: Tuple[float, float]) -> Tuple[float, float]:
+        assert self._tip is not None
+        sign = 1.0 if landing[0] >= self._tip[0] else -1.0
+        return landing[0] + sign * self._base.landing_length * self._base.scale, landing[1]
+
+    def _spec_for(
+        self,
+        landing: Optional[Tuple[float, float]],
+        text_position: Tuple[float, float],
+        text: Optional[MTextValues] = None,
+    ) -> MultileaderSpec:
+        assert self._tip is not None
+        values = text or MTextValues("")
+        landing_enabled = self._landing_enabled and landing is not None
+        if landing_enabled:
+            text_position = (text_position[0], landing[1])
+        return replace(
+            self._base,
             tip=self._tip,
-            landing=self._landing,
+            landing=landing if landing_enabled else None,
             text_position=text_position,
-            text=text,
-            height=self._height,
-            line_type=self._line_type,
-            arrowhead=self._arrowhead,
-            attachment=attachment,
-            landing_enabled=self._landing_enabled,
-            gap=self._height * 0.3,
+            landing_enabled=landing_enabled,
+            landing_length=0.0,
+            text=values.text,
+            bold=values.bold if text else self._base.bold,
+            italic=values.italic if text else self._base.italic,
+            underline=values.underline if text else self._base.underline,
+            alignment=values.alignment if text else self._base.alignment,
         ).normalized()
 
     def _advance_to_text_position(self) -> None:
         self.prompt = tr("tool.multileader_text_position")
+
+    def _place_landing(self, point: Tuple[float, float]) -> None:
+        self._landing = self._constrained(point)
+        if self._fixed_landing():
+            self._text_position = self._text_after_landing(self._landing)
+            self.prompt = tr("tool.enter_text")
+            return
+        self._advance_to_text_position()
 
     def on_click(self, point: Tuple[float, float]) -> None:
         if self._tip is None:
@@ -159,11 +258,10 @@ class MultileaderToolSession(ToolSession):
                 self._advance_to_text_position()
             return
         if self._landing_enabled and self._landing is None:
-            self._landing = point
-            self._advance_to_text_position()
+            self._place_landing(point)
             return
         if self._text_position is None:
-            self._text_position = point
+            self._text_position = point if self._landing_enabled else self._constrained(point)
             self.prompt = tr("tool.enter_text")
 
     def on_text(self, text: str) -> Optional[str]:
@@ -175,8 +273,7 @@ class MultileaderToolSession(ToolSession):
             self.on_click(coord)
             return None
         if self._landing_enabled and self._landing is None:
-            option = value.upper()
-            if option in {"N", "NO", "NOLANDING"}:
+            if value.upper() in {"N", "NO", "NOLANDING"}:
                 self._landing_enabled = False
                 self._advance_to_text_position()
                 return None
@@ -191,33 +288,36 @@ class MultileaderToolSession(ToolSession):
                 return tr("common.point_xy_or_rel_format", value=text)
             self.on_click(coord)
             return None
-        if not text.strip():
+        if not value:
             return tr("tool.text_empty")
-        self._text = text
+        defaults = self.text_defaults
+        self._text = replace(defaults, text=text.replace("\\P", "\n"))
+        return None
+
+    def on_mtext(self, values: MTextValues) -> Optional[str]:
+        if self._text_position is None:
+            return None
+        if not values.text.strip():
+            return tr("tool.text_empty")
+        self._text = values
         return None
 
     def _stage_spec(self, point: Tuple[float, float]) -> Optional[MultileaderSpec]:
         if self._tip is None:
             return None
         if self._landing_enabled and self._landing is None:
-            return MultileaderSpec(
-                tip=self._tip,
-                landing=None,
-                text_position=point,
-                text="",
-                height=self._height,
-                line_type=self._line_type,
-                arrowhead=self._arrowhead,
-                attachment=self._attachment or "left",
-                landing_enabled=False,
-                gap=0.0,
-            ).normalized()
-        return self._spec_for(point)
+            landing = self._constrained(point)
+            if self._fixed_landing():
+                return self._spec_for(landing, self._text_after_landing(landing))
+            return replace(self._spec_for(None, landing), landing_enabled=False).normalized()
+        if self._text_position is not None:
+            return self._spec_for(self._landing, self._text_position)
+        return self._spec_for(self._landing, point if self._landing_enabled else self._constrained(point))
 
     def update_preview(self, point: Tuple[float, float], scene: qw.QGraphicsScene) -> None:
         if self._tip is None or self._text is not None:
             return
-        spec = self._stage_spec(self._text_position if self._text_position is not None else point)
+        spec = self._stage_spec(point)
         if spec is None:
             return
         self._reset_preview(scene)
@@ -229,27 +329,12 @@ class MultileaderToolSession(ToolSession):
         self._preview_items = []
 
     def is_done(self) -> bool:
-        return self._spec(self._text or "") is not None and self._text is not None
+        return self._text_position is not None and self._text is not None
 
     def build_command(self, doc: DXFDocument) -> EditCommand:
-        spec = self._spec(self._text or "")
-        assert spec is not None and self._text is not None
-        return AddMultileaderCommand(
-            MultileaderSpec(
-                tip=spec.tip,
-                landing=spec.landing,
-                text_position=spec.text_position,
-                text=spec.text,
-                height=spec.height,
-                line_type=spec.line_type,
-                arrowhead=spec.arrowhead,
-                attachment=spec.attachment,
-                landing_enabled=spec.landing_enabled,
-                gap=spec.gap,
-                layer=doc.active_layer,
-                identifier=spec.identifier,
-            )
-        )
+        assert self._text_position is not None and self._text is not None
+        spec = self._spec_for(self._landing, self._text_position, self._text)
+        return AddMultileaderCommand(replace(spec, layer=doc.active_layer))
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
         self._reset_preview(scene)

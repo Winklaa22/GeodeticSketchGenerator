@@ -6,7 +6,8 @@ from PyQt6 import QtCore as qc, QtWidgets as qw
 
 from core.fonts import FONT_CATALOG
 from ui.i18n import tr
-from ui.theme import SPACE_SM, SPACE_XS
+from ui.theme import ICON_SM, SPACE_SM, SPACE_XS
+from ui.theme.icons import icon_manager
 from ui.widgets import ColorSwatchButton, Dropdown, NumericScrubField, decimal_validator
 
 
@@ -17,6 +18,7 @@ class TextOptionsBar(qw.QFrame):
     rotationChanged = qc.pyqtSignal(str, float)
     colorChanged = qc.pyqtSignal(str, tuple)
     fontChanged = qc.pyqtSignal(str, str)
+    propertiesRequested = qc.pyqtSignal(str)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -66,8 +68,22 @@ class TextOptionsBar(qw.QFrame):
         self._color.colorChanged.connect(self._emit_color)
         layout.addWidget(self._color)
 
+        self._properties = qw.QToolButton()
+        self._properties.setObjectName("textOptionsProperties")
+        self._properties.setIcon(icon_manager.get("mleader_properties", size=ICON_SM))
+        self._properties.setToolTip(tr("text_options.properties_tooltip"))
+        self._properties.clicked.connect(self._emit_properties)
+        layout.addWidget(self._properties)
+
     def bind(
-        self, handle: str, text: str, height: float, rotation: float, rgb: Tuple[int, int, int], font_id: str
+        self,
+        handle: str,
+        text: str,
+        height: float,
+        rotation: float,
+        rgb: Tuple[int, int, int],
+        font_id: str,
+        has_properties: bool = False,
     ) -> None:
         self.handle = handle
         self._orig_text, self._orig_height, self._orig_rotation = text, height, rotation
@@ -77,6 +93,7 @@ class TextOptionsBar(qw.QFrame):
         self._height.setText(f"{height:g}")
         self._rotation.set_value(rotation)
         self._color.set_color(rgb)
+        self._properties.setVisible(has_properties)
         self.show()
         self.adjustSize()
 
@@ -105,3 +122,7 @@ class TextOptionsBar(qw.QFrame):
         font_id = self._font.current_key()
         if self.handle and font_id and font_id != self._orig_font_id:
             self.fontChanged.emit(self.handle, font_id)
+
+    def _emit_properties(self) -> None:
+        if self.handle:
+            self.propertiesRequested.emit(self.handle)

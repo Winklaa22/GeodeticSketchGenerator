@@ -13,6 +13,7 @@ from ui.dxf.tools.detail import DetailArrowToolSession, DetailViewToolSession
 from ui.dxf.tools.draw import (
     CircleToolSession,
     LineToolSession,
+    MTextValues,
     MultileaderToolSession,
     PipeToolSession,
     PointToolSession,
@@ -34,6 +35,7 @@ __all__ = [
     "DetailViewToolSession",
     "InsertBlockToolSession",
     "LineToolSession",
+    "MTextValues",
     "MultileaderToolSession",
     "MoveToolSession",
     "PipeToolSession",

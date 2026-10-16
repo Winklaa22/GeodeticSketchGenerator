@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import json
 import math
 import uuid
 from dataclasses import dataclass
@@ -15,7 +16,16 @@ from ezdxf.document import Drawing
 from ezdxf.entities import DXFGraphic
 from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
-from ezdxf.math import Matrix44
+from ezdxf.math import Matrix44, Vec2
+from ezdxf.render import ARROWS
+from ezdxf.render.mleader import (
+    ConnectionSide,
+    HorizontalConnection,
+    LeaderType,
+    MultiLeaderMTextBuilder,
+    TextAlignment,
+    VerticalConnection,
+)
 from ezdxf.sections.tables import LayerTable
 
 from core.detail_view import (
@@ -39,16 +49,28 @@ from core.generated import GENERATED_APPID
 from core.generated import apply_metadata as apply_generated_metadata
 from core.generated import mode_from_entity as generated_mode_from_entity
 from core.multileader import (
+    ARROW_BLOCK_NAMES,
     MULTILEADER_APPID,
     MultileaderSpec,
+    MultileaderStyle,
     apply_metadata,
-    arrow_points,
-    leader_points,
+    connection_side,
+    dogleg_length,
+    leader_vertices,
+    legacy_metadata_from_entity,
     metadata_from_entity,
-    spline_fit_points,
+    mtext_content,
+    spec_from_native,
+    style_from_metadata,
+    style_metadata,
+    text_alignment,
+    text_from_mtext,
     transform_spec,
     with_identifier,
 )
+
+_MLEADER_STYLES_KEY = "GSG_MLEADER_STYLES"
+_CURRENT_MLEADER_STYLE_KEY = "GSG_CMLEADERSTYLE"
 
 _TEXT_ALIGNMENTS = {
     ("left", "bottom"): TextEntityAlignment.BOTTOM_LEFT,
@@ -117,6 +139,7 @@ class DXFDocument:
             drawing, _auditor = recover.readfile(file_path)
         doc = cls(drawing)
         doc._ensure_all_referenced_layers()
+        doc._migrate_legacy_multileaders()
         return doc
 
     @classmethod
@@ -127,6 +150,7 @@ class DXFDocument:
             drawing, _auditor = recover.read(io.BytesIO(content.encode("utf-8", errors="surrogateescape")))
         doc = cls(drawing)
         doc._ensure_all_referenced_layers()
+        doc._migrate_legacy_multileaders()
         return doc
 
     def _ensure_all_referenced_layers(self) -> None:
@@ -295,42 +319,228 @@ class DXFDocument:
         entity = self.modelspace.add_solid(points, dxfattribs={"layer": layer})
         return entity.dxf.handle
 
-    def add_multileader(self, spec: MultileaderSpec) -> Tuple[List[str], str]:
+    def add_multileader(self, spec: MultileaderSpec) -> str:
         spec = spec.normalized()
         self.ensure_layer(spec.layer)
         if MULTILEADER_APPID not in self._drawing.appids:
             self._drawing.appids.add(MULTILEADER_APPID)
-        handles: List[str] = []
-        route = leader_points(spec)
-        if spec.line_type == "spline":
-            route_handle = self.add_spline(spline_fit_points(spec), spec.layer)
-        elif len(route) > 2:
-            route_handle = self.add_lwpolyline(route, spec.layer)
-        else:
-            route_handle = self.add_line(route[0], route[-1], spec.layer)
-        handles.append(route_handle)
-        tip, left, right = arrow_points(spec)
-        if spec.arrowhead == "closed":
-            handles.append(self.add_solid((tip, left, right, right), spec.layer))
-        elif spec.arrowhead == "open":
-            handles.append(self.add_line(tip, left, spec.layer))
-            handles.append(self.add_line(tip, right, spec.layer))
-        else:
-            radius = max(spec.height * 0.28, 0.04)
-            handles.append(self.add_circle(tip, radius, spec.layer))
-        text_handle = self.add_text(
-            spec.text,
-            spec.text_position,
-            spec.height,
-            spec.layer,
-            halign=spec.attachment,
+        style_name = spec.style_name if spec.style_name in self._drawing.mleader_styles else "Standard"
+        builder = self.modelspace.add_multileader_mtext(style_name, dxfattribs={"layer": spec.layer})
+        entity = builder.multileader
+        self._build_multileader(entity, spec)
+        return entity.dxf.handle
+
+    def rebuild_multileader(self, handle: str, spec: MultileaderSpec) -> None:
+        spec = spec.normalized()
+        entity = self._require_entity(handle)
+        self.ensure_layer(spec.layer)
+        entity.dxf.layer = spec.layer
+        style = self._drawing.mleader_styles.get(spec.style_name) or self._drawing.mleader_styles.get("Standard")
+        entity.dxf.style_handle = style.dxf.handle
+        self._build_multileader(entity, spec)
+
+    def _linetype_name(self, name: str) -> str:
+        return name if name in self._drawing.linetypes else "ByBlock"
+
+    def _arrow_handle(self, arrowhead: str, arrow_block: str) -> Optional[str]:
+        if arrow_block and self.has_block(arrow_block):
+            return self._drawing.blocks.get(arrow_block).block_record_handle
+        name = ARROW_BLOCK_NAMES.get(arrowhead, "")
+        if not name:
+            return None
+        return ARROWS.arrow_handle(self._drawing.blocks, name)
+
+    def _build_multileader(self, entity, spec: MultileaderSpec) -> None:
+        builder = MultiLeaderMTextBuilder(entity)
+        builder.set_overall_scaling(spec.scale)
+        builder.set_content(
+            mtext_content(spec),
+            color=spec.text_color if spec.text_color is not None else ezdxf_colors.BYBLOCK,
+            char_height=spec.height,
+            alignment=TextAlignment[text_alignment(spec)],
+            style=self.ensure_text_style(spec.font, spec.italic),
         )
-        handles.append(text_handle)
-        for handle in handles:
-            entity = self._require_entity(handle)
-            role = "text" if handle == text_handle else "arrow" if handle != route_handle else "leader"
-            apply_metadata(entity, spec.identifier, role, spec)
-        return handles, text_handle
+        builder.set_leader_properties(
+            color=spec.leader_color if spec.leader_color is not None else ezdxf_colors.BYBLOCK,
+            linetype=self._linetype_name(spec.leader_linetype),
+            lineweight=spec.leader_lineweight,
+            leader_type=LeaderType.splines if spec.line_type == "spline" else LeaderType.straight_lines,
+        )
+        builder.set_arrow_properties(size=spec.effective_arrow_size)
+        arrow_handle = self._arrow_handle(spec.arrowhead, spec.arrow_block)
+        if arrow_handle is not None:
+            entity.dxf.arrow_head_handle = arrow_handle
+        builder.set_connection_types(
+            left=HorizontalConnection[spec.left_connection],
+            right=HorizontalConnection[spec.right_connection],
+            top=VerticalConnection[spec.top_connection],
+            bottom=VerticalConnection[spec.bottom_connection],
+        )
+        builder.set_connection_properties(
+            landing_gap=spec.gap / spec.scale,
+            dogleg_length=dogleg_length(spec) / spec.scale,
+        )
+        mtext = builder.context.mtext
+        mtext.line_spacing_factor = spec.line_spacing
+        mtext.has_bg_fill = int(spec.background)
+        mtext.use_window_bg_color = int(spec.background)
+        mtext.bg_scale_factor = spec.background_scale
+        builder.add_leader_line(ConnectionSide[connection_side(spec)], [Vec2(point) for point in leader_vertices(spec)])
+        builder.build(Vec2(0.0, 0.0), rotation=spec.rotation)
+        offset = self._multileader_connection(entity)
+        builder.build(Vec2(spec.text_position) - offset, rotation=spec.rotation)
+        entity.dxf.has_text_frame = int(spec.text_frame)
+        entity.dxf.has_landing = int(spec.has_landing)
+        if not spec.text:
+            entity.dxf.content_type = 0
+            entity.context.mtext = None
+        apply_metadata(entity, spec)
+
+    @staticmethod
+    def _multileader_connection(entity) -> Vec2:
+        leader = entity.context.leaders[0]
+        point = leader.last_leader_point
+        if entity.dxf.get("has_dogleg", 0):
+            point = point + leader.dogleg_vector * leader.dogleg_length
+        return Vec2(point)
+
+    def _style_from_native(self, name: str, style) -> MultileaderStyle:
+        dxf = style.dxf
+        return MultileaderStyle(
+            name=name,
+            line_type="spline" if dxf.get("leader_type", 1) == 2 else "straight",
+            height=float(dxf.get("char_height", 0.6)) or 0.6,
+            gap=float(dxf.get("landing_gap_size", 0.18)),
+            landing_length=float(dxf.get("dogleg_length", 0.0)),
+            scale=float(dxf.get("scale", 1.0)) or 1.0,
+            annotative=bool(dxf.get("is_annotative", 0)),
+            arrow_size=float(dxf.get("arrow_head_size", 0.0)),
+            landing_enabled=bool(dxf.get("has_dogleg", 1)),
+        ).normalized()
+
+    def multileader_styles(self) -> Dict[str, MultileaderStyle]:
+        styles: Dict[str, MultileaderStyle] = {}
+        for name, style in self._drawing.mleader_styles:
+            parsed = None
+            if style.has_xdata(MULTILEADER_APPID):
+                parsed = style_from_metadata(style.get_xdata(MULTILEADER_APPID))
+            styles[name] = parsed if parsed is not None else self._style_from_native(name, style)
+        return styles
+
+    def set_multileader_styles(self, styles: Dict[str, MultileaderStyle]) -> None:
+        if MULTILEADER_APPID not in self._drawing.appids:
+            self._drawing.appids.add(MULTILEADER_APPID)
+        table = self._drawing.mleader_styles
+        for name in [name for name, _style in table]:
+            if name not in styles and name != "Standard":
+                table.delete(name)
+        for style in styles.values():
+            self._write_native_style(style.normalized())
+
+    def _write_native_style(self, style: MultileaderStyle) -> None:
+        table = self._drawing.mleader_styles
+        native = table.get(style.name)
+        if native is None:
+            native = table.duplicate_entry("Standard", style.name)
+        dxf = native.dxf
+        dxf.content_type = 2
+        dxf.leader_type = 2 if style.line_type == "spline" else 1
+        dxf.leader_line_color = ezdxf_colors.encode_raw_color(
+            style.leader_color if style.leader_color is not None else ezdxf_colors.BYBLOCK
+        )
+        dxf.leader_lineweight = style.leader_lineweight
+        dxf.leader_linetype_handle = self._drawing.linetypes.get(self._linetype_name(style.leader_linetype)).dxf.handle
+        dxf.arrow_head_size = style.arrow_size or style.height * 0.9
+        arrow_handle = self._arrow_handle(style.arrowhead, style.arrow_block)
+        if arrow_handle is None:
+            dxf.discard("arrow_head_handle")
+        else:
+            dxf.arrow_head_handle = arrow_handle
+        dxf.char_height = style.height
+        dxf.landing_gap_size = style.gap
+        dxf.has_dogleg = int(style.landing_enabled)
+        dxf.has_landing = int(style.landing_enabled)
+        dxf.dogleg_length = style.landing_length
+        dxf.text_color = ezdxf_colors.encode_raw_color(
+            style.text_color if style.text_color is not None else ezdxf_colors.BYBLOCK
+        )
+        dxf.text_style_handle = self._drawing.styles.get(self.ensure_text_style(style.font, style.italic)).dxf.handle
+        dxf.text_left_attachment_type = int(HorizontalConnection[style.left_connection])
+        dxf.text_right_attachment_type = int(HorizontalConnection[style.right_connection])
+        dxf.text_top_attachment_type = int(VerticalConnection[style.top_connection])
+        dxf.text_bottom_attachment_type = int(VerticalConnection[style.bottom_connection])
+        dxf.text_attachment_direction = 1 if style.direction == "vertical" else 0
+        dxf.has_text_frame = int(style.text_frame)
+        dxf.first_segment_angle_constraint = math.radians(style.first_angle)
+        dxf.second_segment_angle_constraint = math.radians(style.second_angle)
+        dxf.max_leader_segments_points = 3
+        dxf.is_annotative = int(style.annotative)
+        dxf.scale = style.scale
+        native.set_xdata(MULTILEADER_APPID, style_metadata(style))
+
+    def multileaders_using_style(self, name: str) -> List[str]:
+        handles: List[str] = []
+        for entity in self.modelspace:
+            metadata = metadata_from_entity(entity)
+            if metadata is not None and metadata[1].style_name == name:
+                handles.append(entity.dxf.handle)
+        return handles
+
+    def multileader_spec(self, handle: str) -> Optional[MultileaderSpec]:
+        metadata = self.multileader_metadata(handle)
+        return metadata[1] if metadata is not None else None
+
+    def defined_multileader_style(self, name: str) -> Optional[MultileaderStyle]:
+        style = self._drawing.mleader_styles.get(name)
+        if style is None or not style.has_xdata(MULTILEADER_APPID):
+            return None
+        return style_from_metadata(style.get_xdata(MULTILEADER_APPID))
+
+    @property
+    def current_multileader_style(self) -> str:
+        entry = self._drawing.rootdict.get(_CURRENT_MLEADER_STYLE_KEY)
+        name = str(entry.dxf.value) if entry is not None else "Standard"
+        return name if name in self._drawing.mleader_styles else "Standard"
+
+    def set_current_multileader_style(self, name: str) -> None:
+        rootdict = self._drawing.rootdict
+        entry = rootdict.get(_CURRENT_MLEADER_STYLE_KEY)
+        if entry is None:
+            rootdict.add_dict_var(_CURRENT_MLEADER_STYLE_KEY, name)
+        else:
+            entry.dxf.value = name
+
+    def linetype_names(self) -> List[str]:
+        return [linetype.dxf.name for linetype in self._drawing.linetypes]
+
+    def _migrate_legacy_multileaders(self) -> None:
+        groups: Dict[str, Tuple[List[DXFGraphic], Optional[MultileaderSpec]]] = {}
+        for entity in self.modelspace:
+            legacy = legacy_metadata_from_entity(entity)
+            if legacy is None:
+                continue
+            identifier, role, spec = legacy
+            members, text_spec = groups.get(identifier, ([], None))
+            members.append(entity)
+            groups[identifier] = (members, spec if role == "text" or text_spec is None else text_spec)
+        for identifier, (members, spec) in groups.items():
+            for entity in members:
+                self.modelspace.delete_entity(entity)
+            if spec is not None:
+                self.add_multileader(with_identifier(spec, identifier))
+        rootdict = self._drawing.rootdict
+        entry = rootdict.get(_MLEADER_STYLES_KEY)
+        if entry is None:
+            return
+        try:
+            legacy_styles = [MultileaderStyle.from_payload(payload) for payload in json.loads(entry.dxf.value)]
+        except (AttributeError, KeyError, TypeError, ValueError):
+            legacy_styles = []
+        rootdict.discard(_MLEADER_STYLES_KEY)
+        if legacy_styles:
+            styles = self.multileader_styles()
+            styles.update({style.name: style for style in legacy_styles if style.name})
+            self.set_multileader_styles(styles)
 
     def mark_generated(self, handle: str, mode: str) -> None:
         """Record that the generator drew this entity for `mode`."""
@@ -349,113 +559,81 @@ class DXFDocument:
             if generated_mode_from_entity(entity) in wanted
         ]
 
-    def multileader_metadata(self, handle: str):
+    def is_multileader(self, handle: str) -> bool:
         entity = self.get_entity(handle)
-        return metadata_from_entity(entity) if entity is not None else None
+        return entity is not None and entity.dxftype() == "MULTILEADER"
+
+    def multileader_metadata(self, handle: str) -> Optional[Tuple[str, MultileaderSpec]]:
+        entity = self.get_entity(handle)
+        if entity is None or entity.dxftype() != "MULTILEADER":
+            return None
+        metadata = metadata_from_entity(entity)
+        if metadata is not None:
+            return metadata
+        spec = spec_from_native(entity)
+        return (spec.identifier, spec) if spec is not None else None
 
     def multileader_handles(self, handle: str) -> List[str]:
-        metadata = self.multileader_metadata(handle)
-        if metadata is None:
-            return [handle]
-        identifier, _role, _spec = metadata
-        return [
-            entity.dxf.handle
-            for entity in self.modelspace
-            if (entity_metadata := metadata_from_entity(entity)) is not None and entity_metadata[0] == identifier
-        ]
+        return [handle]
 
     def expand_annotation_handles(self, handles: Iterable[str]) -> List[str]:
         expanded: List[str] = []
         for handle in handles:
-            for related in self.multileader_handles(handle):
-                if related not in expanded:
-                    expanded.append(related)
+            if handle not in expanded:
+                expanded.append(handle)
         return expanded
 
     def multileader_text_handle(self, handles: Iterable[str]) -> Optional[str]:
-        identifiers = set()
-        for handle in handles:
-            metadata = self.multileader_metadata(handle)
-            if metadata is None:
-                return None
-            identifiers.add(metadata[0])
-        if len(identifiers) != 1:
+        unique = set(handles)
+        if len(unique) != 1:
             return None
-        identifier = identifiers.pop()
-        for entity in self.modelspace:
-            metadata = metadata_from_entity(entity)
-            if metadata is not None and metadata[0] == identifier and metadata[1] == "text":
-                return entity.dxf.handle
-        return None
+        handle = unique.pop()
+        return handle if self.is_multileader(handle) else None
+
+    def multileader_text(self, handle: str) -> str:
+        mtext = self._require_entity(handle).context.mtext
+        return text_from_mtext(mtext.default_content) if mtext is not None else ""
 
     def multileader_grips(self, handle: str) -> List[Tuple[float, float]]:
-        metadata = self.multileader_metadata(handle)
-        if metadata is None:
+        spec = self.multileader_spec(handle)
+        if spec is None:
             return []
-        _identifier, _role, spec = metadata
         grips = [spec.tip]
-        if spec.landing_enabled and spec.landing is not None:
+        if spec.has_landing:
             grips.append(spec.landing)
         grips.append(spec.text_position)
         return grips
 
     def separate_multileader_groups(self, handles: Iterable[str], dx: float = 0.0, dy: float = 0.0) -> None:
-        handle_set = set(handles)
-        identifiers = set()
         for handle in handles:
-            metadata = self.multileader_metadata(handle)
-            if metadata is not None:
-                identifiers.add(metadata[0])
-        for identifier in identifiers:
-            matching = [
-                entity
-                for entity in self.modelspace
-                if entity.dxf.handle in handle_set
-                and (metadata := metadata_from_entity(entity)) is not None
-                and metadata[0] == identifier
-            ]
-            if not matching:
+            spec = self.multileader_spec(handle)
+            if spec is None:
                 continue
-            _matched_identifier, _role, spec = metadata_from_entity(matching[0])
-            new_identifier = uuid.uuid4().hex
             moved = transform_spec(spec, lambda point: (point[0] + dx, point[1] + dy)) if dx or dy else spec
-            separated = with_identifier(moved, new_identifier)
-            for entity in matching:
-                _entity_identifier, role, _entity_spec = metadata_from_entity(entity)
-                apply_metadata(entity, new_identifier, role, separated)
+            self.rebuild_multileader(handle, with_identifier(moved, uuid.uuid4().hex))
 
-    def _transform_multileader_metadata(self, handles: Iterable[str], transform) -> None:
-        identifiers = set()
+    def _transform_multileaders(
+        self, handles: Iterable[str], transform, length_factor: float = 1.0, rotation_delta: float = 0.0
+    ) -> None:
         for handle in handles:
-            metadata = self.multileader_metadata(handle)
-            if metadata is not None:
-                identifiers.add(metadata[0])
-        for identifier in identifiers:
-            matching = [
-                entity
-                for entity in self.modelspace
-                if (metadata := metadata_from_entity(entity)) is not None and metadata[0] == identifier
-            ]
-            if not matching:
-                continue
-            _matched_identifier, _role, spec = metadata_from_entity(matching[0])
-            transformed = transform_spec(spec, transform)
-            for entity in matching:
-                _entity_identifier, role, _entity_spec = metadata_from_entity(entity)
-                apply_metadata(entity, identifier, role, transformed)
+            spec = self.multileader_spec(handle)
+            if spec is not None:
+                self.rebuild_multileader(handle, transform_spec(spec, transform, length_factor, rotation_delta))
 
     def translate_entities(self, handles: Iterable[str], dx: float, dy: float, dz: float = 0.0) -> List[str]:
         resolved = self.expand_annotation_handles(handles)
         for handle in resolved:
-            self.translate_entity(handle, dx, dy, dz)
-        self._transform_multileader_metadata(resolved, lambda point: (point[0] + dx, point[1] + dy))
+            if not self.is_multileader(handle):
+                self.translate_entity(handle, dx, dy, dz)
+        self._transform_multileaders(resolved, lambda point: (point[0] + dx, point[1] + dy))
         self._transform_detail_metadata(resolved, lambda point: (point[0] + dx, point[1] + dy))
         return resolved
 
     def rotate_entities(self, handles: Iterable[str], angle: float, center: Sequence[float]) -> List[str]:
         resolved = self.expand_annotation_handles(handles)
         for handle in resolved:
-            self.rotate_entity(handle, angle, center)
+            if not self.is_multileader(handle):
+                self.rotate_entity(handle, angle, center)
         radians = math.radians(angle)
         cos_a, sin_a = math.cos(radians), math.sin(radians)
         cx, cy = center[0], center[1]
@@ -463,17 +641,18 @@ class DXFDocument:
             cx + (point[0] - cx) * cos_a - (point[1] - cy) * sin_a,
             cy + (point[0] - cx) * sin_a + (point[1] - cy) * cos_a,
         )
-        self._transform_multileader_metadata(resolved, rotate)
+        self._transform_multileaders(resolved, rotate, rotation_delta=angle)
         self._transform_detail_metadata(resolved, rotate, rotation_delta=angle)
         return resolved
 
     def scale_entities(self, handles: Iterable[str], factor: float, center: Sequence[float]) -> List[str]:
         resolved = self.expand_annotation_handles(handles)
         for handle in resolved:
-            self.scale_entity(handle, factor, center)
+            if not self.is_multileader(handle):
+                self.scale_entity(handle, factor, center)
         cx, cy = center[0], center[1]
         resize = lambda point: (cx + (point[0] - cx) * factor, cy + (point[1] - cy) * factor)
-        self._transform_multileader_metadata(resolved, resize)
+        self._transform_multileaders(resolved, resize, factor)
         self._transform_detail_metadata(resolved, resize, factor)
         return resolved
 

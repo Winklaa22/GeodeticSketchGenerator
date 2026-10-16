@@ -28,6 +28,7 @@ class IconManager:
         "circle_tool": "mdi.vector-circle",
         "pipe_tool": "mdi.pipe",
         "multileader_tool": "mdi.call-split",
+        "mleader_properties": "mdi.tune-variant",
         "detail_tool": "mdi.magnify-scan",
         "detail_edit": "mdi.pencil-outline",
         "move_tool": "fa5s.arrows-alt",

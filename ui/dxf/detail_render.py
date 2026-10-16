@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
 
-from ezdxf.addons.drawing import Frontend, RenderContext, recorder
+from ezdxf.addons.drawing import RenderContext, recorder
 from ezdxf.addons.drawing.config import Configuration
 from ezdxf.math import Vec2
 
@@ -14,13 +14,14 @@ from core.detail_view import (
     rotation_matrix,
 )
 from core.dxf_document import DXFDocument
+from ui.dxf.frontend import GsgFrontend
 
 CROP_PRECISION = 1e-4
 
 
 def source_player(document: DXFDocument, config: Configuration) -> recorder.Player:
     rec = recorder.Recorder()
-    frontend = Frontend(RenderContext(document.drawing), rec, config=config)
+    frontend = GsgFrontend(RenderContext(document.drawing), rec, config=config)
     frontend.draw_entities(
         [entity for entity in document.modelspace if metadata_from_entity(entity) is None]
     )

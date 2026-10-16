@@ -112,6 +112,8 @@ class CadGraphicsView(qw.QGraphicsView):
     detailResizeRequested = qc.pyqtSignal(str, int, float, float)
     detailArrowAnchorPicked = qc.pyqtSignal(str, int)
     detailGestureFinished = qc.pyqtSignal()
+    annotationGripMoved = qc.pyqtSignal(int, float, float)
+    entityDoubleClicked = qc.pyqtSignal(str)
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -123,6 +125,7 @@ class CadGraphicsView(qw.QGraphicsView):
         self._press_pos: Optional[qc.QPoint] = None
         self._selected_items: List[qw.QGraphicsItem] = []
         self._annotation_grips: List[qc.QPointF] = []
+        self._grip_drag: Optional[int] = None
         self._detail_pan: Optional[Tuple[str, qc.QPointF]] = None
         self._tool_dragging = False
         self._detail_mode: Optional[str] = None
@@ -751,6 +754,10 @@ class CadGraphicsView(qw.QGraphicsView):
                 return
         if self._tool is None and event.button() == qc.Qt.MouseButton.LeftButton:
             world = self._world_point(event.position())
+            grip = self._annotation_grip_at(world)
+            if grip is not None:
+                self._grip_drag = grip
+                return
             detail = self._detail_target(world)
             if detail is not None:
                 self._detail_pan = (detail, world)
@@ -827,6 +834,10 @@ class CadGraphicsView(qw.QGraphicsView):
             new_scene = self.mapToScene(pos)
             self._pan_last_pos = pos
             self.pan_by(old_scene.x() - new_scene.x(), old_scene.y() - new_scene.y())
+            return
+        if self._grip_drag is not None:
+            self._annotation_grips[self._grip_drag] = self._world_point(event.position())
+            self.viewport().update()
             return
         if self._detail_pan is not None:
             handle, last = self._detail_pan
@@ -912,6 +923,21 @@ class CadGraphicsView(qw.QGraphicsView):
                 painter.fillRect(item.boundingRect(), fill_color)
             painter.restore()
 
+    def _annotation_grip_at(self, world: qc.QPointF) -> Optional[int]:
+        tolerance = self._gizmo_tolerance()
+        for index, grip in enumerate(self._annotation_grips):
+            if math.hypot(grip.x() - world.x(), grip.y() - world.y()) <= tolerance:
+                return index
+        return None
+
+    def mouseDoubleClickEvent(self, event: qg.QMouseEvent) -> None:
+        if self._tool is None and event.button() == qc.Qt.MouseButton.LeftButton:
+            item = self._topmost_handled_item(event.position().toPoint())
+            if item is not None:
+                self.entityDoubleClicked.emit(item.data(HANDLE_ROLE))
+                return
+        super().mouseDoubleClickEvent(event)
+
     def _gizmo_tolerance(self) -> float:
         return _DETAIL_HANDLE_PX / max(self._scene_scale(), 1e-9)
 
@@ -960,6 +986,12 @@ class CadGraphicsView(qw.QGraphicsView):
         if event.button() == qc.Qt.MouseButton.MiddleButton:
             self._pan_last_pos = None
             self.setCursor(qc.Qt.CursorShape.CrossCursor if self._tool is not None else qc.Qt.CursorShape.ArrowCursor)
+            return
+        if self._grip_drag is not None:
+            index, self._grip_drag = self._grip_drag, None
+            self._press_pos = None
+            world = self._world_point(event.position())
+            self.annotationGripMoved.emit(index, world.x(), world.y())
             return
         if self._detail_rotate is not None or self._detail_resize is not None:
             self._detail_rotate = None

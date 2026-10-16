@@ -6,7 +6,7 @@ from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 import ezdxf
 from ezdxf import bbox as ezdxf_bbox
-from ezdxf.addons.drawing import Frontend, RenderContext
+from ezdxf.addons.drawing import RenderContext
 from ezdxf.addons.drawing.config import Configuration
 from ezdxf.addons.drawing.recorder import Player
 
@@ -21,6 +21,14 @@ from core.commands.layers import (
     SetLayerColorCommand,
     SetLayerVisibleCommand,
     layers_to_prune,
+)
+from core.commands.multileader import (
+    DefineMultileaderStyleCommand,
+    DeleteMultileaderStyleCommand,
+    EditMultileaderTextCommand,
+    MoveMultileaderGripCommand,
+    RescaleAnnotativeCommand,
+    SetMultileaderPropertiesCommand,
 )
 from core.commands.text import (
     SetEntityColorCommand,
@@ -63,7 +71,10 @@ from ui.dxf.items import DETAIL_CONTENT_ROLE, HANDLE_ROLE, PointItem
 from ui.dxf.block_panel import BlockEntry, BlockPanel
 from ui.dxf.block_render import Shape
 from ui.dxf.block_render import outline as block_outline
+from ui.dxf.frontend import GsgFrontend
 from ui.dxf.layer_panel import LayerPanel
+from ui.dxf.mleader_style_dialog import MultileaderPropertiesDialog, MultileaderStyleDialog
+from ui.dxf.mtext_dialog import MTextDialog
 from ui.dxf.page_frame import page_frame_for
 from ui.dxf.pdf_export import PlotJob, export_sheets
 from ui.dxf.sheet_tabs import SheetTabBar
@@ -77,6 +88,7 @@ from ui.dxf.tools import (
     InsertBlockToolSession,
     LineToolSession,
     MoveToolSession,
+    MTextValues,
     MultileaderToolSession,
     PipeToolSession,
     PointToolSession,
@@ -237,6 +249,8 @@ class DxfViewer(qw.QWidget):
         self._view.detailRotateRequested.connect(self._on_detail_rotate)
         self._view.detailResizeRequested.connect(self._on_detail_resize)
         self._view.detailArrowAnchorPicked.connect(self._on_detail_arrow_anchor)
+        self._view.annotationGripMoved.connect(self._on_annotation_grip_moved)
+        self._view.entityDoubleClicked.connect(self._on_entity_double_clicked)
         self._view.detailGestureFinished.connect(self._commit_detail_gesture)
         self._view.pageFrameMoved.connect(self._on_page_frame_moved)
         self._view.pageScaleZoomRequested.connect(self.pageScaleZoomRequested)
@@ -251,6 +265,7 @@ class DxfViewer(qw.QWidget):
         self._text_options_bar.rotationChanged.connect(self._on_text_rotation_changed)
         self._text_options_bar.colorChanged.connect(self._on_text_color_changed)
         self._text_options_bar.fontChanged.connect(self._on_text_font_changed)
+        self._text_options_bar.propertiesRequested.connect(self._open_multileader_properties)
 
         self._detail_options_bar.modeChanged.connect(self._on_detail_mode_changed)
 
@@ -360,10 +375,108 @@ class DxfViewer(qw.QWidget):
             return TextToolSession()
         return TextToolSession(ANNOTATION_TEXT_MM * units_per_mm(self._layout_options))
 
-    def _multileader_tool(self) -> MultileaderToolSession:
-        if self._layout_options is None:
-            return MultileaderToolSession()
-        return MultileaderToolSession(ANNOTATION_TEXT_MM * units_per_mm(self._layout_options))
+    def _annotation_scale(self) -> float:
+        return units_per_mm(self._layout_options) if self._layout_options is not None else 1.0
+
+    def _multileader_tool(self, style_name: Optional[str] = None, **overrides) -> MultileaderToolSession:
+        height = ANNOTATION_TEXT_MM * units_per_mm(self._layout_options) if self._layout_options is not None else 0.6
+        doc = self._doc
+        name = style_name or (doc.current_multileader_style if doc is not None else "Standard")
+        style = doc.defined_multileader_style(name) if doc is not None else None
+        return MultileaderToolSession(height, style=style, annotation_scale=self._annotation_scale(), **overrides)
+
+    def start_multileader_tool(self, style_name: Optional[str] = None, **overrides) -> str:
+        self.ensure_document()
+        assert self._doc is not None
+        if style_name is not None and style_name not in self._doc.multileader_styles():
+            return tr("viewer.unknown_mleader_style", name=style_name)
+        self.start_tool(self._multileader_tool(style_name, **overrides))
+        return ""
+
+    def open_multileader_styles(self) -> str:
+        doc = self.ensure_document()
+        in_use = {name for name in doc.multileader_styles() if doc.multileaders_using_style(name)}
+        dialog = MultileaderStyleDialog(
+            doc.multileader_styles(),
+            doc.current_multileader_style,
+            in_use,
+            doc.block_names(),
+            doc.linetype_names(),
+            self,
+        )
+        if dialog.exec() != qw.QDialog.DialogCode.Accepted:
+            return ""
+        commands: List[EditCommand] = [DefineMultileaderStyleCommand(style) for style in dialog.changed_styles()]
+        commands.extend(DeleteMultileaderStyleCommand(name) for name in dialog.deleted_styles())
+        if commands:
+            self.execute_command(CompositeCommand(commands))
+        doc.set_current_multileader_style(dialog.current_style())
+        return tr("viewer.mleader_style_current", name=doc.current_multileader_style)
+
+    def _open_multileader_properties(self, handle: str) -> None:
+        if self._doc is None:
+            return
+        spec = self._doc.multileader_spec(handle)
+        if spec is None:
+            return
+        dialog = MultileaderPropertiesDialog(spec, self._doc.block_names(), self._doc.linetype_names(), self)
+        if dialog.exec() != qw.QDialog.DialogCode.Accepted:
+            return
+        changes = dialog.changed_values()
+        if changes:
+            self.execute_command(SetMultileaderPropertiesCommand([handle], **changes))
+            self._select_handles([handle])
+
+    def _edit_multileader_text(self, handle: str) -> None:
+        if self._doc is None:
+            return
+        spec = self._doc.multileader_spec(handle)
+        if spec is None:
+            return
+        dialog = MTextDialog(MTextValues(spec.text, spec.bold, spec.italic, spec.underline, spec.alignment), self)
+        if dialog.exec() != qw.QDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        changes = {
+            key: value
+            for key, value in (
+                ("text", values.text),
+                ("bold", values.bold),
+                ("italic", values.italic),
+                ("underline", values.underline),
+                ("alignment", values.alignment),
+            )
+            if getattr(spec, key) != value
+        }
+        if changes and values.text.strip():
+            self.execute_command(SetMultileaderPropertiesCommand([handle], **changes))
+            self._select_handles([handle])
+
+    def _on_entity_double_clicked(self, handle: str) -> None:
+        if self._doc is not None and self._doc.is_multileader(handle):
+            self._edit_multileader_text(handle)
+
+    def _on_annotation_grip_moved(self, index: int, x: float, y: float) -> None:
+        if self._doc is None or len(self._selected_handles) != 1:
+            return
+        handle = self._selected_handles[0]
+        spec = self._doc.multileader_spec(handle)
+        if spec is None:
+            return
+        names = ["tip", "landing", "text"] if spec.has_landing else ["tip", "text"]
+        if not 0 <= index < len(names):
+            return
+        self.execute_command(MoveMultileaderGripCommand(handle, names[index], (x, y)))
+        self._select_handles([handle])
+
+    def _rescale_annotative(self) -> bool:
+        if self._doc is None or self._history is None:
+            return False
+        command = RescaleAnnotativeCommand(self._annotation_scale())
+        if not command.has_changes(self._doc):
+            return False
+        self._history.execute(command, self._doc)
+        return True
 
     @property
     def layout_options(self) -> Optional[PlotOptions]:
@@ -415,7 +528,8 @@ class DxfViewer(qw.QWidget):
             self._layout_table_width_mm = table_width_mm
             self._install_page_frame()
             self._compass.set_angle(rotation)
-            if previous is not None and self._restyle_for_scale(previous, options, preserve_view):
+            rescaled = self._rescale_annotative()
+            if not rescaled and previous is not None and self._restyle_for_scale(previous, options, preserve_view):
                 return
         if self._doc is not None:
             self._render(preserve_view=preserve_view)
@@ -926,9 +1040,26 @@ class DxfViewer(qw.QWidget):
             return
         if self._active_tool.is_done():
             self._finish_tool()
+        elif getattr(self._active_tool, "wants_text_editor", False):
+            self._open_tool_text_editor()
         else:
             self._command_line.show_response(self._active_tool.prompt)
             self._command_line.focus_input()
+
+    def _open_tool_text_editor(self) -> None:
+        tool = self._active_tool
+        assert isinstance(tool, MultileaderToolSession)
+        self._command_line.show_response(tool.prompt)
+        dialog = MTextDialog(tool.text_defaults, self)
+        if dialog.exec() != qw.QDialog.DialogCode.Accepted:
+            self._command_line.focus_input()
+            return
+        message = tool.on_mtext(dialog.values())
+        if message:
+            self._command_line.show_response(message)
+            self._command_line.focus_input()
+        elif tool.is_done():
+            self._finish_tool()
 
     def _on_entity_selected(self, handles: List[str]) -> None:
         self._select_handles(handles)
@@ -938,16 +1069,12 @@ class DxfViewer(qw.QWidget):
         self.execute_command(MoveCommand(self._selected_handles, dx, dy))
 
     def _selected_text_handle(self) -> Optional[str]:
-        """The one TEXT entity the selection is about, if it is about one at all."""
-        if self._doc is None:
+        """The one TEXT or MULTILEADER entity the selection is about, if it is about one at all."""
+        if self._doc is None or len(set(self._selected_handles)) != 1:
             return None
-        handle = self._doc.multileader_text_handle(self._selected_handles)
-        if handle is None and len(self._selected_handles) == 1:
-            handle = self._selected_handles[0]
-        if handle is None:
-            return None
+        handle = self._selected_handles[0]
         entity = self._doc.get_entity(handle)
-        if entity is None or entity.dxftype() != "TEXT":
+        if entity is None or entity.dxftype() not in ("TEXT", "MULTILEADER"):
             return None
         return handle
 
@@ -956,15 +1083,27 @@ class DxfViewer(qw.QWidget):
         if self._doc is None or handle is None:
             self._text_options_bar.hide()
             return
-        entity = self._doc.get_entity(handle)
-        self._text_options_bar.bind(
-            handle,
-            entity.dxf.text,
-            entity.dxf.height,
-            entity.dxf.rotation,
-            self._doc.get_entity_color(handle),
-            self._doc.get_text_font(handle),
-        )
+        spec = self._doc.multileader_spec(handle)
+        if spec is not None:
+            self._text_options_bar.bind(
+                handle,
+                spec.text.replace("\n", "\\P"),
+                spec.effective_height,
+                spec.rotation,
+                self._doc.get_entity_color(handle),
+                spec.font,
+                has_properties=True,
+            )
+        else:
+            entity = self._doc.get_entity(handle)
+            self._text_options_bar.bind(
+                handle,
+                entity.dxf.text,
+                entity.dxf.height,
+                entity.dxf.rotation,
+                self._doc.get_entity_color(handle),
+                self._doc.get_text_font(handle),
+            )
         self._reposition_text_options_bar()
 
     def _sync_multileader_grips(self) -> None:
@@ -1038,19 +1177,38 @@ class DxfViewer(qw.QWidget):
             return
         self.start_tool(DetailArrowToolSession(handle_points(spec)[index]))
 
+    def _multileader_change(self, handle: str, **changes) -> bool:
+        if self._doc is None or not self._doc.is_multileader(handle):
+            return False
+        self.execute_command(SetMultileaderPropertiesCommand([handle], **changes))
+        self._select_handles([handle])
+        return True
+
     def _on_text_content_changed(self, handle: str, text: str) -> None:
+        if self._doc is not None and self._doc.is_multileader(handle):
+            self.execute_command(EditMultileaderTextCommand(handle, text.replace("\\P", "\n")))
+            self._select_handles([handle])
+            return
         self.execute_command(SetTextContentCommand(handle, text))
 
     def _on_text_height_changed(self, handle: str, height: float) -> None:
+        spec = self._doc.multileader_spec(handle) if self._doc is not None else None
+        if spec is not None:
+            self._multileader_change(handle, height=height / spec.scale)
+            return
         self.execute_command(SetTextHeightCommand(handle, height))
 
     def _on_text_rotation_changed(self, handle: str, rotation: float) -> None:
+        if self._multileader_change(handle, rotation=rotation):
+            return
         self.execute_command(SetTextRotationCommand(handle, rotation))
 
     def _on_text_color_changed(self, handle: str, rgb: Tuple[int, int, int]) -> None:
         self.execute_command(SetEntityColorCommand(handle, rgb))
 
     def _on_text_font_changed(self, handle: str, font_id: str) -> None:
+        if self._multileader_change(handle, font=font_id):
+            return
         self.execute_command(SetTextFontCommand(handle, font_id))
 
     def _finish_tool(self) -> None:
@@ -1228,7 +1386,7 @@ class DxfViewer(qw.QWidget):
         if self.loading_progress is not None:
             backend.set_progress(self._report_render_progress, self._doc.entity_count())
         context = RenderContext(self._doc.drawing)
-        Frontend(context, backend, config=self._render_config()).draw_layout(
+        GsgFrontend(context, backend, config=self._render_config()).draw_layout(
             self._doc.modelspace, finalize=True
         )
         self._render_detail_views(scene)
