@@ -563,6 +563,29 @@ class DXFDocument:
         entity = self.get_entity(handle)
         return entity is not None and entity.dxftype() == "MULTILEADER"
 
+    def is_own_multileader(self, handle: str) -> bool:
+        entity = self.get_entity(handle)
+        return entity is not None and entity.dxftype() == "MULTILEADER" and metadata_from_entity(entity) is not None
+
+    def snapshot_multileader(self, handle: str) -> DXFGraphic:
+        return self._require_entity(handle).copy()
+
+    def restore_multileader(self, handle: str, snapshot: DXFGraphic) -> None:
+        entity = self._require_entity(handle)
+        kept = {"handle", "owner"}
+        original = snapshot.dxf.all_existing_dxf_attribs()
+        for key in list(entity.dxf.all_existing_dxf_attribs()):
+            if key not in kept and key not in original:
+                entity.dxf.discard(key)
+        for key, value in original.items():
+            if key not in kept:
+                entity.dxf.set(key, value)
+        snapshot.copy_data(entity)
+        if snapshot.has_xdata(MULTILEADER_APPID):
+            entity.set_xdata(MULTILEADER_APPID, list(snapshot.get_xdata(MULTILEADER_APPID)))
+        else:
+            entity.discard_xdata(MULTILEADER_APPID)
+
     def multileader_metadata(self, handle: str) -> Optional[Tuple[str, MultileaderSpec]]:
         entity = self.get_entity(handle)
         if entity is None or entity.dxftype() != "MULTILEADER":
@@ -606,9 +629,9 @@ class DXFDocument:
 
     def separate_multileader_groups(self, handles: Iterable[str], dx: float = 0.0, dy: float = 0.0) -> None:
         for handle in handles:
-            spec = self.multileader_spec(handle)
-            if spec is None:
+            if not self.is_own_multileader(handle):
                 continue
+            spec = self.multileader_spec(handle)
             moved = transform_spec(spec, lambda point: (point[0] + dx, point[1] + dy)) if dx or dy else spec
             self.rebuild_multileader(handle, with_identifier(moved, uuid.uuid4().hex))
 
@@ -616,14 +639,14 @@ class DXFDocument:
         self, handles: Iterable[str], transform, length_factor: float = 1.0, rotation_delta: float = 0.0
     ) -> None:
         for handle in handles:
-            spec = self.multileader_spec(handle)
-            if spec is not None:
+            if self.is_own_multileader(handle):
+                spec = self.multileader_spec(handle)
                 self.rebuild_multileader(handle, transform_spec(spec, transform, length_factor, rotation_delta))
 
     def translate_entities(self, handles: Iterable[str], dx: float, dy: float, dz: float = 0.0) -> List[str]:
         resolved = self.expand_annotation_handles(handles)
         for handle in resolved:
-            if not self.is_multileader(handle):
+            if not self.is_own_multileader(handle):
                 self.translate_entity(handle, dx, dy, dz)
         self._transform_multileaders(resolved, lambda point: (point[0] + dx, point[1] + dy))
         self._transform_detail_metadata(resolved, lambda point: (point[0] + dx, point[1] + dy))
@@ -632,7 +655,7 @@ class DXFDocument:
     def rotate_entities(self, handles: Iterable[str], angle: float, center: Sequence[float]) -> List[str]:
         resolved = self.expand_annotation_handles(handles)
         for handle in resolved:
-            if not self.is_multileader(handle):
+            if not self.is_own_multileader(handle):
                 self.rotate_entity(handle, angle, center)
         radians = math.radians(angle)
         cos_a, sin_a = math.cos(radians), math.sin(radians)
@@ -648,7 +671,7 @@ class DXFDocument:
     def scale_entities(self, handles: Iterable[str], factor: float, center: Sequence[float]) -> List[str]:
         resolved = self.expand_annotation_handles(handles)
         for handle in resolved:
-            if not self.is_multileader(handle):
+            if not self.is_own_multileader(handle):
                 self.scale_entity(handle, factor, center)
         cx, cy = center[0], center[1]
         resize = lambda point: (cx + (point[0] - cx) * factor, cy + (point[1] - cy) * factor)

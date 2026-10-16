@@ -454,3 +454,89 @@ def test_legacy_groups_and_styles_migrate_on_open() -> None:
     assert spec.left_connection == "bottom_of_top_line"
     assert doc.multileader_styles()["Old"].annotative is True
     assert doc.drawing.rootdict.get("GSG_MLEADER_STYLES") is None
+
+
+def _foreign_multileader(doc: DXFDocument) -> str:
+    from ezdxf.math import Vec2
+    from ezdxf.render.mleader import ConnectionSide, TextAlignment
+
+    drawing = doc.drawing
+    drawing.mleader_styles.duplicate_entry("Standard", "Imported")
+    builder = doc.modelspace.add_multileader_mtext("Imported")
+    builder.set_content(r"{\fArial|b1;Imported}\Pnote", color=3, char_height=0.5, alignment=TextAlignment.left)
+    builder.set_arrow_properties(name=ARROWS.integral, size=0.4)
+    builder.set_connection_properties(landing_gap=0.1, dogleg_length=1.0)
+    builder.add_leader_line(ConnectionSide.left, [Vec2(0.0, 0.0), Vec2(2.0, 1.0)])
+    builder.add_leader_line(ConnectionSide.left, [Vec2(0.0, 3.0)])
+    builder.build(insert=Vec2(5.0, 2.0))
+    return builder.multileader.dxf.handle
+
+
+def _native_state(entity):
+    attribs = {key: value for key, value in entity.dxf.all_existing_dxf_attribs().items() if key != "handle"}
+    leaders = [
+        [[tuple(round(c, 9) for c in vertex) for vertex in line.vertices] for line in leader.lines]
+        for leader in entity.context.leaders
+    ]
+    mtext = entity.context.mtext
+    return attribs, leaders, mtext.default_content, tuple(round(c, 9) for c in mtext.insert)
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [
+        lambda handle: MoveCommand([handle], 3.0, 1.0),
+        lambda handle: RotateCommand([handle], 30.0, (0.0, 0.0)),
+        lambda handle: ScaleCommand([handle], 2.0, (0.0, 0.0)),
+    ],
+)
+def test_transforming_imported_multileader_keeps_its_contents(transform) -> None:
+    doc = DXFDocument.new()
+    handle = _foreign_multileader(doc)
+    entity = doc.get_entity(handle)
+    before = _native_state(entity)
+    command = transform(handle)
+
+    command.execute(doc)
+
+    assert len(entity.context.leaders[0].lines) == 2
+    assert entity.context.mtext.default_content == before[2]
+    assert entity.dxf.arrow_head_handle == before[0]["arrow_head_handle"]
+    assert entity.dxf.style_handle == before[0]["style_handle"]
+    assert entity.dxf.text_color == before[0]["text_color"]
+    assert not entity.has_xdata(MULTILEADER_APPID)
+    command.undo(doc)
+    after = _native_state(entity)
+    assert after[1:] == before[1:]
+    assert after[0].keys() == before[0].keys()
+
+
+def test_duplicating_imported_multileader_keeps_its_contents() -> None:
+    doc = DXFDocument.new()
+    handle = _foreign_multileader(doc)
+
+    duplicate = DuplicateEntitiesCommand([handle], 10.0, 0.0)
+    duplicate.execute(doc)
+
+    (copy,) = duplicate.new_handles
+    entity = doc.get_entity(copy)
+    assert len(entity.context.leaders[0].lines) == 2
+    assert entity.context.mtext.default_content == doc.get_entity(handle).context.mtext.default_content
+    assert entity.context.leaders[0].lines[0].vertices[0].isclose((10.0, 0.0, 0.0))
+
+
+def test_undoing_an_edit_of_imported_multileader_restores_it_exactly() -> None:
+    doc = DXFDocument.new()
+    handle = _foreign_multileader(doc)
+    entity = doc.get_entity(handle)
+    before = _native_state(entity)
+    history = CommandHistory()
+
+    history.execute(EditMultileaderTextCommand(handle, "Changed"), doc)
+    assert doc.multileader_text(handle) == "Changed"
+    assert history.undo(doc)
+
+    assert _native_state(entity) == before
+    assert not entity.has_xdata(MULTILEADER_APPID)
+    assert history.redo(doc)
+    assert doc.multileader_text(handle) == "Changed"

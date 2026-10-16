@@ -38,7 +38,7 @@ class AddMultileaderCommand:
 
 class _RebuildMultileadersCommand:
     def __init__(self) -> None:
-        self._changes: List[Tuple[str, MultileaderSpec, MultileaderSpec]] = []
+        self._changes: List[Tuple[str, Any, MultileaderSpec]] = []
         self.handles: List[str] = []
 
     def _specs(self, doc: DXFDocument) -> List[Tuple[str, MultileaderSpec]]:
@@ -47,17 +47,16 @@ class _RebuildMultileadersCommand:
     def execute(self, doc: DXFDocument) -> None:
         if not self._changes:
             for handle, spec in self._specs(doc):
-                previous = doc.multileader_spec(handle)
-                if previous is None:
+                if not doc.is_multileader(handle):
                     continue
-                self._changes.append((handle, previous, spec.normalized()))
+                self._changes.append((handle, doc.snapshot_multileader(handle), spec.normalized()))
                 self.handles.append(handle)
-        for handle, _previous, spec in self._changes:
+        for handle, _snapshot, spec in self._changes:
             doc.rebuild_multileader(handle, spec)
 
     def undo(self, doc: DXFDocument) -> None:
-        for handle, previous, _spec in reversed(self._changes):
-            doc.rebuild_multileader(handle, previous)
+        for handle, snapshot, _spec in reversed(self._changes):
+            doc.restore_multileader(handle, snapshot)
 
 
 class DefineMultileaderStyleCommand:
