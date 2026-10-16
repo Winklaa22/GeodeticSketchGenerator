@@ -395,7 +395,7 @@ class DxfViewer(qw.QWidget):
 
     def open_multileader_styles(self) -> str:
         doc = self.ensure_document()
-        in_use = {name for name in doc.multileader_styles() if doc.multileaders_using_style(name)}
+        in_use = {name for name in doc.multileader_styles() if doc.multileader_style_in_use(name)}
         dialog = MultileaderStyleDialog(
             doc.multileader_styles(),
             doc.current_multileader_style,

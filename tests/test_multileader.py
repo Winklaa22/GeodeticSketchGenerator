@@ -540,3 +540,19 @@ def test_undoing_an_edit_of_imported_multileader_restores_it_exactly() -> None:
     assert not entity.has_xdata(MULTILEADER_APPID)
     assert history.redo(doc)
     assert doc.multileader_text(handle) == "Changed"
+
+
+def test_style_referenced_only_by_imported_multileader_is_in_use() -> None:
+    doc = DXFDocument.new()
+    handle = _foreign_multileader(doc)
+    entity = doc.get_entity(handle)
+    before = _native_state(entity)
+
+    assert doc.multileader_style_in_use("Imported")
+    with pytest.raises(MultileaderError):
+        DeleteMultileaderStyleCommand("Imported").execute(doc)
+    assert "Imported" in doc.multileader_styles()
+
+    DefineMultileaderStyleCommand(MultileaderStyle(name="Imported", arrowhead="dot")).execute(doc)
+    assert _native_state(entity)[1:] == before[1:]
+    assert not entity.has_xdata(MULTILEADER_APPID)
