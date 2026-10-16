@@ -100,7 +100,6 @@ class MultileaderPropertiesForm(qw.QScrollArea):
         self._gap = self._number("mleader.gap", 0.0, 9999.0)
         angles = [(str(value), tr("mleader.angle_any") if value == 0 else f"{value}°") for value in ANGLE_CONSTRAINTS]
         self._first_angle = self._dropdown("mleader.first_angle", angles) if style_mode else None
-        self._second_angle = self._dropdown("mleader.second_angle", angles) if style_mode else None
 
         self._section(tr("mleader.section_text"))
         self._font = self._dropdown("mleader.font", [(spec.id, spec.label) for spec in FONT_CATALOG])
@@ -194,9 +193,8 @@ class MultileaderPropertiesForm(qw.QScrollArea):
         self._bottom_connection.set_current_key(source.bottom_connection)
         self._set_number(self._scale, source.scale)
         if self._style_mode:
-            assert self._first_angle is not None and self._second_angle is not None and self._annotative is not None
+            assert self._first_angle is not None and self._annotative is not None
             self._first_angle.set_current_key(str(source.first_angle))
-            self._second_angle.set_current_key(str(source.second_angle))
             self._annotative.setChecked(source.annotative)
 
     def values(self) -> Dict[str, Any]:
@@ -230,9 +228,8 @@ class MultileaderPropertiesForm(qw.QScrollArea):
             "scale": self._read_number(self._scale, source.scale),
         }
         if self._style_mode:
-            assert self._first_angle is not None and self._second_angle is not None and self._annotative is not None
+            assert self._first_angle is not None and self._annotative is not None
             values["first_angle"] = int(self._first_angle.current_key() or 0)
-            values["second_angle"] = int(self._second_angle.current_key() or 0)
             values["annotative"] = self._annotative.isChecked()
         return values
 

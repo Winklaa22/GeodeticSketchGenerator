@@ -519,7 +519,6 @@ TRANSLATIONS: Dict[str, str] = {
     "mleader.landing_length": "Landing length (0 = free)",
     "mleader.gap": "Landing gap",
     "mleader.first_angle": "First segment angle",
-    "mleader.second_angle": "Second segment angle",
     "mleader.angle_any": "Any",
     "mleader.font": "Font",
     "mleader.height": "Text height",

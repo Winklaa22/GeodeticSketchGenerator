@@ -519,7 +519,6 @@ TRANSLATIONS: Dict[str, str] = {
     "mleader.landing_length": "Długość półki (0 = dowolna)",
     "mleader.gap": "Odstęp od tekstu",
     "mleader.first_angle": "Kąt pierwszego odcinka",
-    "mleader.second_angle": "Kąt drugiego odcinka",
     "mleader.angle_any": "Dowolny",
     "mleader.font": "Czcionka",
     "mleader.height": "Wysokość tekstu",
