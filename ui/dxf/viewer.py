@@ -382,7 +382,7 @@ class DxfViewer(qw.QWidget):
         height = ANNOTATION_TEXT_MM * units_per_mm(self._layout_options) if self._layout_options is not None else 0.6
         doc = self._doc
         name = style_name or (doc.current_multileader_style if doc is not None else "Standard")
-        style = doc.defined_multileader_style(name) if doc is not None else None
+        style = doc.drawing_multileader_style(name) if doc is not None else None
         return MultileaderToolSession(height, style=style, annotation_scale=self._annotation_scale(), **overrides)
 
     def start_multileader_tool(self, style_name: Optional[str] = None, **overrides) -> str:
