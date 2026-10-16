@@ -486,6 +486,19 @@ class DXFDocument:
                 handles.append(entity.dxf.handle)
         return handles
 
+    def multileader_style_in_use(self, name: str) -> bool:
+        style = self._drawing.mleader_styles.get(name)
+        style_handle = style.dxf.handle if style is not None else None
+        for entity in self.modelspace:
+            if entity.dxftype() != "MULTILEADER":
+                continue
+            if style_handle is not None and entity.dxf.get("style_handle") == style_handle:
+                return True
+            metadata = metadata_from_entity(entity)
+            if metadata is not None and metadata[1].style_name == name:
+                return True
+        return False
+
     def multileader_spec(self, handle: str) -> Optional[MultileaderSpec]:
         metadata = self.multileader_metadata(handle)
         return metadata[1] if metadata is not None else None

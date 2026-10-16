@@ -91,7 +91,7 @@ class DeleteMultileaderStyleCommand:
     def execute(self, doc: DXFDocument) -> None:
         if self._name == "Standard":
             raise MultileaderError("The Standard multileader style cannot be deleted")
-        if doc.multileaders_using_style(self._name):
+        if doc.multileader_style_in_use(self._name):
             raise MultileaderError(f"Multileader style {self._name} is in use")
         styles = doc.multileader_styles()
         if self._name not in styles:
