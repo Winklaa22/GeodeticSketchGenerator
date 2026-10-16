@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from core.commands.composite import CompositeCommand
 from core.commands.draw import AddCircleCommand, AddLineCommand, AddPointCommand
+from core.multileader import ARROWHEADS
 from ui.dxf.tools import (
     CircleToolSession,
     DetailViewToolSession,
     LineToolSession,
-    MultileaderToolSession,
     PipeToolSession,
     PointToolSession,
     TextToolSession,
@@ -54,6 +54,8 @@ class DxfCommandInterpreter:
             "DETAIL": self._cmd_detail,
             "DV": self._cmd_detail,
             "ML": self._cmd_multileader,
+            "MLEADERSTYLE": self._cmd_multileader_style,
+            "MLS": self._cmd_multileader_style,
             "MOVE": self._cmd_move,
             "M": self._cmd_move,
             "ROTATE": self._cmd_rotate,
@@ -192,19 +194,30 @@ class DxfCommandInterpreter:
         return ""
 
     def _cmd_multileader(self, args: List[str]) -> str:
-        options = {option.upper() for option in args}
-        unsupported = options - {"SPLINE", "STRAIGHT", "OPEN", "CLOSED", "DOT", "N", "NO", "NOLANDING", "LEFT", "RIGHT"}
-        if unsupported:
-            raise _CommandError(tr("interpreter.multileader_options"))
-        self._viewer.start_tool(
-            MultileaderToolSession(
-                line_type="spline" if "SPLINE" in options else "straight",
-                arrowhead="open" if "OPEN" in options else "dot" if "DOT" in options else "closed",
-                landing_enabled=not bool(options & {"N", "NO", "NOLANDING"}),
-                attachment="left" if "LEFT" in options else "right" if "RIGHT" in options else None,
-            )
-        )
-        return ""
+        arrowheads = {name.upper(): name for name in ARROWHEADS}
+        overrides: Dict[str, object] = {}
+        for arg in args:
+            option = arg.upper()
+            if option.startswith("STYLE="):
+                overrides["style_name"] = arg[len("STYLE="):]
+            elif option in {"SPLINE", "STRAIGHT"}:
+                overrides["line_type"] = option.lower()
+            elif option in arrowheads:
+                overrides["arrowhead"] = arrowheads[option]
+            elif option in {"N", "NO", "NOLANDING"}:
+                overrides["landing_enabled"] = False
+            elif option in {"AUTO", "LEFT", "RIGHT"}:
+                overrides["attachment"] = option.lower()
+            elif option in {"VERTICAL", "HORIZONTAL"}:
+                overrides["direction"] = option.lower()
+            elif option == "FRAME":
+                overrides["text_frame"] = True
+            else:
+                raise _CommandError(tr("interpreter.multileader_options"))
+        return self._viewer.start_multileader_tool(**overrides)
+
+    def _cmd_multileader_style(self, args: List[str]) -> str:
+        return self._viewer.open_multileader_styles()
 
     def _cmd_detail(self, args: List[str]) -> str:
         self._viewer.start_tool(DetailViewToolSession())

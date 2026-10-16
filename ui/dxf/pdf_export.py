@@ -5,7 +5,7 @@ from typing import Dict, Iterable, Optional, Sequence, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg
 
-from ezdxf.addons.drawing import Frontend, RenderContext, layout, recorder
+from ezdxf.addons.drawing import RenderContext, layout, recorder
 from ezdxf.addons.drawing.backend import Backend, BkPath2d, BkPoints2d, ImageData
 from ezdxf.addons.drawing.config import Configuration
 from ezdxf.addons.drawing.layout import Margins, Page, Settings
@@ -35,6 +35,7 @@ from core.table_template import (
 )
 from ui.dxf.backend import qcolor_from, qcolor_on_paper, to_qpainter_path
 from ui.dxf.detail_render import detail_players
+from ui.dxf.frontend import GsgFrontend
 from ui.dxf.page_frame import PageFrame
 from ui.dxf.stamp_cache import stamp_cache
 from ui.i18n import tr
@@ -152,7 +153,7 @@ class QtPainterBackend(Backend):
 def _record(document: DXFDocument, config: Configuration) -> recorder.Recorder:
     rec = recorder.Recorder()
     context = RenderContext(document.drawing)
-    Frontend(context, rec, config=config).draw_layout(document.modelspace, finalize=True)
+    GsgFrontend(context, rec, config=config).draw_layout(document.modelspace, finalize=True)
     # Player.replay() pushes its own background onto the target. The detail players never
     # drew a layout, so theirs is the recorder default (black) and would repaint the whole
     # sheet; the sheet's white background has to survive the replay.
