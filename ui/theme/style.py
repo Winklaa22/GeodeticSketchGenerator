@@ -218,6 +218,27 @@ QLabel#blockPreview {{
 QLabel#blockPanelEmpty {{ color: {c.TEXT_FAINT}; font-size: {TEXT_XS}px; padding: {SPACE_SM}px; }}
 QLabel#blockPanelName {{ color: {c.TEXT}; font-size: {TEXT_SM}px; font-weight: 600; }}
 
+/* ---------- properties panel ---------- */
+QLabel#propertiesTitle {{ color: {c.TEXT}; font-size: {TEXT_LG}px; font-weight: 600; }}
+QFrame#propertiesGrid {{
+    background: {c.SURFACE_SUNKEN};
+    border: 1px solid {c.BORDER};
+    border-radius: {RADIUS_SM}px;
+}}
+QFrame#propertiesGrid QLabel {{ background: transparent; }}
+QLabel#propertyValue {{ color: {c.TEXT}; font-size: {TEXT_SM}px; padding: {SPACE_XS}px; }}
+QFrame#propertiesGrid QLineEdit#input, QFrame#propertiesGrid QComboBox#dropdown {{
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid {c.BORDER};
+    border-radius: 0;
+    padding: {SPACE_XS}px;
+}}
+QFrame#propertiesGrid QLineEdit#input:focus, QFrame#propertiesGrid QComboBox#dropdown:focus {{
+    border: none;
+    border-bottom: 1px solid {c.ACCENT_BORDER};
+}}
+
 /* ---------- layers panel ---------- */
 #layerPanelTitle {{ color: {c.TEXT_MUTED}; font-weight: 600; font-size: {TEXT_SM}px; }}
 QFrame#layerRow {{

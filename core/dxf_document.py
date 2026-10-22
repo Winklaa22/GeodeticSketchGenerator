@@ -36,6 +36,7 @@ from core.detail_view import (
 from core.detail_view import apply_metadata as apply_detail_metadata
 from core.detail_view import metadata_from_entity as detail_metadata_from_entity
 from core.detail_view import transform_spec as transform_detail_spec
+from core.entity_properties import nearest_aci, spec_for
 from core.fonts import (
     DEFAULT_FONT_ID,
     ITALIC_OBLIQUE_ANGLE,
@@ -98,19 +99,6 @@ INSUNITS_MILLIMETERS = 4
 # read in from an imported/loaded DXF keep whatever lineweight that file already defines.
 DEFAULT_LAYER_LINEWEIGHT = 13
 VIRTUAL_LINETYPES = frozenset({"bylayer", "byblock"})
-
-
-@lru_cache(maxsize=None)
-def _nearest_aci(rgb: Tuple[int, int, int]) -> int:
-    best_aci, best_distance = 7, None
-    for aci in range(1, 256):
-        candidate = ezdxf_colors.aci2rgb(aci)
-        distance = (
-            (candidate.r - rgb[0]) ** 2 + (candidate.g - rgb[1]) ** 2 + (candidate.b - rgb[2]) ** 2
-        )
-        if best_distance is None or distance < best_distance:
-            best_distance, best_aci = distance, aci
-    return best_aci
 
 
 @dataclass(frozen=True)
@@ -521,6 +509,7 @@ class DXFDocument:
 
     def multileader_styles(self) -> Dict[str, MultileaderStyle]:
         styles: Dict[str, MultileaderStyle] = {}
+        
         for name, style in self._drawing.mleader_styles:
             parsed = None
             if style.has_xdata(MULTILEADER_APPID):
@@ -1009,6 +998,38 @@ class DXFDocument:
     def set_entity_color(self, handle: str, rgb: Tuple[int, int, int]) -> None:
         self._apply_color(self._require_entity(handle), rgb)
 
+    def entities_for(self, handles: Iterable[str]) -> List[DXFGraphic]:
+        return [entity for entity in (self.get_entity(handle) for handle in handles) if entity is not None]
+
+    def get_entity_property(self, handle: str, key: str):
+        entity = self._require_entity(handle)
+        return spec_for(entity, key).getter(entity)
+
+    def set_entity_property(self, handle: str, key: str, value) -> None:
+        entity = self._require_entity(handle)
+        spec = spec_for(entity, key)
+        if spec.setter is None:
+            raise KeyError(f"{entity.dxftype()} property {key!r} is read-only")
+        if key == "layer":
+            self.ensure_layer(str(value))
+        spec.setter(entity, value)
+
+    def snapshot_entity_attribs(self, handle: str) -> Tuple[Dict[str, object], Optional[str]]:
+        entity = self._require_entity(handle)
+        text = entity.text if entity.dxftype() == "MTEXT" else None
+        return dict(entity.dxf.all_existing_dxf_attribs()), text
+
+    def restore_entity_attribs(self, handle: str, snapshot: Tuple[Dict[str, object], Optional[str]]) -> None:
+        entity = self._require_entity(handle)
+        attribs, text = snapshot
+        for key in list(entity.dxf.all_existing_dxf_attribs()):
+            if key not in attribs:
+                entity.dxf.discard(key)
+        for key, value in attribs.items():
+            entity.dxf.set(key, value)
+        if text is not None:
+            entity.text = text
+
     def layer_entity_handles(self, name: str) -> List[str]:
         return [entity.dxf.handle for entity in self.modelspace if entity.dxf.layer == name]
 
@@ -1081,7 +1102,7 @@ class DXFDocument:
     def _apply_color(target, rgb: Tuple[int, int, int]) -> None:
         was_off = target.dxf.color < 0
         target.rgb = rgb
-        aci = _nearest_aci(rgb)
+        aci = nearest_aci(rgb)
         target.dxf.color = -aci if was_off else aci
 
     def is_layer_visible(self, name: str) -> bool:
