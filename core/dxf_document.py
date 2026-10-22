@@ -97,6 +97,7 @@ INSUNITS_MILLIMETERS = 4
 # so a fresh project's own lines print as fine as the app already assumes elsewhere. Layers
 # read in from an imported/loaded DXF keep whatever lineweight that file already defines.
 DEFAULT_LAYER_LINEWEIGHT = 13
+VIRTUAL_LINETYPES = frozenset({"bylayer", "byblock"})
 
 
 @lru_cache(maxsize=None)
@@ -143,6 +144,7 @@ class DXFDocument:
             drawing, _auditor = recover.readfile(file_path)
         doc = cls(drawing)
         doc._ensure_all_referenced_layers()
+        doc._ensure_all_referenced_linetypes()
         doc._migrate_legacy_multileaders()
         return doc
 
@@ -154,12 +156,28 @@ class DXFDocument:
             drawing, _auditor = recover.read(io.BytesIO(content.encode("utf-8", errors="surrogateescape")))
         doc = cls(drawing)
         doc._ensure_all_referenced_layers()
+        doc._ensure_all_referenced_linetypes()
         doc._migrate_legacy_multileaders()
         return doc
 
     def _ensure_all_referenced_layers(self) -> None:
         for entity in self.modelspace:
             self.ensure_layer(entity.dxf.layer)
+
+    def _ensure_all_referenced_linetypes(self) -> None:
+        linetypes = self._drawing.linetypes
+        for name in set(self._referenced_linetype_names()):
+            if not name or name.lower() in VIRTUAL_LINETYPES or name in linetypes:
+                continue
+            linetypes.add(name, pattern=[0.0], description="Solid line")
+
+    def _referenced_linetype_names(self) -> Iterable[str]:
+        for entity in list(self._drawing.entitydb.values()):
+            if entity.dxf.is_supported("linetype"):
+                yield entity.dxf.get("linetype")
+            if entity.dxftype() == "MLINESTYLE":
+                for element in entity.elements:
+                    yield element.linetype
 
     def save(self, file_path: str) -> None:
         self._drawing.saveas(file_path)

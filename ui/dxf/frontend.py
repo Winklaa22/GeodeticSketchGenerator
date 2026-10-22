@@ -6,7 +6,7 @@ from ezdxf.addons.drawing import Frontend
 from ezdxf.addons.drawing.config import TextPolicy
 from ezdxf.addons.drawing.properties import Properties
 from ezdxf.entities import DXFGraphic
-from ezdxf.lldxf.const import MTEXT_BG_COLOR, MTEXT_BG_WINDOW_COLOR, MTEXT_TEXT_FRAME
+from ezdxf.lldxf.const import DXFInvalidLineType, MTEXT_BG_COLOR, MTEXT_BG_WINDOW_COLOR, MTEXT_TEXT_FRAME
 
 _CANVAS_FILL = MTEXT_BG_WINDOW_COLOR & ~MTEXT_BG_COLOR
 
@@ -39,7 +39,10 @@ class GsgFrontend(Frontend):
             if framed or masked:
                 self.draw_entities(_decorated_parts(entity, framed, masked))
                 return
-        super().draw_composite_entity(entity, properties)
+        try:
+            super().draw_composite_entity(entity, properties)
+        except DXFInvalidLineType as exc:
+            self.skip_entity(entity, str(exc))
 
     def draw_mtext_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         if entity.dxf.get("bg_fill", 0) and self.config.text_policy != TextPolicy.IGNORE:
