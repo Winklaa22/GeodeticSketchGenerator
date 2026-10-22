@@ -4,6 +4,8 @@ import io
 
 import ezdxf
 import pytest
+from ezdxf.addons.drawing import Frontend, RenderContext
+from ezdxf.addons.drawing.recorder import Recorder
 
 from core.dxf_document import DXFDocument
 
@@ -440,6 +442,26 @@ def test_load_materializes_layers_referenced_but_not_defined(tmp_path) -> None:
     names = {info.name for info in doc.iter_layers()}
     assert "UNDEFINED-LAYER" in names
     assert doc.get_layer_color("UNDEFINED-LAYER") == (255, 255, 255)
+
+
+def test_load_defines_linetypes_referenced_but_not_defined(tmp_path) -> None:
+    raw = ezdxf.new()
+    raw.modelspace().add_leader([(0, 0), (5, 5), (8, 5)], dxfattribs={"linetype": "CONTINOUS"})
+    block = raw.blocks.new("B")
+    block.add_line((0, 0), (1, 0), dxfattribs={"linetype": "KRESKA"})
+    raw.layers.add("L1").dxf.linetype = "WARSTWA"
+    style = raw.mline_styles.new("MULTI")
+    style.elements.append(0.5, 1, "MULTILINIA")
+    style.elements.append(-0.5, 1, "MULTILINIA")
+    raw.modelspace().add_mline([(0, 0), (5, 5), (8, 5)], dxfattribs={"style_name": "MULTI"})
+    path = tmp_path / "undefined_linetype.dxf"
+    raw.saveas(path)
+
+    doc = DXFDocument.load(str(path))
+    linetypes = doc.drawing.linetypes
+    for name in ("CONTINOUS", "KRESKA", "WARSTWA", "MULTILINIA"):
+        assert name in linetypes
+    Frontend(RenderContext(doc.drawing), Recorder()).draw_layout(doc.modelspace, finalize=True)
 
 
 def test_to_text_then_from_text_round_trips_entities_and_layers(doc: DXFDocument) -> None:
