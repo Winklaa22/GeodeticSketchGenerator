@@ -38,6 +38,10 @@ class LeftColumn(QWidget):
         layout.addWidget(self._nav)
 
         self._stack = QStackedWidget()
-        indexes = {key: self._stack.addWidget(_scroll_area(page)) for key, _label, page in pages}
-        self._nav.currentChanged.connect(lambda key: self._stack.setCurrentIndex(indexes[key]))
+        self._indexes = {key: self._stack.addWidget(_scroll_area(page)) for key, _label, page in pages}
+        self._nav.currentChanged.connect(lambda key: self._stack.setCurrentIndex(self._indexes[key]))
         layout.addWidget(self._stack, 1)
+
+    def show_page(self, key: str) -> None:
+        self._nav.setCurrent(key)
+        self._stack.setCurrentIndex(self._indexes[key])

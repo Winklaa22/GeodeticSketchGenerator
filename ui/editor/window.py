@@ -113,6 +113,7 @@ class MainWindow(QMainWindow):
                 ("point_file", tr("sections.point_file"), self.panel),
                 ("layers", tr("window.tab_layers"), self.dxf_viewer.layer_panel),
                 ("blocks", tr("window.tab_blocks"), self.dxf_viewer.block_panel),
+                ("properties", tr("window.tab_properties"), self.dxf_viewer.properties_panel),
                 ("layout", tr("window.tab_layout"), self.layout_panel),
                 ("fonts", tr("window.tab_fonts"), self.fonts_panel),
             ]
@@ -185,6 +186,7 @@ class MainWindow(QMainWindow):
         self.preview_panel.applyRequested.connect(self.apply_to_dxf)
 
         self.dxf_viewer.documentChanged.connect(self._on_document_changed)
+        self.dxf_viewer.propertiesRequested.connect(lambda: self.left_column.show_page("properties"))
         self.layouts.wire()
 
     def _sync_edit_menu(self) -> None:

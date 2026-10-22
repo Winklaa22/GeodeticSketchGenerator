@@ -14,6 +14,7 @@ from core.commands.base import Command as EditCommand
 from core.commands.composite import CompositeCommand
 from core.commands.edit import DeleteEntityCommand, DuplicateEntitiesCommand, MoveCommand
 from core.commands.history import CommandHistory
+from core.commands.properties import SetEntityPropertyCommand
 from core.commands.layers import (
     AddLayerCommand,
     DeleteLayerCommand,
@@ -39,6 +40,7 @@ from core.commands.text import (
 )
 from core.blocks import file_is_paper_sized, read_block_file
 from core.dxf_document import DXFDocument
+from core.exceptions import InvalidPropertyValueError
 from core.plot import (
     ANNOTATION_TEXT_MM,
     PAPER_COLOR,
@@ -73,6 +75,7 @@ from ui.dxf.block_render import Shape
 from ui.dxf.block_render import outline as block_outline
 from ui.dxf.frontend import GsgFrontend
 from ui.dxf.layer_panel import LayerPanel
+from ui.dxf.properties_panel import PropertiesPanel
 from ui.dxf.mleader_style_dialog import MultileaderPropertiesDialog, MultileaderStyleDialog
 from ui.dxf.mtext_dialog import MTextDialog
 from ui.dxf.page_frame import page_frame_for
@@ -141,6 +144,7 @@ class DxfViewer(qw.QWidget):
     pageFrameRotated = qc.pyqtSignal(float)
     modelRotationChanged = qc.pyqtSignal(float)
     pageScaleZoomRequested = qc.pyqtSignal(float, float, float)
+    propertiesRequested = qc.pyqtSignal()
 
     def __init__(self, parent: Optional[qw.QWidget] = None) -> None:
         super().__init__(parent)
@@ -219,6 +223,7 @@ class DxfViewer(qw.QWidget):
         outer.addWidget(canvas_column, 1)
         self._layer_panel = LayerPanel()
         self._block_panel = BlockPanel([BLOCKS_DIR], user_blocks_dir())
+        self._properties_panel = PropertiesPanel()
 
     @staticmethod
     def _build_empty_page() -> qw.QWidget:
@@ -297,6 +302,7 @@ class DxfViewer(qw.QWidget):
         self._toolbar.zoomOutRequested.connect(lambda: self._view.zoom_by(0.8))
 
     def _wire_layer_panel(self) -> None:
+        self._properties_panel.propertyEdited.connect(self._on_property_edited)
         self._layer_panel.addLayerRequested.connect(self._on_add_layer)
         self._layer_panel.deleteLayerRequested.connect(lambda n: self.execute_command(DeleteLayerCommand(n)))
         self._layer_panel.colorChangeRequested.connect(
@@ -365,6 +371,10 @@ class DxfViewer(qw.QWidget):
     @property
     def block_panel(self) -> BlockPanel:
         return self._block_panel
+
+    @property
+    def properties_panel(self) -> PropertiesPanel:
+        return self._properties_panel
 
     @property
     def sheet_tabs(self) -> SheetTabBar:
@@ -455,6 +465,15 @@ class DxfViewer(qw.QWidget):
     def _on_entity_double_clicked(self, handle: str) -> None:
         if self._doc is not None and self._doc.is_multileader(handle):
             self._edit_multileader_text(handle)
+        else:
+            self.propertiesRequested.emit()
+
+    def _on_property_edited(self, handles: List[str], key: str, value: object) -> None:
+        try:
+            self.execute_command(SetEntityPropertyCommand(handles, key, value))
+        except InvalidPropertyValueError:
+            self._command_line.show_response(tr("properties.must_be_positive"))
+            self._properties_panel.bind(self._doc, self._selected_handles)
 
     def _on_annotation_grip_moved(self, index: int, x: float, y: float) -> None:
         if self._doc is None or len(self._selected_handles) != 1:
@@ -735,6 +754,7 @@ class DxfViewer(qw.QWidget):
         self._layer_panel.refresh([])
         self._layer_panel.set_prune_available(False)
         self._block_panel.set_document(None)
+        self._properties_panel.bind(None, [])
         self.show_empty()
 
     def load_file(self, file_path: str) -> Tuple[bool, str]:
@@ -828,6 +848,7 @@ class DxfViewer(qw.QWidget):
         self._toolbar.set_text_tools_visible(False)
         self._sync_text_options_bar()
         self._sync_detail_options_bar()
+        self._properties_panel.bind(self._doc, [])
 
     def select_by_layer(self, name: str) -> None:
         if self._doc is None:
@@ -854,6 +875,7 @@ class DxfViewer(qw.QWidget):
         self._sync_text_options_bar()
         self._sync_detail_options_bar()
         self._sync_multileader_grips()
+        self._properties_panel.bind(self._doc, self._selected_handles)
 
     def _select_handles(self, handles: Iterable[str]) -> None:
         handle_set = set(self._doc.expand_annotation_handles(handles)) if self._doc is not None else set(handles)

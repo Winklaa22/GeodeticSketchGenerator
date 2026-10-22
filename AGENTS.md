@@ -73,6 +73,13 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
   sweep, and a Voronoi-cell constraint (never closer to another label's anchor than to your own)
   keep it from just drifting outward to "solve" collisions. Pure geometry — no `ezdxf`, no
   `DXFDocument`, no `DrawMode` awareness. `commands/survey.py` is the only caller.
+- `entity_properties.py` — the model behind the Properties palette: a `PropertySpec` table
+  (general rows for every graphic entity, plus geometry/text rows per type) with a getter and,
+  when editable, a setter. `describe(entities)` merges a selection into `PropertyRow`s, with
+  `VARIES` where the values differ. Derived values (length, angle, area) have no setter.
+  `DXFDocument.get_entity_property`/`set_entity_property` are the entry points, and
+  `commands/properties.py::SetEntityPropertyCommand` makes one edit undoable across the whole
+  selection.
 - `geometry.py` / `patterns.py` — direction/angle math between consecutive survey points and
   routed-path recognition (boxes/wedges) used by the survey builders.
 - `draw_modes.py` / `config.py` — the `DrawMode` enum and the per-mode `*Options` dataclasses
@@ -110,6 +117,10 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
   insertion ghost come from `dxf/block_render.py`, which draws a block through the same ezdxf
   front end as the canvas. A placed block is one `INSERT` - selection, move, rotate, scale,
   copy and delete all work on it unchanged, since the backend stamps its items with the INSERT's handle.
+- `dxf/properties_panel.py::PropertiesPanel` — the AutoCAD-style Properties palette (a
+  left-column page owned by the viewer, like the layer and block panels). It rebuilds from
+  `describe()` on every selection change and render, but only while visible. A type filter
+  narrows a mixed selection. Double-clicking anything but a multileader switches to it.
 - `dxf/pdf_export.py` — renders sheets (page frame + title-block table) to PDF using the plot
   options from `core/plot.py`.
 - `theme/` — design tokens (`tokens.py`), a qtawesome-based `IconManager`, and the app stylesheet;

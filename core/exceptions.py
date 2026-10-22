@@ -47,3 +47,7 @@ class ProjectFileError(AppError):
 
 class MultileaderError(AppError):
     pass
+
+
+class InvalidPropertyValueError(AppError):
+    pass
