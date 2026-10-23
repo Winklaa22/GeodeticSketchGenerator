@@ -21,7 +21,7 @@ from core.geometry import (
     offset_segment_perpendicular,
     snap_small_rotation,
 )
-from core.label_placement import LabelRequest, Obstacles, solve_label_positions
+from core.label_placement import LabelRequest, Obstacles, _label_extent, solve_label_positions
 from core.patterns import route_selected_points
 from core.route_graph import build_cable_chains, build_route_graph
 from models.point import Point
@@ -88,6 +88,20 @@ def _perpendicular_prefer(start: Point, end: Point, flip: bool) -> float:
         return 0.0
     angle = math.atan2(dx, -dy)
     return angle + math.pi if flip else angle
+
+
+def _along_cable_position(
+    point: Point, next_point: Optional[Point], text: str, font_size: float, marker_radius: float
+) -> Optional[Point2D]:
+    if next_point is None:
+        return None
+    dx, dy = next_point.x - point.x, next_point.y - point.y
+    length = math.hypot(dx, dy)
+    if length == 0.0:
+        return None
+    width, _height = _label_extent(font_size, text)
+    offset = min(marker_radius + width / 2.0, length / 2.0)
+    return (point.x + dx / length * offset, point.y + dy / length * offset)
 
 
 def _finalize(
@@ -239,6 +253,7 @@ def _stage_heights(
     points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
 ) -> Tuple[List[Command], List[_PendingLabel]]:
     options = config.heights
+    marker_radius = max(config.points.diameter / 2.0, 0.0)
     pending: List[_PendingLabel] = []
     for direction in iter_point_directions(points, selected_numbers):
         if direction.number % options.frequency != 0:
@@ -249,7 +264,8 @@ def _stage_heights(
         text = str(rounded_height)
         key = ("heights", direction.number)
         request = LabelRequest(
-            key=key, anchor=(point.x, point.y), text=text, font_size=options.font_size, prefer=None
+            key=key, anchor=(point.x, point.y), text=text, font_size=options.font_size, prefer=None,
+            fixed=_along_cable_position(point, direction.next_point, text, options.font_size, marker_radius),
         )
 
         def render(
@@ -310,7 +326,8 @@ def _stage_cable_marks(
         z = start.h
         key = ("cable_marks", index)
         request = LabelRequest(
-            key=key, anchor=(mid_x, mid_y), text=text, font_size=options.font_size, prefer=None
+            key=key, anchor=(mid_x, mid_y), text=text, font_size=options.font_size, prefer=None,
+            fixed=(mid_x, mid_y),
         )
 
         def render(
