@@ -187,6 +187,11 @@ TRANSLATIONS: Dict[str, str] = {
     # ---------- editor: project controller ----------
     "project.untitled": "Bez nazwy",
     "project.window_title_named": "{app_title} — {name}",
+    "project.unsaved_title": "Niezapisane zmiany",
+    "project.unsaved_message": "Projekt „{name}” ma niezapisane zmiany. Zapisać je przed zamknięciem?",
+    "project.unsaved_save": "Zapisz",
+    "project.unsaved_discard": "Nie zapisuj",
+    "project.unsaved_cancel": "Anuluj",
     "project.could_not_find": "Nie znaleziono: {missing} (reszta projektu została przywrócona)",
     "project.save_project_title": "Zapisz projekt",
     "project.saved_project": "Zapisano projekt {name}",

@@ -426,3 +426,17 @@ def test_composite_command_works_through_history(doc: DXFDocument, history: Comm
     assert doc.entity_count() == 0
     history.redo(doc)
     assert doc.entity_count() == 2
+
+
+def test_history_token_returns_to_the_same_value_after_undo(doc: DXFDocument) -> None:
+    history = CommandHistory()
+    assert history.token() is None
+    first = AddPointCommand((0.0, 0.0, 0.0))
+    history.execute(first, doc)
+    saved = history.token()
+    history.execute(AddPointCommand((1.0, 1.0, 0.0)), doc)
+    assert history.token() is not saved
+    history.undo(doc)
+    assert history.token() is saved
+    history.undo(doc)
+    assert history.token() is None

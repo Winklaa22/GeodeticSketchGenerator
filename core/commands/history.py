@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from core.commands.base import Command
 from core.dxf_document import DXFDocument
@@ -36,6 +36,9 @@ class CommandHistory:
         command.execute(doc)
         self._undo_stack.append(command)
         return True
+
+    def token(self) -> Optional[Command]:
+        return self._undo_stack[-1] if self._undo_stack else None
 
     def can_undo(self) -> bool:
         return bool(self._undo_stack)

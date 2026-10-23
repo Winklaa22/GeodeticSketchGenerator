@@ -11,6 +11,9 @@ from ui.loading_overlay import LoadingOverlay, ProgressFn
 from ui.recent_projects import add_recent_project
 
 
+LEAVING_PROPERTY = "leaving"
+
+
 class WindowRouter:
 
     def __init__(self, owner: QMainWindow) -> None:
@@ -21,6 +24,7 @@ class WindowRouter:
     def _swap(self, window: QMainWindow) -> None:
         self._window = window
         window.show()
+        self._owner.setProperty(LEAVING_PROPERTY, True)
         self._owner.close()
 
     def start_screen(self) -> None:

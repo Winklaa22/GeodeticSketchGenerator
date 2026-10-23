@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from typing import Callable, Iterator, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QCloseEvent, QIcon
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -45,10 +45,11 @@ from ui.settings_dialog import SettingsDialog
 from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_XL
 from ui.theme.assets import ICON_PATH
 from ui.theme.style import APP_STYLESHEET
-from ui.window_router import WindowRouter
+from ui.window_router import LEAVING_PROPERTY, WindowRouter
 
 LEFT_COLUMN_WIDTH_KEY = "ui/leftColumnWidth"
 PROJECT_OPEN_RENDER_BAND = (55, 95)
+DIRTY_POLL_MS = 500
 
 
 def _no_progress(_percent: int) -> None:
@@ -101,6 +102,11 @@ class MainWindow(QMainWindow):
                 self.dxf_viewer.disarm_loading()
         self.project.apply_window_title()
         self.refresh()
+        self.project.mark_clean()
+        self._dirty_timer = QTimer(self)
+        self._dirty_timer.setInterval(DIRTY_POLL_MS)
+        self._dirty_timer.timeout.connect(self.project.refresh_dirty)
+        self._dirty_timer.start()
         self.loading_progress(100)
 
     def _build_ui(self) -> None:
@@ -351,7 +357,8 @@ class MainWindow(QMainWindow):
         self.layouts.refresh()
 
     def open_start_screen(self) -> None:
-        self.router.start_screen()
+        if self.project.confirm_discard():
+            self.router.start_screen()
 
     def open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)
@@ -359,8 +366,15 @@ class MainWindow(QMainWindow):
         if dialog.language_changed():
             self.router.editor(initial_state=self.project.current_state(), project_path=self.project.path)
 
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.property(LEAVING_PROPERTY) or self.project.confirm_discard():
+            event.accept()
+        else:
+            event.ignore()
+
     def new_project(self) -> None:
-        self.router.editor()
+        if self.project.confirm_discard():
+            self.router.editor()
 
     def open_project_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -373,6 +387,8 @@ class MainWindow(QMainWindow):
             self._open_path(path)
 
     def _open_path(self, path: str) -> None:
+        if not self.project.confirm_discard():
+            return
         try:
             self.router.open_path(self.settings, path)
         except ProjectFileError as exc:
