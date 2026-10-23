@@ -258,7 +258,7 @@ TRANSLATIONS: Dict[str, str] = {
     "table_structure.delete_field_message": 'Delete field "{name}"? Cells using it become blank.',
 
     # ---------- editor: tabs ----------
-    "tabs.cable_frequency": "Frequency (every Nth segment)",
+    "tabs.cable_spacing": "Label spacing along the cable (× text height)",
     "tabs.cable_marks_text": "Marks text",
     "tabs.delimiter_auto_detect": "Auto-detect",
     "tabs.delimiter_space": "Space",
@@ -267,7 +267,6 @@ TRANSLATIONS: Dict[str, str] = {
     "tabs.gap_type_field": "Gap type",
     "tabs.swap_xy_checkbox": "Swap X ↔ Y (geodetic)",
     "tabs.no_fields_defined": "No fields defined for this scope yet.",
-    "tabs.heights_frequency": "Frequency (every Nth point)",
     "tabs.layer_default_tooltip": "Set as default — used by modes with no layer picker of their own",
     "tabs.measurements_offset": "Offset from line",
     "tabs.pipe_width": "Pipe width",

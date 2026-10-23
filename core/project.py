@@ -42,7 +42,6 @@ class PointsState:
 @dataclass
 class HeightsState:
     font_size: float = 0.6
-    frequency: int = 5
     layer_name: str = ""
     selection: "SelectionState" = field(default_factory=lambda: SelectionState())
 
@@ -50,7 +49,7 @@ class HeightsState:
 @dataclass
 class CableState:
     font_size: float = 0.6
-    frequency: int = 5
+    spacing: float = 18.0
     marks_text: str = "eN"
     layer_name: str = ""
     selection: "SelectionState" = field(default_factory=lambda: SelectionState())
@@ -381,6 +380,9 @@ def load_project(path: str) -> ProjectState:
         raise ProjectFileError(f"Not a valid project file: {exc}") from exc
 
 
+_RETIRED_MODE_FIELDS = ("frequency",)
+
+
 def _load_mode_state(state_cls: Any, payload: Dict[str, Any], field_name: str) -> Any:
     """One mode's saved settings, including the points it draws.
 
@@ -389,6 +391,8 @@ def _load_mode_state(state_cls: Any, payload: Dict[str, Any], field_name: str) -
     """
     mode_payload = dict(payload.get(field_name) or {})
     selection = mode_payload.pop("selection", None) or payload.get("selection") or {}
+    for retired in _RETIRED_MODE_FIELDS:
+        mode_payload.pop(retired, None)
     return state_cls(**mode_payload, selection=SelectionState(**selection))
 
 

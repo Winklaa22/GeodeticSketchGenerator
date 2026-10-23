@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
+from core.cable_annotation import CableSlot, SlotKind, plan_cable_slots
 from core.commands.base import Command
 from core.commands.composite import CompositeCommand
 from core.commands.draw import (
@@ -21,12 +22,15 @@ from core.geometry import (
     offset_segment_perpendicular,
     snap_small_rotation,
 )
-from core.label_placement import LabelRequest, Obstacles, _label_extent, solve_label_positions
+from core.label_placement import LabelRequest, Obstacles, label_extent, solve_label_positions
 from core.patterns import route_selected_points
 from core.route_graph import build_cable_chains, build_route_graph
 from models.point import Point
 
 Point2D = Tuple[float, float]
+
+CABLE_LABEL_GAP_FACTOR = 0.5
+CABLE_LABEL_MIN_GAP_FACTOR = 7.0
 
 
 @dataclass(frozen=True)
@@ -88,20 +92,6 @@ def _perpendicular_prefer(start: Point, end: Point, flip: bool) -> float:
         return 0.0
     angle = math.atan2(dx, -dy)
     return angle + math.pi if flip else angle
-
-
-def _along_cable_position(
-    point: Point, next_point: Optional[Point], text: str, font_size: float, marker_radius: float
-) -> Optional[Point2D]:
-    if next_point is None:
-        return None
-    dx, dy = next_point.x - point.x, next_point.y - point.y
-    length = math.hypot(dx, dy)
-    if length == 0.0:
-        return None
-    width, _height = _label_extent(font_size, text)
-    offset = min(marker_radius + width / 2.0, length / 2.0)
-    return (point.x + dx / length * offset, point.y + dy / length * offset)
 
 
 def _finalize(
@@ -249,90 +239,52 @@ def build_poly3d_command(
     return CompositeCommand(commands)
 
 
-def _stage_heights(
-    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
-) -> Tuple[List[Command], List[_PendingLabel]]:
-    options = config.heights
+def _height_text(h: float) -> str:
+    return str(math.ceil(h * 10) / 10)
+
+
+def _plan_cable_slots(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig
+) -> List[CableSlot]:
+    selected = _selected_points(points, selected_numbers)
+    if len(selected) < 2:
+        return []
+    graph = build_route_graph(selected, config.quantum)
+    chains = [[selected[n] for n in chain] for chain in build_cable_chains(graph.edges, graph.junctions)]
+    font_size = max(config.cable.font_size, config.heights.font_size)
+    tallest = max(selected.values(), key=lambda p: abs(p.h))
+    label_width = max(
+        label_extent(config.cable.font_size, config.cable.marks_text)[0],
+        label_extent(config.heights.font_size, _height_text(tallest.h))[0],
+    )
     marker_radius = max(config.points.diameter / 2.0, 0.0)
-    pending: List[_PendingLabel] = []
-    for direction in iter_point_directions(points, selected_numbers):
-        if direction.number % options.frequency != 0:
-            continue
-        point = direction.point
-        rotation = snap_small_rotation(direction.angle_deg, direction.rotation)
-        rounded_height = math.ceil(point.h * 10) / 10
-        text = str(rounded_height)
-        key = ("heights", direction.number)
-        request = LabelRequest(
-            key=key, anchor=(point.x, point.y), text=text, font_size=options.font_size, prefer=None,
-            fixed=_along_cable_position(point, direction.next_point, text, options.font_size, marker_radius),
-        )
-
-        def render(
-            pos: Point2D, point: Point = point, text: str = text, size: float = options.font_size,
-            layer: str = layer, rotation: float = rotation, font_id: str = config.font_id,
-            font_italic: bool = config.font_italic, font_lineweight_mm: Optional[float] = config.font_lineweight_mm,
-        ) -> AddTextCommand:
-            insert = (pos[0], pos[1], point.h)
-            return AddTextCommand(
-                text, insert, size, layer, rotation, halign="center", valign="middle", font_id=font_id,
-                italic=font_italic, lineweight_mm=font_lineweight_mm,
-            )
-
-        pending.append(_PendingLabel(request, render))
-    return [], pending
+    clearance = marker_radius + CABLE_LABEL_GAP_FACTOR * font_size
+    spacing = config.cable.spacing * font_size
+    return plan_cable_slots(chains, spacing, label_width, clearance, CABLE_LABEL_MIN_GAP_FACTOR * font_size)
 
 
-def build_heights_command(
-    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
-) -> CompositeCommand:
-    structural, pending = _stage_heights(points, selected_numbers, config, layer)
-    return _finalize(points, selected_numbers, config, structural, pending)
-
-
-def _cable_mark_indices(segment_count: int, frequency: int) -> List[int]:
-    step = max(1, frequency)
-    center = (segment_count - 1) // 2
-    indices = {center}
-    offset = step
-    while True:
-        added = False
-        if center + offset < segment_count:
-            indices.add(center + offset)
-            added = True
-        if center - offset >= 0:
-            indices.add(center - offset)
-            added = True
-        if not added:
-            break
-        offset += step
-    return sorted(indices)
-
-
-def _stage_cable_marks(
-    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+def _stage_cable_slots(
+    points: Dict[int, Point],
+    selected_numbers: List[int],
+    config: GenerationConfig,
+    layer: str,
+    kind: SlotKind,
+    key_prefix: str,
+    font_size: float,
+    text_of: Callable[[CableSlot], str],
 ) -> Tuple[List[Command], List[_PendingLabel]]:
-    options = config.cable
-    routed = route_selected_points(points, selected_numbers)
-    segments = list(zip(routed.main, routed.main[1:]))
-    mark_indices = _cable_mark_indices(len(segments), options.frequency) if segments else []
     pending: List[_PendingLabel] = []
-    for index in mark_indices:
-        start, end = segments[index]
-        angle_deg = compute_direction_angle(start, end)
-        mid_x, mid_y = (start.x + end.x) / 2.0, (start.y + end.y) / 2.0
-        rotation = snap_small_rotation(angle_deg, round(angle_deg, 1))
-        text = options.marks_text
-        z = start.h
-        key = ("cable_marks", index)
+    slots = [slot for slot in _plan_cable_slots(points, selected_numbers, config) if slot.kind is kind]
+    for index, slot in enumerate(slots):
+        text = text_of(slot)
+        anchor = (slot.x, slot.y)
         request = LabelRequest(
-            key=key, anchor=(mid_x, mid_y), text=text, font_size=options.font_size, prefer=None,
-            fixed=(mid_x, mid_y),
+            key=(key_prefix, index), anchor=anchor, text=text, font_size=font_size, prefer=None, fixed=anchor
         )
 
         def render(
-            pos: Point2D, text: str = text, size: float = options.font_size, layer: str = layer,
-            rotation: float = rotation, z: float = z, font_id: str = config.font_id,
+            pos: Point2D, text: str = text, size: float = font_size, layer: str = layer,
+            rotation: float = slot.rotation, z: float = slot.h, font_id: str = config.font_id,
             font_italic: bool = config.font_italic, font_lineweight_mm: Optional[float] = config.font_lineweight_mm,
         ) -> AddTextCommand:
             insert = (pos[0], pos[1], z)
@@ -343,6 +295,31 @@ def _stage_cable_marks(
 
         pending.append(_PendingLabel(request, render))
     return [], pending
+
+
+def _stage_heights(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+) -> Tuple[List[Command], List[_PendingLabel]]:
+    return _stage_cable_slots(
+        points, selected_numbers, config, layer, SlotKind.HEIGHT, "heights", config.heights.font_size,
+        lambda slot: _height_text(slot.h),
+    )
+
+
+def build_heights_command(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+) -> CompositeCommand:
+    structural, pending = _stage_heights(points, selected_numbers, config, layer)
+    return _finalize(points, selected_numbers, config, structural, pending)
+
+
+def _stage_cable_marks(
+    points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig, layer: str
+) -> Tuple[List[Command], List[_PendingLabel]]:
+    return _stage_cable_slots(
+        points, selected_numbers, config, layer, SlotKind.MARK, "cable_marks", config.cable.font_size,
+        lambda _slot: config.cable.marks_text,
+    )
 
 
 def build_cable_marks_command(

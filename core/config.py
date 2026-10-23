@@ -21,14 +21,13 @@ class PointsOptions:
 class HeightsOptions:
 
     font_size: float = 0.6
-    frequency: int = 5
 
 
 @dataclass(frozen=True)
 class CableOptions:
 
     font_size: float = 0.6
-    frequency: int = 5
+    spacing: float = 18.0
     marks_text: str = "eN"
 
 
