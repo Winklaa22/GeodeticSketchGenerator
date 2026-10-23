@@ -41,7 +41,7 @@ _WEIGHT_ANGLE = 1.0
 _WEIGHT_DISTANCE = 3.0
 
 
-def _label_extent(font_size: float, text: str) -> Tuple[float, float]:
+def label_extent(font_size: float, text: str) -> Tuple[float, float]:
     width = 0.62 * font_size * len(text) + 0.30 * font_size
     height = 1.30 * font_size
     return width, height
@@ -233,7 +233,7 @@ def solve_label_positions(
     coords, index_of, roots = _cluster_anchors(labels)
     centroids = _group_centroids(coords, roots)
 
-    extents = [_label_extent(label.font_size, label.text) for label in labels]
+    extents = [label_extent(label.font_size, label.text) for label in labels]
     effective_prefer = [
         label.prefer
         if label.prefer is not None

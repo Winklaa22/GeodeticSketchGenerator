@@ -73,6 +73,14 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
   sweep, and a Voronoi-cell constraint (never closer to another label's anchor than to your own)
   keep it from just drifting outward to "solve" collisions. Pure geometry — no `ezdxf`, no
   `DXFDocument`, no `DrawMode` awareness. `commands/survey.py` is the only caller.
+- `cable_annotation.py` — where cable marks and heights go along the cable: one shared run of
+  slots per cable chain (from `route_graph.build_cable_chains`, the same chains the line modes
+  draw), evenly spaced at `CableOptions.spacing` text heights, each kept inside a single segment
+  clear of the vertices, alternating mark/height and starting with a mark. A mark goes anywhere
+  along the segment; a height snaps to sit on the cable right next to a point and shows that
+  point's height. Both modes plan the same
+  slots and keep their own kind, so generating them together or apart gives the same drawing.
+  Their labels go to the solver as `LabelRequest.fixed`: centred on the cable, never moved.
 - `entity_properties.py` — the model behind the Properties palette: a `PropertySpec` table
   (general rows for every graphic entity, plus geometry/text rows per type) with a getter and,
   when editable, a setter. `describe(entities)` merges a selection into `PropertyRow`s, with

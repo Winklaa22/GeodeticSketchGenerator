@@ -43,10 +43,10 @@ def test_save_then_load_round_trips_every_field(tmp_path) -> None:
             selection=SelectionState(mode="range", separate_text="1,2,3", range_text="1-10"),
         ),
         heights=HeightsState(
-            font_size=0.5, frequency=3, layer_name="RZEDNE",
+            font_size=0.5, layer_name="RZEDNE",
             selection=SelectionState(mode="separately", separate_text="4,5"),
         ),
-        cable=CableState(font_size=0.7, frequency=2, marks_text="CBL"),
+        cable=CableState(font_size=0.7, spacing=8.0, marks_text="CBL"),
         pipe=PipeState(width=0.2),
         layer=LayerState(
             layers=[LayerDefState(name="RURA", rgb=(200, 30, 40)), LayerDefState(name="RZEDNE", rgb=(30, 200, 40))],
@@ -104,6 +104,14 @@ def test_load_fills_in_missing_sections_with_defaults(tmp_path) -> None:
     loaded = load_project(str(path))
     assert loaded.txt_file_path == "a.txt"
     assert loaded == ProjectState(name="Untitled", txt_file_path="a.txt")
+
+
+def test_load_drops_the_retired_frequency_option(tmp_path) -> None:
+    path = tmp_path / "old.gsgproj"
+    path.write_text(json.dumps({"cable": {"frequency": 3}, "heights": {"frequency": 2}}), encoding="utf-8")
+    state = load_project(str(path))
+    assert state.cable == CableState()
+    assert state.heights == HeightsState()
 
 
 def test_load_rejects_unknown_field_types(tmp_path) -> None:

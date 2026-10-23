@@ -648,49 +648,95 @@ def test_points_mode_cabinet_label_never_covers_its_own_point_across_random_rout
             assert not _rects_overlap(rects[a], rects[b]), f"trial {_trial}: labels {a} and {b} overlap each other"
 
 
-def test_heights_mode_respects_frequency_and_rounds_height_up(
-    service: SurveyDrawService, points, doc: DXFDocument
+@pytest.fixture
+def straight_cable() -> dict[int, Point]:
+    return {n: Point(x=float(n - 1) * 10.0, y=0.0, h=100.0 + float(n - 1)) for n in range(1, 6)}
+
+
+def _texts_by_x(doc: DXFDocument) -> list[tuple[float, str]]:
+    return sorted((t.dxf.insert[0], t.dxf.text) for t in _entities_of_type(doc, "TEXT"))
+
+
+def test_cable_marks_sit_on_the_cable_between_points(
+    service: SurveyDrawService, straight_cable, doc: DXFDocument
+) -> None:
+    config = GenerationConfig(
+        layer_name="0",
+        draw_mode=DrawMode.CABLE_MARKS,
+        cable=CableOptions(font_size=1.0, spacing=10.0, marks_text="CBL"),
+    )
+    service.build_command(straight_cable, [1, 2, 3, 4, 5], config).execute(doc)
+    labels = _entities_of_type(doc, "TEXT")
+    assert [t.dxf.text for t in labels] == ["CBL", "CBL"]
+    for label in labels:
+        x, y = label.dxf.insert[0], label.dxf.insert[1]
+        assert y == pytest.approx(0.0)
+        assert all(abs(x - p.x) > 1.0 for p in straight_cable.values())
+    assert _entities_of_type(doc, "LINE") == []
+
+
+def test_cable_marks_and_heights_alternate_along_the_cable(
+    service: SurveyDrawService, straight_cable, doc: DXFDocument
+) -> None:
+    configs = [
+        GenerationConfig(
+            layer_name="0",
+            draw_mode=mode,
+            selected_numbers=(1, 2, 3, 4, 5),
+            cable=CableOptions(font_size=1.0, spacing=10.0, marks_text="eN"),
+            heights=HeightsOptions(font_size=1.0),
+        )
+        for mode in (DrawMode.CABLE_MARKS, DrawMode.HEIGHTS)
+    ]
+    for command in service.build_commands(straight_cable, configs):
+        command.execute(doc)
+    texts = [text for _x, text in _texts_by_x(doc)]
+    assert texts[0] == "eN"
+    assert texts[1::2] and all(t != "eN" for t in texts[1::2])
+    assert all(t == "eN" for t in texts[0::2])
+
+
+def test_heights_stand_next_to_a_point_with_its_height_rounded_up(
+    service: SurveyDrawService, straight_cable, doc: DXFDocument
 ) -> None:
     config = GenerationConfig(
         layer_name="0",
         draw_mode=DrawMode.HEIGHTS,
-        heights=HeightsOptions(font_size=0.6, frequency=2),
+        cable=CableOptions(font_size=1.0, spacing=10.0),
+        heights=HeightsOptions(font_size=1.0),
     )
-    service.build_command(points, [1, 2, 3], config).execute(doc)
-    labels = _entities_of_type(doc, "TEXT")
-    assert len(labels) == 1
-    assert labels[0].dxf.text == "11.0"
+    service.build_command(straight_cable, [1, 2, 3, 4, 5], config).execute(doc)
+    labels = _texts_by_x(doc)
+    assert labels
+    for x, text in labels:
+        nearest = min(straight_cable.values(), key=lambda p: abs(p.x - x))
+        assert abs(x - nearest.x) < 5.0
+        assert float(text) == pytest.approx(math.ceil(nearest.h * 10) / 10)
 
 
-def test_cable_marks_use_segment_midpoint_and_custom_text(
-    service: SurveyDrawService, points, doc: DXFDocument
-) -> None:
+def test_cable_marks_rotate_with_the_segment(service: SurveyDrawService, doc: DXFDocument) -> None:
+    points = {1: Point(x=0.0, y=0.0, h=0.0), 2: Point(x=0.0, y=30.0, h=0.0)}
     config = GenerationConfig(
         layer_name="0",
         draw_mode=DrawMode.CABLE_MARKS,
-        cable=CableOptions(font_size=0.6, frequency=1, marks_text="CBL"),
+        cable=CableOptions(font_size=1.0, spacing=10.0),
     )
-    service.build_command(points, [1, 2, 3], config).execute(doc)
+    service.build_command(points, [1, 2], config).execute(doc)
     labels = _entities_of_type(doc, "TEXT")
-    assert len(labels) == 2
-    assert all(t.dxf.text == "CBL" for t in labels)
-    assert _entities_of_type(doc, "LINE") == []
-    assert _entities_of_type(doc, "LWPOLYLINE") == []
+    assert labels
+    assert all(t.dxf.rotation == pytest.approx(90.0) for t in labels)
+    assert all(t.dxf.insert[0] == pytest.approx(0.0) for t in labels)
 
 
-def test_cable_marks_start_at_the_centre_segment_and_fan_outward(
-    service: SurveyDrawService, doc: DXFDocument
-) -> None:
-    points = {n: Point(x=float(n) * 10.0, y=0.0, h=0.0) for n in range(1, 6)}
+def test_cable_marks_skip_a_cable_too_short_to_hold_one(service: SurveyDrawService, doc: DXFDocument) -> None:
+    points = {1: Point(x=0.0, y=0.0, h=0.0), 2: Point(x=1.0, y=0.0, h=0.0)}
     config = GenerationConfig(
         layer_name="0",
         draw_mode=DrawMode.CABLE_MARKS,
-        cable=CableOptions(font_size=0.6, frequency=2, marks_text="eN"),
+        cable=CableOptions(font_size=1.0, spacing=10.0),
     )
-    service.build_command(points, [1, 2, 3, 4, 5], config).execute(doc)
-    labels = _entities_of_type(doc, "TEXT")
-    xs = sorted(round(t.dxf.insert[0]) for t in labels)
-    assert xs == [25, 45]
+    service.build_command(points, [1, 2], config).execute(doc)
+    assert _entities_of_type(doc, "TEXT") == []
 
 
 def test_cable_marks_never_land_inside_a_skipped_skrzynka(
@@ -699,12 +745,12 @@ def test_cable_marks_never_land_inside_a_skipped_skrzynka(
     config = GenerationConfig(
         layer_name="0",
         draw_mode=DrawMode.CABLE_MARKS,
-        cable=CableOptions(font_size=0.6, frequency=1, marks_text="eN"),
+        cable=CableOptions(font_size=0.6, spacing=5.0, marks_text="eN"),
     )
     service.build_command(points_with_box, [1, 2, 3, 4, 5, 6], config).execute(doc)
     labels = _entities_of_type(doc, "TEXT")
-    assert len(labels) == 1
-    assert round(labels[0].dxf.insert[0]) == 10
+    assert labels
+    assert all(not (10.0 <= t.dxf.insert[0] <= 11.0 and 0.0 < t.dxf.insert[1] <= 1.0) for t in labels)
 
 
 def test_measurements_mode_labels_every_segment_with_dashed_length(
@@ -740,52 +786,36 @@ def test_measurements_mode_labels_wcinka_wing_stubs_too(
     assert sorted(t.dxf.text for t in labels) == ["-20.00-", "-3.61-", "-3.61-"]
 
 
-def test_build_commands_solves_every_label_class_together_unlike_separate_build_command_calls(
+def test_build_commands_keeps_point_numbers_off_the_labels_on_the_cable(
     service: SurveyDrawService, doc: DXFDocument
 ) -> None:
     points = {
         1: Point(x=0.0, y=0.0, h=10.0),
-        2: Point(x=10.0, y=0.0, h=11.0),
+        2: Point(x=3.0, y=0.0, h=11.0),
+        3: Point(x=3.0, y=3.0, h=12.0),
+        4: Point(x=8.0, y=3.0, h=12.5),
     }
-    points_config = GenerationConfig(
-        layer_name="Numbers",
-        draw_mode=DrawMode.POINTS,
-        selected_numbers=(1, 2),
-        points=PointsOptions(numbers_enabled=True, font_size=0.6, diameter=0.1),
-    )
-    heights_config = GenerationConfig(
-        layer_name="Heights",
-        draw_mode=DrawMode.HEIGHTS,
-        selected_numbers=(1, 2),
-        heights=HeightsOptions(font_size=0.6, frequency=1),
-    )
-
-    separate = CompositeCommand(
-        [
-            service.build_command(points, [1, 2], points_config),
-            service.build_command(points, [1, 2], heights_config),
-        ]
-    )
-    separate.execute(doc)
-    separate_labels = _entities_of_type(doc, "TEXT")
-    separate_overlaps = sum(
+    configs = [
+        GenerationConfig(
+            layer_name=mode.name,
+            draw_mode=mode,
+            selected_numbers=(1, 2, 3, 4),
+            points=PointsOptions(numbers_enabled=True, font_size=0.6, diameter=0.1),
+            cable=CableOptions(font_size=0.6, spacing=3.0),
+            heights=HeightsOptions(font_size=0.6),
+        )
+        for mode in (DrawMode.POINTS, DrawMode.CABLE_MARKS, DrawMode.HEIGHTS)
+    ]
+    for command in service.build_commands(points, configs):
+        command.execute(doc)
+    labels = _entities_of_type(doc, "TEXT")
+    assert {t.dxf.layer for t in labels} == {"POINTS", "CABLE_MARKS", "HEIGHTS"}
+    overlaps = sum(
         1
-        for a, b in itertools.combinations(separate_labels, 2)
+        for a, b in itertools.combinations(labels, 2)
         if _bboxes_overlap(ezdxf_bbox.extents([a]), ezdxf_bbox.extents([b]))
     )
-
-    combined_doc = DXFDocument.new()
-    for command in service.build_commands(points, [points_config, heights_config]):
-        command.execute(combined_doc)
-    combined_labels = _entities_of_type(combined_doc, "TEXT")
-    combined_overlaps = sum(
-        1
-        for a, b in itertools.combinations(combined_labels, 2)
-        if _bboxes_overlap(ezdxf_bbox.extents([a]), ezdxf_bbox.extents([b]))
-    )
-
-    assert separate_overlaps > 0
-    assert combined_overlaps == 0
+    assert overlaps == 0
 
 
 def test_whole_batch_undoes_as_one_step(service: SurveyDrawService, points, doc: DXFDocument) -> None:

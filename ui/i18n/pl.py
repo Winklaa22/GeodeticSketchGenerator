@@ -258,7 +258,7 @@ TRANSLATIONS: Dict[str, str] = {
     "table_structure.delete_field_message": 'Usunąć pole "{name}"? Komórki, które go używają, staną się puste.',
 
     # ---------- editor: tabs ----------
-    "tabs.cable_frequency": "Częstotliwość (co N-ty segment)",
+    "tabs.cable_spacing": "Odstęp opisów na kablu (× wysokość tekstu)",
     "tabs.cable_marks_text": "Tekst znacznika",
     "tabs.delimiter_auto_detect": "Wykryj automatycznie",
     "tabs.delimiter_space": "Spacja",
@@ -267,7 +267,6 @@ TRANSLATIONS: Dict[str, str] = {
     "tabs.gap_type_field": "Typ separatora",
     "tabs.swap_xy_checkbox": "Zamień X ↔ Y (geodezyjnie)",
     "tabs.no_fields_defined": "Brak jeszcze zdefiniowanych pól dla tego zakresu.",
-    "tabs.heights_frequency": "Częstotliwość (co N-ty punkt)",
     "tabs.layer_default_tooltip": "Ustaw jako domyślną — używana przez tryby bez własnego wyboru warstwy",
     "tabs.measurements_offset": "Odsunięcie od linii",
     "tabs.pipe_width": "Szerokość rury",
