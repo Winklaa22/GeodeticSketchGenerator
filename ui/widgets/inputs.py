@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from PyQt6.QtCore import QPoint, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QIntValidator
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QColorDialog,
     QComboBox,
     QGridLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QToolButton,
@@ -18,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.i18n import tr
-from ui.theme import Color, ICON_MD, ICON_SM, SPACE_SM
+from ui.theme import Color, ICON_MD, ICON_SM, SPACE_SM, SPACE_XS
 from ui.theme.icons import icon_manager
 
 
@@ -416,3 +417,117 @@ class NumericScrubField(QLineEdit):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+
+class _RangeRow(QWidget):
+
+    changed = pyqtSignal()
+    removeRequested = pyqtSignal(QWidget)
+
+    def __init__(self, from_text: str = "", to_text: str = "") -> None:
+        super().__init__()
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(SPACE_SM)
+
+        self.from_edit = self._number_edit(from_text)
+        self.to_edit = self._number_edit(to_text)
+        layout.addWidget(self._caption(tr("tabs.range_from")))
+        layout.addWidget(self.from_edit, 1)
+        layout.addWidget(self._caption(tr("tabs.range_to")))
+        layout.addWidget(self.to_edit, 1)
+
+        self.remove_button = QToolButton()
+        self.remove_button.setObjectName("layerDeleteBtn")
+        self.remove_button.setIcon(icon_manager.get("layer_row_delete", size=ICON_SM, color=Color.TEXT_FAINT))
+        self.remove_button.setIconSize(QSize(ICON_SM, ICON_SM))
+        self.remove_button.setToolTip(tr("tabs.range_remove"))
+        self.remove_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove_button.clicked.connect(lambda: self.removeRequested.emit(self))
+        layout.addWidget(self.remove_button)
+
+    def _number_edit(self, text: str) -> QLineEdit:
+        edit = QLineEdit(text)
+        edit.setObjectName("input")
+        edit.setValidator(QIntValidator(0, 10**9))
+        edit.textChanged.connect(lambda _text: self.changed.emit())
+        return edit
+
+    @staticmethod
+    def _caption(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("fieldLabel")
+        return label
+
+    def values(self) -> Tuple[str, str]:
+        return self.from_edit.text(), self.to_edit.text()
+
+
+class RangeListEditor(QWidget):
+
+    changed = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(SPACE_XS)
+
+        self._rows_layout = QVBoxLayout()
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(SPACE_XS)
+        layout.addLayout(self._rows_layout)
+
+        add_button = QToolButton()
+        add_button.setObjectName("layerAddBtn")
+        add_button.setIcon(icon_manager.get("block_add", size=ICON_SM, color=Color.TEXT_MUTED))
+        add_button.setIconSize(QSize(ICON_SM, ICON_SM))
+        add_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        add_button.setText(tr("tabs.range_add"))
+        add_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_button.clicked.connect(self._on_add_clicked)
+        layout.addWidget(add_button)
+
+        self._rows: List[_RangeRow] = []
+        self._append_row("", "")
+
+    def ranges(self) -> List[Tuple[str, str]]:
+        return [row.values() for row in self._rows]
+
+    def set_ranges(self, ranges: Sequence[Tuple[str, str]]) -> None:
+        for row in list(self._rows):
+            self._drop_row(row)
+        for from_text, to_text in ranges or [("", "")]:
+            self._append_row(from_text, to_text)
+        self._sync_remove_buttons()
+
+    def _append_row(self, from_text: str, to_text: str) -> None:
+        row = _RangeRow(from_text, to_text)
+        row.changed.connect(self.changed.emit)
+        row.removeRequested.connect(self._on_remove_requested)
+        self._rows.append(row)
+        self._rows_layout.addWidget(row)
+        self._sync_remove_buttons()
+
+    def _drop_row(self, row: _RangeRow) -> None:
+        self._rows.remove(row)
+        self._rows_layout.removeWidget(row)
+        row.setParent(None)
+        row.deleteLater()
+
+    def _on_add_clicked(self) -> None:
+        self._append_row("", "")
+        self._rows[-1].from_edit.setFocus()
+        self.changed.emit()
+
+    def _on_remove_requested(self, row: QWidget) -> None:
+        if len(self._rows) <= 1:
+            return
+        self._drop_row(row)
+        self._sync_remove_buttons()
+        self.changed.emit()
+
+    def _sync_remove_buttons(self) -> None:
+        removable = len(self._rows) > 1
+        for row in self._rows:
+            row.remove_button.setEnabled(removable)

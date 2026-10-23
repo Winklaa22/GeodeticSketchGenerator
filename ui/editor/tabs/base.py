@@ -7,13 +7,14 @@ from PyQt6.QtCore import QSignalBlocker, pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import QLineEdit, QWidget
 
-from core.project import SelectionState
+from core.project import RangeState, SelectionState
 from core.selection import SelectionParser
 from models.point import Point
 from ui.i18n import tr, tr_options
 from ui.widgets import (
     CheckField,
     LayerDropdown,
+    RangeListEditor,
     SectionColumn,
     SegmentedControl,
     decimal_validator,
@@ -63,12 +64,15 @@ class LayeredOptionsTab(SectionWidget):
         self._selection_control.currentChanged.connect(self._on_selection_mode_changed)
         self._add_field(tr("tabs.select_points_field"), self._selection_control)
 
-        # One field serves both expression modes, each keeping its own text, so switching
-        # back and forth does not make the user retype what they already had.
-        self._selection_texts = {"separately": "", "range": ""}
+        self._separate_text = ""
         self._selection_edit = styled_line_edit("")
+        self._selection_edit.setPlaceholderText(tr("tabs.select_points_label"))
         self._selection_edit.textChanged.connect(self._on_selection_text_changed)
         self._column.addWidget(self._selection_edit)
+
+        self._range_editor = RangeListEditor()
+        self._range_editor.changed.connect(self.option_changed.emit)
+        self._column.addWidget(self._range_editor)
         self._sync_selection_field()
 
     def _on_selection_mode_changed(self, _key: str) -> None:
@@ -76,21 +80,13 @@ class LayeredOptionsTab(SectionWidget):
         self.option_changed.emit()
 
     def _on_selection_text_changed(self, text: str) -> None:
-        mode = self.selection_mode
-        if mode in self._selection_texts:
-            self._selection_texts[mode] = text
+        self._separate_text = text
         self.option_changed.emit()
 
     def _sync_selection_field(self) -> None:
         mode = self.selection_mode
-        expression = mode in self._selection_texts
-        self._selection_edit.setVisible(expression)
-        if expression:
-            self._selection_edit.setPlaceholderText(
-                tr("tabs.select_range_label" if mode == "range" else "tabs.select_points_label")
-            )
-            with QSignalBlocker(self._selection_edit):
-                self._selection_edit.setText(self._selection_texts[mode])
+        self._selection_edit.setVisible(mode == "separately")
+        self._range_editor.setVisible(mode == "range")
 
     @property
     def selection_mode(self) -> str:
@@ -99,21 +95,24 @@ class LayeredOptionsTab(SectionWidget):
     def get_selected_numbers(self, data: Dict[int, Point]) -> List[int]:
         mode = self.selection_mode
         if mode == "separately":
-            return SelectionParser.parse_separate(self._selection_texts["separately"])
+            return SelectionParser.parse_separate(self._separate_text)
         if mode == "range":
-            return SelectionParser.parse_range(self._selection_texts["range"])
+            return SelectionParser.parse_ranges(self._range_editor.ranges())
         return SelectionParser.all_points(data)
 
     def get_selection_state(self) -> SelectionState:
         return SelectionState(
             mode=self.selection_mode,
-            separate_text=self._selection_texts["separately"],
-            range_text=self._selection_texts["range"],
+            separate_text=self._separate_text,
+            ranges=[RangeState(from_text, to_text) for from_text, to_text in self._range_editor.ranges()],
         )
 
     def set_selection_state(self, state: SelectionState) -> None:
-        self._selection_texts["separately"] = state.separate_text
-        self._selection_texts["range"] = state.range_text
+        self._separate_text = state.separate_text
+        with QSignalBlocker(self._selection_edit):
+            self._selection_edit.setText(state.separate_text)
+        with QSignalBlocker(self._range_editor):
+            self._range_editor.set_ranges([(item.from_text, item.to_text) for item in state.ranges])
         self._selection_control.setCurrent(state.mode)
         self._sync_selection_field()
 
