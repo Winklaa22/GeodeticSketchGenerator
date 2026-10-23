@@ -1069,6 +1069,29 @@ class DXFDocument:
             and self.get_entity_color(entity.dxf.handle) == ref_color
         ]
 
+    def find_similar_within(
+        self,
+        handle: str,
+        area: Tuple[Tuple[float, float], Tuple[float, float]],
+        crossing: bool = False,
+    ) -> List[str]:
+        (x0, y0), (x1, y1) = area
+        low_x, high_x = min(x0, x1), max(x0, x1)
+        low_y, high_y = min(y0, y1), max(y0, y1)
+        found: List[str] = []
+        for candidate in self.find_similar(handle):
+            box = self.entities_bbox([candidate])
+            if box is None:
+                continue
+            (min_x, min_y), (max_x, max_y) = box
+            if crossing:
+                inside = min_x <= high_x and max_x >= low_x and min_y <= high_y and max_y >= low_y
+            else:
+                inside = min_x >= low_x and max_x <= high_x and min_y >= low_y and max_y <= high_y
+            if inside:
+                found.append(candidate)
+        return found
+
     def add_layer(self, name: str, rgb: Optional[Tuple[int, int, int]] = None) -> None:
         if name in self.layers:
             return

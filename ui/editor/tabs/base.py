@@ -27,8 +27,8 @@ UNSET_LAYER_NAMES = ("", DEFAULT_LAYER_NAME)
 
 _SELECTION_OPTION_KEYS = [
     ("all", "tabs.selection_all"),
-    ("separately", "tabs.selection_separately"),
     ("range", "tabs.selection_range"),
+    ("separately", "tabs.selection_separately"),
 ]
 
 

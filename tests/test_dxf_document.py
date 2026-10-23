@@ -312,6 +312,39 @@ def test_find_similar_matches_same_type_layer_and_color(doc: DXFDocument) -> Non
     assert h4 not in doc.find_similar(h1)
 
 
+def _lines_across(doc: DXFDocument) -> list[str]:
+    return [doc.add_line((float(x), 0.0), (float(x) + 2.0, 0.0)) for x in (0, 10, 20, 30)]
+
+
+def test_find_similar_within_only_returns_matches_inside_the_area(doc: DXFDocument) -> None:
+    lines = _lines_across(doc)
+    doc.add_circle((12.0, 0.0), 0.5)
+    found = doc.find_similar_within(lines[0], ((9.0, -1.0), (23.0, 1.0)))
+    assert found == [lines[1], lines[2]]
+
+
+def test_find_similar_within_window_needs_the_whole_entity_inside(doc: DXFDocument) -> None:
+    lines = _lines_across(doc)
+    assert doc.find_similar_within(lines[0], ((11.0, -1.0), (30.0, 1.0))) == [lines[2]]
+
+
+def test_find_similar_within_crossing_takes_partly_covered_entities(doc: DXFDocument) -> None:
+    lines = _lines_across(doc)
+    found = doc.find_similar_within(lines[0], ((11.0, -1.0), (21.0, 1.0)), crossing=True)
+    assert found == [lines[1], lines[2]]
+
+
+def test_find_similar_within_accepts_the_corners_in_any_order(doc: DXFDocument) -> None:
+    lines = _lines_across(doc)
+    forward = doc.find_similar_within(lines[0], ((9.0, -1.0), (23.0, 1.0)))
+    assert doc.find_similar_within(lines[0], ((23.0, 1.0), (9.0, -1.0))) == forward
+
+
+def test_find_similar_within_can_return_nothing(doc: DXFDocument) -> None:
+    lines = _lines_across(doc)
+    assert doc.find_similar_within(lines[0], ((100.0, 100.0), (110.0, 110.0))) == []
+
+
 def test_find_similar_excludes_same_type_and_layer_but_different_color(doc: DXFDocument) -> None:
     doc.add_layer("A", rgb=(255, 0, 0))
     h1 = doc.add_point((0.0, 0.0), layer="A")
