@@ -290,6 +290,19 @@ def test_empty_text_has_no_content() -> None:
     assert DXFDocument.from_text(doc.to_text()).multileader_text(handle) == ""
 
 
+@pytest.mark.parametrize("text", ["", "Opis"])
+def test_leader_without_landing_ends_at_the_text_position(text: str) -> None:
+    doc = DXFDocument.new()
+    spec = MultileaderSpec(
+        tip=(10.0, -1.0), landing=None, text_position=(0.0, 0.0), text=text, landing_enabled=False, gap=0.0
+    )
+    handle = doc.add_multileader(spec)
+
+    lines = [v for v in doc.get_entity(handle).virtual_entities() if v.dxftype() == "LINE"]
+    assert len(lines) == 1
+    assert (lines[0].dxf.end.x, lines[0].dxf.end.y) == pytest.approx((0.0, 0.0))
+
+
 def test_style_is_native_and_rebuilds_existing_leaders() -> None:
     doc = DXFDocument.new()
     history = CommandHistory()
