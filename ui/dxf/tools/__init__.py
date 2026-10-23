@@ -19,6 +19,7 @@ from ui.dxf.tools.draw import (
     PointToolSession,
     TextToolSession,
 )
+from ui.dxf.tools.select import SelectSimilarInAreaToolSession
 from ui.dxf.tools.transform import (
     MoveToolSession,
     RotateEachToolSession,
@@ -44,6 +45,7 @@ __all__ = [
     "RotateToolSession",
     "ScaleEachToolSession",
     "ScaleToolSession",
+    "SelectSimilarInAreaToolSession",
     "TextOnLineToolSession",
     "TextToolSession",
     "ToolSession",

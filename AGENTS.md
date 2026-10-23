@@ -128,6 +128,10 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
   insertion ghost come from `dxf/block_render.py`, which draws a block through the same ezdxf
   front end as the canvas. A placed block is one `INSERT` - selection, move, rotate, scale,
   copy and delete all work on it unchanged, since the backend stamps its items with the INSERT's handle.
+- `dxf/tools/select.py::SelectSimilarInAreaToolSession` — Select Similar limited to a window: take the current
+  selection, click two corners, and only the similar entities (`DXFDocument.find_similar_within`) inside come back.
+  Corners left-to-right need the whole entity inside, right-to-left take anything the area touches. It edits
+  nothing, so it hands handles back through `ToolSession.selection()` instead of a command.
 - `dxf/properties_panel.py::PropertiesPanel` — the AutoCAD-style Properties palette (a
   left-column page owned by the viewer, like the layer and block panels). It rebuilds from
   `describe()` on every selection change and render, but only while visible. A type filter

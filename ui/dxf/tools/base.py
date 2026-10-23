@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from PyQt6 import QtCore as qc, QtGui as qg, QtWidgets as qw
 
@@ -111,6 +111,10 @@ class ToolSession:
 
     def build_command(self, doc: DXFDocument) -> EditCommand:
         raise NotImplementedError
+
+    def selection(self, doc: DXFDocument) -> Optional[List[str]]:
+        """Handles to select when the tool finishes, for a tool that edits nothing."""
+        return None
 
     def cleanup(self, scene: qw.QGraphicsScene) -> None:
         pass

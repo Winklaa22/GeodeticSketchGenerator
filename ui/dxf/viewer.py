@@ -99,6 +99,7 @@ from ui.dxf.tools import (
     RotateToolSession,
     ScaleEachToolSession,
     ScaleToolSession,
+    SelectSimilarInAreaToolSession,
     TextOnLineToolSession,
     TextToolSession,
     ToolSession,
@@ -134,6 +135,7 @@ _TOOL_KEYS = {
     ScaleToolSession: "scale",
     RotateEachToolSession: "rotate_each",
     ScaleEachToolSession: "scale_each",
+    SelectSimilarInAreaToolSession: "select_similar_area",
 }
 
 
@@ -296,6 +298,7 @@ class DxfViewer(qw.QWidget):
         self._toolbar.rotateEachRequested.connect(self.start_rotate_each_tool)
         self._toolbar.scaleEachRequested.connect(self.start_scale_each_tool)
         self._toolbar.selectSimilarRequested.connect(lambda: self._echo(self.select_similar()))
+        self._toolbar.selectSimilarAreaRequested.connect(self.start_select_similar_area_tool)
         self._toolbar.eraseRequested.connect(lambda: self._echo(self.delete_selected()))
         self._toolbar.zoomExtentsRequested.connect(self._view.fit_to_page)
         self._toolbar.zoomInRequested.connect(lambda: self._view.zoom_by(1.25))
@@ -344,6 +347,7 @@ class DxfViewer(qw.QWidget):
         self._add_shortcut("R,E", self.start_rotate_each_tool, parent=self._view)
         self._add_shortcut("S,E", self.start_scale_each_tool, parent=self._view)
         self._add_shortcut("S,S", lambda: self._echo(self.select_similar()), parent=self._view)
+        self._add_shortcut("S,A", self.start_select_similar_area_tool, parent=self._view)
 
     def _add_shortcut(
         self,
@@ -948,6 +952,13 @@ class DxfViewer(qw.QWidget):
             return
         self.start_tool(ScaleEachToolSession(list(self._selected_handles)))
 
+    def start_select_similar_area_tool(self) -> None:
+        if self._doc is None or not self._selected_handles:
+            self._echo(tr("common.select_object_first"))
+            self._toolbar.set_active_tool(None)
+            return
+        self.start_tool(SelectSimilarInAreaToolSession(list(self._selected_handles)))
+
     def _on_block_insert_requested(
         self, entry: BlockEntry, shapes: List[Shape], rotation: float, scale: float
     ) -> None:
@@ -1240,6 +1251,16 @@ class DxfViewer(qw.QWidget):
         tool = self._active_tool
         assert tool is not None
         doc = self.ensure_document()
+        picked = tool.selection(doc)
+        if picked is not None:
+            tool.cleanup(self._view.scene())
+            self._active_tool = None
+            self._view.set_tool(None)
+            self._toolbar.set_active_tool(None)
+            self._select_handles(picked)
+            self._echo(tr("viewer.objects_selected", count=len(picked)) if picked else tr("viewer.no_similar_in_area"))
+            self._view.setFocus()
+            return
         command = tool.build_command(doc)
         next_tool = tool.continuation() if hasattr(tool, "continuation") else None
         tool.cleanup(self._view.scene())

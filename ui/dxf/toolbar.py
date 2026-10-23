@@ -29,6 +29,7 @@ class DxfToolbar(qw.QWidget):
     rotateEachRequested = qc.pyqtSignal()
     scaleEachRequested = qc.pyqtSignal()
     selectSimilarRequested = qc.pyqtSignal()
+    selectSimilarAreaRequested = qc.pyqtSignal()
     eraseRequested = qc.pyqtSignal()
     zoomExtentsRequested = qc.pyqtSignal()
     zoomInRequested = qc.pyqtSignal()
@@ -56,6 +57,7 @@ class DxfToolbar(qw.QWidget):
             "scale": self.scaleRequested,
             "rotate_each": self.rotateEachRequested,
             "scale_each": self.scaleEachRequested,
+            "select_similar_area": self.selectSimilarAreaRequested,
         }
         self._tool_icon_names = {
             "select": "select_tool",
@@ -72,11 +74,15 @@ class DxfToolbar(qw.QWidget):
             "scale": "scale_tool",
             "rotate_each": "rotate_each_tool",
             "scale_each": "scale_each_tool",
+            "select_similar_area": "select_similar_area_tool",
         }
 
         self._add_tool_button(layout, "select", "select_tool", tr("toolbar.select_tooltip"))
         self._select_similar_btn = self._add_plain_button(
             layout, "select_similar_tool", tr("toolbar.select_similar_tooltip"), self.selectSimilarRequested
+        )
+        self._add_tool_button(
+            layout, "select_similar_area", "select_similar_area_tool", tr("toolbar.select_similar_area_tooltip")
         )
         layout.addWidget(self._separator())
         self._add_tool_button(layout, "point", "point_tool", tr("toolbar.point_tooltip"))

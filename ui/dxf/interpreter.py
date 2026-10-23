@@ -68,6 +68,8 @@ class DxfCommandInterpreter:
             "SE": self._cmd_scale_each,
             "SELECTSIMILAR": self._cmd_select_similar,
             "SS": self._cmd_select_similar,
+            "SELECTSIMILARAREA": self._cmd_select_similar_area,
+            "SSA": self._cmd_select_similar_area,
             "ERASE": self._cmd_erase,
             "DELETE": self._cmd_erase,
             "E": self._cmd_erase,
@@ -245,6 +247,10 @@ class DxfCommandInterpreter:
 
     def _cmd_select_similar(self, args: List[str]) -> str:
         return self._viewer.select_similar()
+
+    def _cmd_select_similar_area(self, args: List[str]) -> str:
+        self._viewer.start_select_similar_area_tool()
+        return ""
 
     def _cmd_erase(self, args: List[str]) -> str:
         return self._viewer.delete_selected()

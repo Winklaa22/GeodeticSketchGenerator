@@ -37,6 +37,7 @@ class IconManager:
         "rotate_each_tool": "mdi.rotate-orbit",
         "scale_each_tool": "mdi.resize",
         "select_similar_tool": "mdi.auto-fix",
+        "select_similar_area_tool": "mdi.select-search",
         "erase_tool": "fa5s.eraser",
         "zoom_extents_tool": "mdi.arrow-expand-all",
         "zoom_in_tool": "fa5s.search-plus",
