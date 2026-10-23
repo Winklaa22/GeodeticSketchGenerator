@@ -55,16 +55,17 @@ def collect_project_state(
 
 
 def apply_project_state(panel: SectionsPanel, fonts_panel: FontsPanel, state: ProjectState) -> None:
-    panel.delimiter_tab.set_state(state.delimiter.mode, state.delimiter.swap_xy)
-    panel.draw_tab.set_mode_keys(state.draw_modes)
-    panel.layer_tab.set_state(
-        [(layer.name, tuple(layer.rgb)) for layer in state.layer.layers], state.layer.default_name
-    )
-    panel.sync_layer_dropdowns()
-    fonts_panel.set_state(state.default_font_id, state.default_font_italic, state.default_font_lineweight_mm)
-    for spec in MODE_SPECS:
-        mode_state = getattr(state, spec.state_field)
-        tab = panel.mode_tabs[spec.key]
-        tab.set_options(options_from_state(spec, mode_state))
-        tab.set_layer_name(mode_state.layer_name)
-        tab.set_selection_state(mode_state.selection)
+    with panel.restoring_state():
+        panel.delimiter_tab.set_state(state.delimiter.mode, state.delimiter.swap_xy)
+        panel.draw_tab.set_mode_keys(state.draw_modes)
+        panel.layer_tab.set_state(
+            [(layer.name, tuple(layer.rgb)) for layer in state.layer.layers], state.layer.default_name
+        )
+        panel.sync_layer_dropdowns()
+        fonts_panel.set_state(state.default_font_id, state.default_font_italic, state.default_font_lineweight_mm)
+        for spec in MODE_SPECS:
+            mode_state = getattr(state, spec.state_field)
+            tab = panel.mode_tabs[spec.key]
+            tab.set_options(options_from_state(spec, mode_state))
+            tab.set_layer_name(mode_state.layer_name)
+            tab.set_selection_state(mode_state.selection)

@@ -116,13 +116,17 @@ class LayerTab(SectionWidget):
     # -- editing ------------------------------------------------------------
     def _on_add_clicked(self) -> None:
         name, ok = QInputDialog.getText(self, tr("common.new_layer_title"), tr("common.layer_name_label"))
-        name = name.strip()
-        if not ok or not name or name in self.layer_names():
+        if not ok:
             return
-        rgb = _AUTO_PALETTE[len(self._layers) % len(_AUTO_PALETTE)]
+        self.add_layer(name.strip(), _AUTO_PALETTE[len(self._layers) % len(_AUTO_PALETTE)])
+
+    def add_layer(self, name: str, rgb: Tuple[int, int, int]) -> bool:
+        if not name or name in self.layer_names():
+            return False
         self._layers.append((name, rgb))
         self._rebuild_rows()
         self.layers_changed.emit()
+        return True
 
     def _on_delete(self, name: str) -> None:
         if name == DEFAULT_LAYER_NAME or len(self._layers) <= 1:

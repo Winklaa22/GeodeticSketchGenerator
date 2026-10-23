@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from contextlib import contextmanager
+from typing import Dict, Iterator, List, Optional, Tuple
 
 from PyQt6.QtCore import QSettings, pyqtSignal
 from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
@@ -9,6 +10,7 @@ from core.config import GenerationConfig
 from core.draw_modes import DrawMode
 from core.fonts import DEFAULT_FONT_ID
 from models.point import Point
+from ui.editor.auto_layers import auto_layer_for_mode
 from ui.editor.mode_registry import MODE_SPECS, SPEC_BY_DRAW_MODE
 from ui.editor.tabs.base import LayeredOptionsTab, SectionWidget
 from ui.editor.tabs.delimiter_tab import DelimiterTab
@@ -46,6 +48,7 @@ class SectionsPanel(QWidget):
         super().__init__(parent)
         self._sections: List[Tuple[AccordionSection, SectionWidget]] = []
         self._mode_section_keys: Dict[AccordionSection, str] = {}
+        self._restoring = False
 
         self._build_file_stack()
         self.delimiter_tab = DelimiterTab()
@@ -94,10 +97,34 @@ class SectionsPanel(QWidget):
 
         self.delimiter_tab.swap_xy_toggled.connect(lambda _enabled: self.option_changed.emit())
         self.delimiter_tab.delimiter_changed.connect(self.delimiter_changed.emit)
+        self.draw_tab.modes_changed.connect(self.ensure_mode_layers)
         self.draw_tab.modes_changed.connect(self.option_changed.emit)
         self.layer_tab.layers_changed.connect(self._on_layers_changed)
         for tab in self.mode_tabs.values():
             tab.option_changed.connect(self.option_changed.emit)
+
+    @contextmanager
+    def restoring_state(self) -> Iterator[None]:
+        previous = self._restoring
+        self._restoring = True
+        try:
+            yield
+        finally:
+            self._restoring = previous
+
+    def ensure_mode_layers(self) -> None:
+        if self._restoring:
+            return
+        for key in self.draw_tab.mode_keys:
+            auto = auto_layer_for_mode(key)
+            tab = self.mode_tabs.get(key)
+            if auto is None or tab is None:
+                continue
+            name, rgb = auto
+            self.layer_tab.add_layer(name, rgb)
+            self.sync_layer_dropdowns()
+            if not tab.has_custom_layer():
+                tab.set_layer_name(name)
 
     def _on_layers_changed(self) -> None:
         self.sync_layer_dropdowns()

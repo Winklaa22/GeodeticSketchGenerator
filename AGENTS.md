@@ -117,6 +117,9 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
   tabs (`editor/tabs/`) are driven by `editor/mode_registry.py::MODE_SPECS` — one entry per
   `DrawMode`, mapping a tab widget ↔ its `project.py` state dataclass ↔ its `config.py` options
   dataclass. Add a new draw mode there rather than hand-wiring a tab into `MainWindow`.
+  Ticking a mode adds its layer (`core/auto_layers.py` picks the group and colour, `editor/auto_layers.py` the
+  translated name) via `SectionsPanel.ensure_mode_layers`; every cable-related mode shares one "Cable" layer, and
+  opening a project skips it (`restoring_state`) so saved layers load as they were.
 - `dxf/viewer.py::DxfViewer` — the CAD canvas. Owns the live `DXFDocument` + `CommandHistory`,
   renders it into a `QGraphicsScene` via ezdxf's drawing add-on through a custom
   `backend.py::QtSceneBackend`, and hosts the AutoCAD-style command line

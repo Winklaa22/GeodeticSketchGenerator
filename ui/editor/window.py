@@ -101,6 +101,8 @@ class MainWindow(QMainWindow):
             finally:
                 self.dxf_viewer.disarm_loading()
         self.project.apply_window_title()
+        if initial_state is None:
+            self.panel.ensure_mode_layers()
         self.refresh()
         self.project.mark_clean()
         self._dirty_timer = QTimer(self)

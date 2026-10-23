@@ -176,6 +176,7 @@ TRANSLATIONS: Dict[str, str] = {
     "mode.cable_title": "Cable Marks",
     "mode.cable_label": "Cable marks",
     "mode.pipe_title": "Pipe",
+    "layer.auto_cable": "Cable",
     "mode.pipe_label": "Pipe",
     "mode.measurements_title": "Measurements",
     "mode.measurements_label": "Measurements",
