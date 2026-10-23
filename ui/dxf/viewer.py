@@ -789,6 +789,9 @@ class DxfViewer(qw.QWidget):
         if self.loading_progress is not None:
             self.loading_progress(percent)
 
+    def edit_token(self) -> object:
+        return self._history.token() if self._history is not None else None
+
     def to_dxf_text(self) -> Optional[str]:
         if self._doc is None:
             return None

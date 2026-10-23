@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Optional
+from dataclasses import asdict
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from ui.editor.window import MainWindow
 
 INVALID_FILENAME_CHARS = '<>:"/\\|?*'
+_VIEW_ONLY_LAYOUT_FIELDS = ("active_index", "model_rotation", "model_zoom", "model_center")
 
 
 class ProjectController:
@@ -28,11 +30,75 @@ class ProjectController:
         self.path: Optional[str] = path
         self.name: str = name or tr("project.untitled")
         self._named_in_title = path is not None
+        self._baseline: Optional[Tuple[Any, object]] = None
+        self._dirty = False
 
     def apply_window_title(self) -> None:
         named = self._named_in_title and bool(self.name)
         title = tr("project.window_title_named", app_title=APP_TITLE, name=self.name) if named else APP_TITLE
+        if self._dirty:
+            title += " *"
         self._host.setWindowTitle(title)
+
+    @property
+    def is_dirty(self) -> bool:
+        return self._dirty
+
+    def _fingerprint(self) -> Tuple[Any, object]:
+        host = self._host
+        state = collect_project_state(
+            host.panel,
+            host.fonts_panel,
+            name="",
+            txt_file_path=host.session.file_path,
+            dxf_file_path=host.session.dxf_path,
+            dxf_content=None,
+            layout=host.sheets.to_state(),
+            table_template=state_from_template(host.table_template),
+        )
+        payload = asdict(state)
+        for key in _VIEW_ONLY_LAYOUT_FIELDS:
+            payload["layout"].pop(key)
+        return payload, host.dxf_viewer.edit_token()
+
+    def mark_clean(self) -> None:
+        self._baseline = self._fingerprint()
+        self._set_dirty(False)
+
+    def refresh_dirty(self) -> None:
+        if self._baseline is None:
+            return
+        payload, token = self._fingerprint()
+        self._set_dirty(payload != self._baseline[0] or token is not self._baseline[1])
+
+    def _set_dirty(self, dirty: bool) -> None:
+        if dirty == self._dirty:
+            return
+        self._dirty = dirty
+        self.apply_window_title()
+
+    def confirm_discard(self) -> bool:
+        self.refresh_dirty()
+        if not self._dirty:
+            return True
+        box = QMessageBox(self._host)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(tr("project.unsaved_title"))
+        box.setText(tr("project.unsaved_message", name=self.name))
+        save = box.addButton(tr("project.unsaved_save"), QMessageBox.ButtonRole.AcceptRole)
+        discard = box.addButton(tr("project.unsaved_discard"), QMessageBox.ButtonRole.DestructiveRole)
+        cancel = box.addButton(tr("project.unsaved_cancel"), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(save)
+        box.setEscapeButton(cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is discard:
+            return True
+        if clicked is save:
+            self.save()
+            self.refresh_dirty()
+            return not self._dirty
+        return False
 
     def current_state(self) -> ProjectState:
         session = self._host.session
@@ -104,6 +170,7 @@ class ProjectController:
             self._host.flash_status(str(exc))
             return
         self._set_identity(state.name, path)
+        self.mark_clean()
         add_recent_project(self._host.settings, path)
         self._host.flash_status(tr("project.saved_project", name=os.path.basename(path)))
 
