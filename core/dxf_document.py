@@ -390,6 +390,8 @@ class DXFDocument:
             landing_gap=spec.gap / spec.scale,
             dogleg_length=dogleg_length(spec) / spec.scale,
         )
+        if not spec.has_landing:
+            entity.dxf.dogleg_length = 0.0
         mtext = builder.context.mtext
         mtext.line_spacing_factor = spec.line_spacing
         mtext.has_bg_fill = int(spec.background)
