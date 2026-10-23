@@ -113,10 +113,16 @@ class LayoutState:
 
 
 @dataclass
+class RangeState:
+    from_text: str = ""
+    to_text: str = ""
+
+
+@dataclass
 class SelectionState:
     mode: str = "all"
     separate_text: str = ""
-    range_text: str = ""
+    ranges: List[RangeState] = field(default_factory=lambda: [RangeState()])
 
 
 @dataclass
@@ -393,7 +399,19 @@ def _load_mode_state(state_cls: Any, payload: Dict[str, Any], field_name: str) -
     selection = mode_payload.pop("selection", None) or payload.get("selection") or {}
     for retired in _RETIRED_MODE_FIELDS:
         mode_payload.pop(retired, None)
-    return state_cls(**mode_payload, selection=SelectionState(**selection))
+    return state_cls(**mode_payload, selection=_load_selection_state(selection))
+
+
+def _load_selection_state(payload: Dict[str, Any]) -> SelectionState:
+    values = dict(payload)
+    legacy_text = values.pop("range_text", "")
+    raw_ranges = values.pop("ranges", None)
+    if raw_ranges is None:
+        start, _, end = str(legacy_text).partition("-")
+        ranges = [RangeState(start.strip(), end.strip())] if end.strip() and "-" not in end else [RangeState()]
+    else:
+        ranges = [RangeState(**item) for item in raw_ranges] or [RangeState()]
+    return SelectionState(**values, ranges=ranges)
 
 
 def _load_layer_state(layer_payload: Dict[str, Any]) -> LayerState:

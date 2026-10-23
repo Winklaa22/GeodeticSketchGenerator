@@ -92,6 +92,9 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
   routed-path recognition (boxes/wedges) used by the survey builders.
 - `draw_modes.py` / `config.py` — the `DrawMode` enum and the per-mode `*Options` dataclasses
   (`PointsOptions`, `HeightsOptions`, `CableOptions`, ...) that feed the survey builders.
+- `selection.py` — `SelectionParser` turns a mode's point choice into point numbers. `In range` holds a list of
+  from/to pairs (`SelectionState.ranges` in `project.py`, edited by `ui/widgets/inputs.py::RangeListEditor`);
+  `parse_ranges` joins them in the order entered and drops repeats, so overlapping ranges are fine.
 - `session.py` — `EditorSession` holds the loaded point file and its parse result; `AppState`
   (EMPTY/READY/APPLIED/ERROR) is derived from it, not stored separately.
 - `project.py` — `ProjectState` (plus nested `*State` dataclasses, one per mode/tab) is the full

@@ -19,6 +19,7 @@ from core.project import (
     PointsState,
     ProjectState,
     RowState,
+    RangeState,
     SelectionState,
     SheetState,
     TableTemplateState,
@@ -40,7 +41,10 @@ def test_save_then_load_round_trips_every_field(tmp_path) -> None:
         delimiter=DelimiterState(mode="tab", swap_xy=False, cabinet_mode=True),
         points=PointsState(
             numbers_enabled=True, font_size=0.8, diameter=0.1, layer_name="RURA",
-            selection=SelectionState(mode="range", separate_text="1,2,3", range_text="1-10"),
+            selection=SelectionState(
+                mode="range", separate_text="1,2,3",
+                ranges=[RangeState("1", "5"), RangeState("4", "8"), RangeState("9", "11")],
+            ),
         ),
         heights=HeightsState(
             font_size=0.5, layer_name="RZEDNE",
@@ -341,3 +345,27 @@ def test_a_malformed_model_camera_falls_back_to_the_fit(tmp_path) -> None:
 
     assert reloaded.layout.model_zoom == 1.0
     assert reloaded.layout.model_center is None
+
+
+def test_load_converts_a_legacy_range_text_to_one_range(tmp_path) -> None:
+    path = tmp_path / "legacy.gsgproj"
+    payload = {"plines": {"selection": {"mode": "range", "range_text": "1-7"}}}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    selection = load_project(str(path)).plines.selection
+    assert selection.mode == "range"
+    assert selection.ranges == [RangeState("1", "7")]
+
+
+def test_load_converts_a_project_wide_legacy_selection_for_every_mode(tmp_path) -> None:
+    path = tmp_path / "legacy_global.gsgproj"
+    path.write_text(json.dumps({"selection": {"mode": "range", "range_text": "3-9"}}), encoding="utf-8")
+    state = load_project(str(path))
+    assert state.lines.selection.ranges == [RangeState("3", "9")]
+    assert state.heights.selection.ranges == [RangeState("3", "9")]
+
+
+@pytest.mark.parametrize("legacy", ["", "garbage", "1-2-3", "-"])
+def test_load_gives_a_blank_range_for_an_unreadable_legacy_range_text(tmp_path, legacy: str) -> None:
+    path = tmp_path / "bad_legacy.gsgproj"
+    path.write_text(json.dumps({"plines": {"selection": {"range_text": legacy}}}), encoding="utf-8")
+    assert load_project(str(path)).plines.selection.ranges == [RangeState()]

@@ -8,6 +8,7 @@ from ui.widgets.inputs import (
     LayerDropdown,
     NumericScrubField,
     RadioCardGroup,
+    RangeListEditor,
     SegmentedControl,
     SidebarNav,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "LayerDropdown",
     "NumericScrubField",
     "RadioCardGroup",
+    "RangeListEditor",
     "SectionColumn",
     "SegmentedControl",
     "SidebarNav",

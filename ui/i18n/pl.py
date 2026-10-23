@@ -300,7 +300,10 @@ TRANSLATIONS: Dict[str, str] = {
     "tabs.selection_range": "W zakresie…",
     "tabs.select_points_field": "Wybierz punkty",
     "tabs.select_points_label": "Podaj punkty (np. 1,2,3)",
-    "tabs.select_range_label": "Podaj zakres (np. 1-7)",
+    "tabs.range_from": "Od",
+    "tabs.range_to": "Do",
+    "tabs.range_add": "Dodaj zakres",
+    "tabs.range_remove": "Usuń zakres",
 
     # ---------- dxf: command line ----------
     "command_line.prompt": "Komenda:",
