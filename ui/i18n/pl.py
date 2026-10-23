@@ -49,8 +49,8 @@ TRANSLATIONS: Dict[str, str] = {
     "menu.export_table_template": "Eksportuj szablon tabeli…",
     "menu.close_project": "Zamknij projekt",
     "menu.edit": "Edycja",
-    "menu.undo": "Cofnij (Ctrl+Z)",
-    "menu.redo": "Ponów (Ctrl+Y)",
+    "menu.undo": "Cofnij",
+    "menu.redo": "Ponów",
 
     # ---------- start screen ----------
     "start.column_file_type": "Typ pliku",
