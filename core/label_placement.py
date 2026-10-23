@@ -17,6 +17,7 @@ class LabelRequest:
     text: str
     font_size: float
     prefer: Optional[float] = None
+    fixed: Optional[Point2D] = None
 
 
 @dataclass
@@ -215,6 +216,11 @@ def _build_candidates(anchor: Point2D, width: float, height: float, marker_radiu
     return candidates
 
 
+def _fixed_candidate(fixed: Point2D, anchor: Point2D, width: float, height: float) -> List[_Candidate]:
+    x, y = fixed
+    return [_Candidate(x, y, _rect_at(x, y, width, height), 0, 0.0, math.hypot(x - anchor[0], y - anchor[1]))]
+
+
 def solve_label_positions(
     labels: List[LabelRequest],
     obstacles: Obstacles,
@@ -235,7 +241,10 @@ def solve_label_positions(
         for label in labels
     ]
     candidates = [
-        _build_candidates(labels[i].anchor, extents[i][0], extents[i][1], marker_radius) for i in range(n)
+        _fixed_candidate(labels[i].fixed, labels[i].anchor, extents[i][0], extents[i][1])
+        if labels[i].fixed is not None
+        else _build_candidates(labels[i].anchor, extents[i][0], extents[i][1], marker_radius)
+        for i in range(n)
     ]
 
     anchors = [label.anchor for label in labels]
@@ -244,6 +253,9 @@ def solve_label_positions(
         prefer = effective_prefer[i]
         other_anchors = anchors[:i] + anchors[i + 1 :]
         row: List[float] = []
+        if labels[i].fixed is not None:
+            u_costs.append([0.0])
+            continue
         for cand in candidates[i]:
             marker_hit = any(_rect_circle_overlap(cand.rect, m) for m in obstacles.markers)
             segment_hit = any(_segment_intersects_rect(s, cand.rect) for s in obstacles.segments)
