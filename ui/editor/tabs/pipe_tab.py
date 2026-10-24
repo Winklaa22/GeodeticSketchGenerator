@@ -10,6 +10,8 @@ DEFAULT_WIDTH = "0.16"
 class PipeTab(LayeredOptionsTab):
 
     DEFAULT_OPTIONS = PipeOptions()
+    SELECTION_MODES = ("range",)
+    DEFAULT_SELECTION_MODE = "range"
 
     def _build_fields(self) -> None:
         self.width_input = self._add_decimal_field(tr("tabs.pipe_width"), DEFAULT_WIDTH)

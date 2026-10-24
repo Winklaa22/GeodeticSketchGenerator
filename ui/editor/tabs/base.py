@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PyQt6.QtCore import QSignalBlocker, pyqtSignal
 from PyQt6.QtGui import QIntValidator
@@ -48,6 +48,8 @@ class LayeredOptionsTab(SectionWidget):
     option_changed = pyqtSignal()
 
     DEFAULT_OPTIONS: Any = NoOptions()
+    SELECTION_MODES: Tuple[str, ...] = ("all", "range", "separately")
+    DEFAULT_SELECTION_MODE = "all"
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -60,9 +62,12 @@ class LayeredOptionsTab(SectionWidget):
         self._column.addStretch(1)
 
     def _build_selection_fields(self) -> None:
-        self._selection_control = SegmentedControl(tr_options(_SELECTION_OPTION_KEYS))
+        options = [(key, label_key) for key, label_key in _SELECTION_OPTION_KEYS if key in self.SELECTION_MODES]
+        self._selection_control = SegmentedControl(tr_options(options))
+        self._selection_control.setCurrent(self.DEFAULT_SELECTION_MODE)
         self._selection_control.currentChanged.connect(self._on_selection_mode_changed)
         self._add_field(tr("tabs.select_points_field"), self._selection_control)
+        self._selection_control.setVisible(len(self.SELECTION_MODES) > 1)
 
         self._separate_text = ""
         self._selection_edit = styled_line_edit("")
@@ -90,7 +95,7 @@ class LayeredOptionsTab(SectionWidget):
 
     @property
     def selection_mode(self) -> str:
-        return self._selection_control.current() or "all"
+        return self._selection_control.current() or self.DEFAULT_SELECTION_MODE
 
     def get_selected_numbers(self, data: Dict[int, Point]) -> List[int]:
         mode = self.selection_mode
@@ -113,7 +118,8 @@ class LayeredOptionsTab(SectionWidget):
             self._selection_edit.setText(state.separate_text)
         with QSignalBlocker(self._range_editor):
             self._range_editor.set_ranges([(item.from_text, item.to_text) for item in state.ranges])
-        self._selection_control.setCurrent(state.mode)
+        if state.mode in self.SELECTION_MODES:
+            self._selection_control.setCurrent(state.mode)
         self._sync_selection_field()
 
     def _build_fields(self) -> None:
@@ -178,5 +184,5 @@ class LayeredOptionsTab(SectionWidget):
         return (
             self.get_options() != self.DEFAULT_OPTIONS
             or self.has_custom_layer()
-            or self.selection_mode != "all"
+            or self.selection_mode != self.DEFAULT_SELECTION_MODE
         )

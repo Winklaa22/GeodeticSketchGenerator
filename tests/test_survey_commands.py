@@ -907,3 +907,15 @@ def test_stamps_survive_a_save_and_reopen(service: SurveyDrawService, points, do
     service.build_command(points, [1, 2, 3], _points_config(diameter=0.5)).execute(reopened)
 
     assert reopened.entity_count() == doc.entity_count(), "reopening lost track of earlier output"
+
+
+def test_switching_the_cable_type_replaces_the_cable_drawn_with_the_previous_type(
+    service: SurveyDrawService, points, doc: DXFDocument
+) -> None:
+    plines = GenerationConfig(layer_name="0", draw_mode=DrawMode.PLINES)
+    lines = GenerationConfig(layer_name="0", draw_mode=DrawMode.LINES)
+    service.build_command(points, [1, 2, 3], plines).execute(doc)
+    assert _entities_of_type(doc, "LWPOLYLINE")
+    service.build_command(points, [1, 2, 3], lines).execute(doc)
+    assert _entities_of_type(doc, "LWPOLYLINE") == []
+    assert len(_entities_of_type(doc, "LINE")) == 2

@@ -96,7 +96,6 @@ TRANSLATIONS: Dict[str, str] = {
 
     # ---------- editor: sections panel ----------
     "sections.point_file": "Plik punktów",
-    "sections.drawing_mode": "Tryb rysowania",
     "sections.font": "Czcionka",
 
     # ---------- editor: status bar ----------
@@ -165,11 +164,10 @@ TRANSLATIONS: Dict[str, str] = {
     # ---------- editor: draw mode registry ----------
     "mode.points_title": "Punkty",
     "mode.points_label": "Punkty",
-    "mode.lines_title": "Linie",
+    "mode.route_title": "Kabel",
+    "mode.route_label": "Kabel",
     "mode.lines_label": "Linie",
-    "mode.plines_title": "PLinie",
     "mode.plines_label": "PLinie",
-    "mode.poly3d_title": "3DPOLY",
     "mode.poly3d_label": "3DPOLY",
     "mode.heights_title": "Wysokości",
     "mode.heights_label": "Opisy wysokości",
@@ -265,6 +263,7 @@ TRANSLATIONS: Dict[str, str] = {
 
     # ---------- editor: tabs ----------
     "tabs.cable_spacing": "Odstęp opisów na kablu (× wysokość tekstu)",
+    "tabs.route_kind": "Typ",
     "tabs.cable_marks_text": "Tekst znacznika",
     "tabs.delimiter_auto_detect": "Wykryj automatycznie",
     "tabs.delimiter_space": "Spacja",

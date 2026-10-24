@@ -5,7 +5,7 @@ import pytest
 from core.auto_layers import AUTO_LAYER_GROUP_BY_MODE_KEY, AUTO_LAYER_RGB, AutoLayerGroup, auto_layer_group
 
 
-@pytest.mark.parametrize("key", ["lines", "plines", "3dpoly", "heights", "cable"])
+@pytest.mark.parametrize("key", ["route", "heights", "cable"])
 def test_everything_about_the_cable_shares_one_layer(key: str) -> None:
     assert auto_layer_group(key) is AutoLayerGroup.CABLE
 

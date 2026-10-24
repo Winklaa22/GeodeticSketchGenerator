@@ -18,13 +18,14 @@ from core import project as project_io
 from core.commands.base import Command
 from core.commands.composite import CompositeCommand
 from core.commands.text import ApplyFontToAllTextCommand
+from core.draw_modes import DrawMode
 from core.exceptions import AppError, ProjectFileError
 from core.project import ProjectState
 from core.session import AppState, EditorSession
 from core.sheets import SheetSet
 from core.survey_draw_service import SurveyDrawService
 from core.table_template import default_template
-from core.validation import ensure_draw_modes, ensure_has_data
+from core.validation import ensure_has_data
 from ui.app_identity import app_settings
 from ui.dxf.viewer import DxfViewer
 from ui.editor.document_controller import DocumentController
@@ -303,15 +304,14 @@ class MainWindow(QMainWindow):
 
     def _build_draw_command(self) -> Command:
         ensure_has_data(self.session.data, self.session.file_path)
-        draw_modes = self.panel.draw_tab.draw_modes
-        ensure_draw_modes(draw_modes)
         font_id, font_italic, font_lineweight_mm = self.fonts_panel.get_state()
         configs = [
             self.panel.build_generation_config(
                 mode, self.session.data, self.session.quantum, font_id, font_italic, font_lineweight_mm
             )
-            for mode in draw_modes
+            for mode in self.panel.draw_modes
         ]
+        configs = [config for config in configs if config.draw_mode is not DrawMode.PIPE or config.selected_numbers]
         commands = self.survey_draw_service.build_commands(self.session.data, configs)
         return commands[0] if len(commands) == 1 else CompositeCommand(commands)
 

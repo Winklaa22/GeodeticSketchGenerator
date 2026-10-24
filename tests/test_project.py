@@ -6,6 +6,7 @@ import pytest
 
 from core.exceptions import ProjectFileError
 from core.project import (
+    CableRouteState,
     CableState,
     CellDefState,
     ColumnState,
@@ -37,7 +38,7 @@ def test_save_then_load_round_trips_every_field(tmp_path) -> None:
         txt_file_path="C:/data/points.txt",
         dxf_file_path="C:/data/drawing.dxf",
         dxf_content="0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
-        draw_modes=["lines", "heights"],
+        route=CableRouteState(kind="3dpoly", layer_name="RURA"),
         delimiter=DelimiterState(mode="tab", swap_xy=False, cabinet_mode=True),
         points=PointsState(
             numbers_enabled=True, font_size=0.8, diameter=0.1, layer_name="RURA",
@@ -234,16 +235,10 @@ def test_load_defaults_the_font_for_projects_saved_before_this_feature(tmp_path)
 
 
 def test_open_any_loads_a_gsgproj_as_is(tmp_path) -> None:
-    state = ProjectState(name="Real", draw_modes=["pipe"])
+    state = ProjectState(name="Real")
     path = str(tmp_path / "real.gsgproj")
     save_project(path, state)
     assert open_any(path) == state
-
-
-def test_load_reads_pre_multi_select_single_draw_mode(tmp_path) -> None:
-    path = tmp_path / "legacy.gsgproj"
-    path.write_text(json.dumps({"draw_mode": "pipe"}), encoding="utf-8")
-    assert load_project(str(path)).draw_modes == ["pipe"]
 
 
 def test_load_reads_pre_multi_layer_single_layer(tmp_path) -> None:
@@ -351,7 +346,7 @@ def test_load_converts_a_legacy_range_text_to_one_range(tmp_path) -> None:
     path = tmp_path / "legacy.gsgproj"
     payload = {"plines": {"selection": {"mode": "range", "range_text": "1-7"}}}
     path.write_text(json.dumps(payload), encoding="utf-8")
-    selection = load_project(str(path)).plines.selection
+    selection = load_project(str(path)).route.selection
     assert selection.mode == "range"
     assert selection.ranges == [RangeState("1", "7")]
 
@@ -360,7 +355,7 @@ def test_load_converts_a_project_wide_legacy_selection_for_every_mode(tmp_path) 
     path = tmp_path / "legacy_global.gsgproj"
     path.write_text(json.dumps({"selection": {"mode": "range", "range_text": "3-9"}}), encoding="utf-8")
     state = load_project(str(path))
-    assert state.lines.selection.ranges == [RangeState("3", "9")]
+    assert state.route.selection.ranges == [RangeState("3", "9")]
     assert state.heights.selection.ranges == [RangeState("3", "9")]
 
 
@@ -368,4 +363,36 @@ def test_load_converts_a_project_wide_legacy_selection_for_every_mode(tmp_path) 
 def test_load_gives_a_blank_range_for_an_unreadable_legacy_range_text(tmp_path, legacy: str) -> None:
     path = tmp_path / "bad_legacy.gsgproj"
     path.write_text(json.dumps({"plines": {"selection": {"range_text": legacy}}}), encoding="utf-8")
-    assert load_project(str(path)).plines.selection.ranges == [RangeState()]
+    assert load_project(str(path)).route.selection.ranges == [RangeState()]
+
+
+def test_a_legacy_line_mode_becomes_the_cable_mode_with_its_type_and_settings(tmp_path) -> None:
+    path = tmp_path / "legacy_lines.gsgproj"
+    payload = {
+        "draw_modes": ["lines", "heights"],
+        "lines": {"layer_name": "KABEL", "selection": {"mode": "separately", "separate_text": "1,2"}},
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    state = load_project(str(path))
+    assert state.route.kind == "lines"
+    assert state.route.layer_name == "KABEL"
+    assert state.route.selection.separate_text == "1,2"
+
+
+def test_the_first_legacy_line_mode_decides_the_cable_type(tmp_path) -> None:
+    path = tmp_path / "legacy_many.gsgproj"
+    path.write_text(json.dumps({"draw_modes": ["points", "3dpoly", "plines"]}), encoding="utf-8")
+    assert load_project(str(path)).route.kind == "3dpoly"
+
+
+def test_a_project_without_draw_modes_gets_the_default_cable_type(tmp_path) -> None:
+    path = tmp_path / "bare.gsgproj"
+    path.write_text(json.dumps({"name": "Bare"}), encoding="utf-8")
+    assert load_project(str(path)).route.kind == "plines"
+
+
+def test_pipe_selection_defaults_to_a_range(tmp_path) -> None:
+    path = tmp_path / "bare_pipe.gsgproj"
+    path.write_text(json.dumps({"name": "Bare"}), encoding="utf-8")
+    assert load_project(str(path)).pipe.selection.mode == "range"
+    assert PipeState().selection.mode == "range"

@@ -36,7 +36,6 @@ def collect_project_state(
         txt_file_path=txt_file_path,
         dxf_file_path=dxf_file_path,
         dxf_content=dxf_content,
-        draw_modes=panel.draw_tab.mode_keys,
         delimiter=DelimiterState(
             mode=panel.delimiter_tab.gap_key,
             swap_xy=panel.delimiter_tab.swap_xy_enabled,
@@ -57,7 +56,6 @@ def collect_project_state(
 def apply_project_state(panel: SectionsPanel, fonts_panel: FontsPanel, state: ProjectState) -> None:
     with panel.restoring_state():
         panel.delimiter_tab.set_state(state.delimiter.mode, state.delimiter.swap_xy)
-        panel.draw_tab.set_mode_keys(state.draw_modes)
         panel.layer_tab.set_state(
             [(layer.name, tuple(layer.rgb)) for layer in state.layer.layers], state.layer.default_name
         )

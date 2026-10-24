@@ -117,9 +117,17 @@ import `ui` or PyQt6 — that boundary is what keeps `core/` testable headlessly
   tabs (`editor/tabs/`) are driven by `editor/mode_registry.py::MODE_SPECS` — one entry per
   `DrawMode`, mapping a tab widget ↔ its `project.py` state dataclass ↔ its `config.py` options
   dataclass. Add a new draw mode there rather than hand-wiring a tab into `MainWindow`.
-  Ticking a mode adds its layer (`core/auto_layers.py` picks the group and colour, `editor/auto_layers.py` the
-  translated name) via `SectionsPanel.ensure_mode_layers`; every cable-related mode shares one "Cable" layer, and
-  opening a project skips it (`restoring_state`) so saved layers load as they were.
+  The one exception to one-entry-per-mode is the Cable entry (key `route`, `editor/tabs/route_tab.py`): one tab
+  whose type picker resolves to LINES, PLINES or POLY3D (`ModeSpec.variants` / `draw_mode_for`), so callers ask
+  `SectionsPanel.draw_modes` rather than the spec. Generating it clears whatever any of the three drew before
+  (`survey_draw_service._modes_to_clear`), and `load_project` folds the old separate lines/plines/3dpoly modes
+  into it.
+  There is no mode picker: every mode is always on and always generated, each with its own section. Pipe is the
+  exception - its selection is `In range` only (`LayeredOptionsTab.SELECTION_MODES`) and `MainWindow` leaves it
+  out of a run while that range is blank. Every mode's layer is added up front (`core/auto_layers.py` picks the
+  group and colour, `editor/auto_layers.py` the translated name) via `SectionsPanel.ensure_mode_layers`; every
+  cable-related mode shares one "Cable" layer, and opening a project skips it (`restoring_state`) so saved layers
+  load as they were.
 - `dxf/viewer.py::DxfViewer` — the CAD canvas. Owns the live `DXFDocument` + `CommandHistory`,
   renders it into a `QGraphicsScene` via ezdxf's drawing add-on through a custom
   `backend.py::QtSceneBackend`, and hosts the AutoCAD-style command line

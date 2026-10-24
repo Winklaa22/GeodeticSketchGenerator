@@ -37,10 +37,6 @@ class NoSelectionError(ScriptGenerationError):
     pass
 
 
-class NoDrawModeError(ScriptGenerationError):
-    pass
-
-
 class ProjectFileError(AppError):
     pass
 

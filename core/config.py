@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
-from core.draw_modes import DrawMode
+from core.draw_modes import DEFAULT_CABLE_ROUTE_KIND, DrawMode
 from core.fonts import DEFAULT_FONT_ID
 
 
@@ -29,6 +29,12 @@ class CableOptions:
     font_size: float = 0.6
     spacing: float = 18.0
     marks_text: str = "eN"
+
+
+@dataclass(frozen=True)
+class CableRouteOptions:
+
+    kind: str = DEFAULT_CABLE_ROUTE_KIND
 
 
 @dataclass(frozen=True)

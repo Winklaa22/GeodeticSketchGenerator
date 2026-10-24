@@ -5,6 +5,7 @@ import os
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.draw_modes import DEFAULT_CABLE_ROUTE_KIND
 from core.exceptions import ProjectFileError
 from core.fonts import DEFAULT_FONT_ID
 from core.plot import PlotOptions
@@ -19,6 +20,7 @@ TABLE_TEMPLATE_FILE_FILTER = "Table Template (*.gsgtable)"
 _TEMPLATE_FORMAT_VERSION = 1
 
 DEFAULT_LAYER_RGB: Tuple[int, int, int] = (145, 132, 217)
+CABLE_ROUTE_KEY = "route"
 
 
 @dataclass
@@ -59,12 +61,13 @@ class CableState:
 class PipeState:
     width: float = 0.16
     layer_name: str = ""
-    selection: "SelectionState" = field(default_factory=lambda: SelectionState())
+    selection: "SelectionState" = field(default_factory=lambda: SelectionState(mode="range"))
 
 
 @dataclass
-class LayerOnlyState:
+class CableRouteState:
 
+    kind: str = DEFAULT_CABLE_ROUTE_KIND
     layer_name: str = ""
     selection: "SelectionState" = field(default_factory=lambda: SelectionState())
 
@@ -312,12 +315,9 @@ class ProjectState:
     txt_file_path: str = ""
     dxf_file_path: str = ""
     dxf_content: Optional[str] = None
-    draw_modes: List[str] = field(default_factory=lambda: ["plines"])
     delimiter: DelimiterState = field(default_factory=DelimiterState)
     points: PointsState = field(default_factory=PointsState)
-    lines: LayerOnlyState = field(default_factory=LayerOnlyState)
-    plines: LayerOnlyState = field(default_factory=LayerOnlyState)
-    poly3d: LayerOnlyState = field(default_factory=LayerOnlyState)
+    route: CableRouteState = field(default_factory=CableRouteState)
     heights: HeightsState = field(default_factory=HeightsState)
     cable: CableState = field(default_factory=CableState)
     pipe: PipeState = field(default_factory=PipeState)
@@ -353,20 +353,15 @@ def load_project(path: str) -> ProjectState:
 
     try:
         dxf_content = payload.get("dxf_content")
-        draw_modes = payload.get("draw_modes")
-        if draw_modes is None:
-            draw_modes = [payload["draw_mode"]] if "draw_mode" in payload else ["plines"]
+        legacy_modes = [str(mode) for mode in payload.get("draw_modes") or []]
         return ProjectState(
             name=str(payload.get("name", "Untitled")),
             txt_file_path=str(payload.get("txt_file_path", "")),
             dxf_file_path=str(payload.get("dxf_file_path", "")),
             dxf_content=str(dxf_content) if dxf_content is not None else None,
-            draw_modes=[str(mode) for mode in draw_modes] or ["plines"],
             delimiter=DelimiterState(**(payload.get("delimiter") or {})),
             points=_load_mode_state(PointsState, payload, "points"),
-            lines=_load_mode_state(LayerOnlyState, payload, "lines"),
-            plines=_load_mode_state(LayerOnlyState, payload, "plines"),
-            poly3d=_load_mode_state(LayerOnlyState, payload, "poly3d"),
+            route=_load_route_state(payload, legacy_modes),
             heights=_load_mode_state(HeightsState, payload, "heights"),
             cable=_load_mode_state(CableState, payload, "cable"),
             pipe=_load_mode_state(PipeState, payload, "pipe"),
@@ -386,6 +381,19 @@ def load_project(path: str) -> ProjectState:
         raise ProjectFileError(f"Not a valid project file: {exc}") from exc
 
 
+_LEGACY_ROUTE_FIELDS = {"lines": "lines", "plines": "plines", "3dpoly": "poly3d"}
+
+
+def _load_route_state(payload: Dict[str, Any], legacy_modes: List[str]) -> CableRouteState:
+    if CABLE_ROUTE_KEY in payload:
+        return _load_mode_state(CableRouteState, payload, CABLE_ROUTE_KEY)
+    legacy = [mode for mode in legacy_modes if mode in _LEGACY_ROUTE_FIELDS]
+    kind = legacy[0] if legacy else DEFAULT_CABLE_ROUTE_KIND
+    route_payload = dict(payload.get(_LEGACY_ROUTE_FIELDS[kind]) or {})
+    route_payload["kind"] = kind
+    return _load_mode_state(CableRouteState, {**payload, CABLE_ROUTE_KEY: route_payload}, CABLE_ROUTE_KEY)
+
+
 _RETIRED_MODE_FIELDS = ("frequency",)
 
 
@@ -399,11 +407,11 @@ def _load_mode_state(state_cls: Any, payload: Dict[str, Any], field_name: str) -
     selection = mode_payload.pop("selection", None) or payload.get("selection") or {}
     for retired in _RETIRED_MODE_FIELDS:
         mode_payload.pop(retired, None)
-    return state_cls(**mode_payload, selection=_load_selection_state(selection))
+    return state_cls(**mode_payload, selection=_load_selection_state(selection, state_cls().selection.mode))
 
 
-def _load_selection_state(payload: Dict[str, Any]) -> SelectionState:
-    values = dict(payload)
+def _load_selection_state(payload: Dict[str, Any], default_mode: str = "all") -> SelectionState:
+    values = {"mode": default_mode, **payload}
     legacy_text = values.pop("range_text", "")
     raw_ranges = values.pop("ranges", None)
     if raw_ranges is None:

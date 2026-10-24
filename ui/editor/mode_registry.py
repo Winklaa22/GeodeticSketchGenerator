@@ -5,16 +5,18 @@ from typing import Any, Callable, Dict, Optional, Tuple, Type
 
 from core.config import (
     CableOptions,
+    CableRouteOptions,
     HeightsOptions,
     MeasurementsOptions,
     PipeOptions,
     PointsOptions,
 )
-from core.draw_modes import DrawMode
+from core.draw_modes import CABLE_ROUTE_MODES, DEFAULT_CABLE_ROUTE_KIND, DrawMode, cable_route_mode
 from core.project import (
+    CABLE_ROUTE_KEY,
+    CableRouteState,
     CableState,
     HeightsState,
-    LayerOnlyState,
     MeasurementsState,
     PipeState,
     PointsState,
@@ -22,10 +24,10 @@ from core.project import (
 from ui.editor.tabs.base import LayeredOptionsTab, NoOptions
 from ui.editor.tabs.cable_tab import CableTab
 from ui.editor.tabs.heights_tab import HeightsTab
-from ui.editor.tabs.layer_only_tab import LayerOnlyTab
 from ui.editor.tabs.measurements_tab import MeasurementsTab
 from ui.editor.tabs.pipe_tab import PipeTab
 from ui.editor.tabs.points_tab import PointsTab
+from ui.editor.tabs.route_tab import CableRouteTab
 from ui.i18n import tr
 
 
@@ -41,6 +43,10 @@ class ModeSpec:
     options_cls: Type[Any]
     config_field: Optional[str]
     tab_factory: Callable[[], LayeredOptionsTab]
+    variants: Tuple[DrawMode, ...] = ()
+
+    def draw_mode_for(self, tab: LayeredOptionsTab) -> DrawMode:
+        return getattr(tab, "draw_mode", self.draw_mode)
 
     @property
     def title(self) -> str:
@@ -65,40 +71,17 @@ MODE_SPECS: Tuple[ModeSpec, ...] = (
         tab_factory=PointsTab,
     ),
     ModeSpec(
-        key="lines",
-        draw_mode=DrawMode.LINES,
-        icon="lines_section",
-        title_key="mode.lines_title",
-        mode_label_key="mode.lines_label",
-        state_field="lines",
-        state_cls=LayerOnlyState,
-        options_cls=NoOptions,
-        config_field=None,
-        tab_factory=LayerOnlyTab,
-    ),
-    ModeSpec(
-        key="plines",
-        draw_mode=DrawMode.PLINES,
+        key=CABLE_ROUTE_KEY,
+        draw_mode=cable_route_mode(DEFAULT_CABLE_ROUTE_KIND),
         icon="plines_section",
-        title_key="mode.plines_title",
-        mode_label_key="mode.plines_label",
-        state_field="plines",
-        state_cls=LayerOnlyState,
-        options_cls=NoOptions,
+        title_key="mode.route_title",
+        mode_label_key="mode.route_label",
+        state_field="route",
+        state_cls=CableRouteState,
+        options_cls=CableRouteOptions,
         config_field=None,
-        tab_factory=LayerOnlyTab,
-    ),
-    ModeSpec(
-        key="3dpoly",
-        draw_mode=DrawMode.POLY3D,
-        icon="poly3d_section",
-        title_key="mode.poly3d_title",
-        mode_label_key="mode.poly3d_label",
-        state_field="poly3d",
-        state_cls=LayerOnlyState,
-        options_cls=NoOptions,
-        config_field=None,
-        tab_factory=LayerOnlyTab,
+        tab_factory=CableRouteTab,
+        variants=CABLE_ROUTE_MODES,
     ),
     ModeSpec(
         key="heights",
@@ -151,7 +134,9 @@ MODE_SPECS: Tuple[ModeSpec, ...] = (
 )
 
 SPEC_BY_KEY: Dict[str, ModeSpec] = {spec.key: spec for spec in MODE_SPECS}
-SPEC_BY_DRAW_MODE: Dict[DrawMode, ModeSpec] = {spec.draw_mode: spec for spec in MODE_SPECS}
+SPEC_BY_DRAW_MODE: Dict[DrawMode, ModeSpec] = {
+    mode: spec for spec in MODE_SPECS for mode in (spec.draw_mode, *spec.variants)
+}
 
 
 def state_from_tab(spec: ModeSpec, tab: LayeredOptionsTab) -> Any:

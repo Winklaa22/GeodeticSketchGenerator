@@ -15,9 +15,7 @@ AUTO_LAYER_GROUP_BY_MODE_KEY: Dict[str, AutoLayerGroup] = {
     "points": AutoLayerGroup.POINTS,
     "measurements": AutoLayerGroup.MEASUREMENTS,
     "pipe": AutoLayerGroup.PIPE,
-    "lines": AutoLayerGroup.CABLE,
-    "plines": AutoLayerGroup.CABLE,
-    "3dpoly": AutoLayerGroup.CABLE,
+    "route": AutoLayerGroup.CABLE,
     "heights": AutoLayerGroup.CABLE,
     "cable": AutoLayerGroup.CABLE,
 }

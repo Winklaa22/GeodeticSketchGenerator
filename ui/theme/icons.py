@@ -44,12 +44,9 @@ class IconManager:
         "zoom_out_tool": "fa5s.search-minus",
 
         "point_file_section": "mdi.file-document-outline",
-        "drawing_mode_section": "fa5s.pencil-alt",
         "layer_section": "fa5s.layer-group",
         "points_section": "mdi.vector-point",
-        "lines_section": "mdi.vector-line",
         "plines_section": "mdi.vector-polyline",
-        "poly3d_section": "mdi.axis-arrow",
         "heights_section": "mdi.altimeter",
         "cable_marks_section": "mdi.cable-data",
         "pipe_section": "mdi.pipe",
