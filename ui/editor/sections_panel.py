@@ -177,6 +177,7 @@ class SectionsPanel(QWidget):
             layer_name=layer_name,
             draw_mode=draw_mode,
             selected_numbers=tuple(tab.get_selected_numbers(data)) if tab is not None else (),
+            selected_runs=tuple(tuple(run) for run in tab.get_selected_runs(data)) if tab is not None else (),
             layer_rgb=self.layer_tab.get_rgb(layer_name),
             quantum=quantum,
             font_id=font_id,

@@ -279,7 +279,7 @@ def _stage_cable_slots(
         text = text_of(slot)
         anchor = (slot.x, slot.y)
         request = LabelRequest(
-            key=(key_prefix, index), anchor=anchor, text=text, font_size=font_size, prefer=None, fixed=anchor
+            key=(key_prefix, config.run, index), anchor=anchor, text=text, font_size=font_size, prefer=None, fixed=anchor
         )
 
         def render(
@@ -350,7 +350,7 @@ def _stage_measurements(
         prefer = _perpendicular_prefer(start, end, flip=True)
         text = f"-{distance:.2f}-"
         z = (start.h + end.h) / 2.0
-        key = ("measurements", index)
+        key = ("measurements", config.run, index)
         request = LabelRequest(
             key=key, anchor=(mid_x, mid_y), text=text, font_size=options.font_size, prefer=prefer
         )

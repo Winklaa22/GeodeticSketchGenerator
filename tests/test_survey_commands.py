@@ -919,3 +919,72 @@ def test_switching_the_cable_type_replaces_the_cable_drawn_with_the_previous_typ
     service.build_command(points, [1, 2, 3], lines).execute(doc)
     assert _entities_of_type(doc, "LWPOLYLINE") == []
     assert len(_entities_of_type(doc, "LINE")) == 2
+
+
+def _two_run_cable() -> dict[int, Point]:
+    return {n: Point(x=float(n) * 10.0, y=0.0, h=float(n)) for n in range(1, 21)}
+
+
+def _runs_config(mode: DrawMode) -> GenerationConfig:
+    return GenerationConfig(
+        layer_name="0",
+        draw_mode=mode,
+        selected_numbers=(5, 6, 7, 8, 9, 13, 14, 15, 16, 17),
+        selected_runs=((5, 6, 7, 8, 9), (13, 14, 15, 16, 17)),
+        points=PointsOptions(numbers_enabled=True, diameter=0.1),
+        cable=CableOptions(font_size=1.0, spacing=10.0),
+    )
+
+
+def test_ranges_with_a_gap_never_get_a_pipe_across_it(service: SurveyDrawService, doc: DXFDocument) -> None:
+    points = _two_run_cable()
+    for command in service.build_commands(points, [_runs_config(DrawMode.PIPE)]):
+        command.execute(doc)
+    xs = [x for line in _entities_of_type(doc, "LINE") for x in (line.dxf.start.x, line.dxf.end.x)]
+    assert xs
+    assert not any(90.0 < x < 130.0 for x in xs)
+
+
+def test_ranges_with_a_gap_never_get_a_cable_across_it(service: SurveyDrawService, doc: DXFDocument) -> None:
+    points = _two_run_cable()
+    for command in service.build_commands(points, [_runs_config(DrawMode.PLINES)]):
+        command.execute(doc)
+    polylines = _entities_of_type(doc, "LWPOLYLINE")
+    assert len(polylines) == 2
+    spans = sorted((min(p[0] for p in pl.get_points("xy")), max(p[0] for p in pl.get_points("xy"))) for pl in polylines)
+    assert spans == [(50.0, 90.0), (130.0, 170.0)]
+
+
+def test_ranges_with_a_gap_get_cable_marks_on_each_run_and_none_between(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = _two_run_cable()
+    for command in service.build_commands(points, [_runs_config(DrawMode.CABLE_MARKS)]):
+        command.execute(doc)
+    xs = sorted(t.dxf.insert[0] for t in _entities_of_type(doc, "TEXT"))
+    assert any(50.0 < x < 90.0 for x in xs)
+    assert any(130.0 < x < 170.0 for x in xs)
+    assert not any(90.0 < x < 130.0 for x in xs)
+
+
+def test_ranges_with_a_gap_get_no_measurement_across_it(service: SurveyDrawService, doc: DXFDocument) -> None:
+    points = _two_run_cable()
+    for command in service.build_commands(points, [_runs_config(DrawMode.MEASUREMENTS)]):
+        command.execute(doc)
+    texts = [t.dxf.text for t in _entities_of_type(doc, "TEXT")]
+    assert len(texts) == 8
+    assert "-40.00-" not in texts
+
+
+def test_regenerating_clears_a_mode_even_when_its_selection_is_now_empty(
+    service: SurveyDrawService, doc: DXFDocument
+) -> None:
+    points = _two_run_cable()
+    for command in service.build_commands(points, [_runs_config(DrawMode.PIPE)]):
+        command.execute(doc)
+    assert _entities_of_type(doc, "LINE")
+    empty_pipe = GenerationConfig(layer_name="0", draw_mode=DrawMode.PIPE)
+    other = _runs_config(DrawMode.PLINES)
+    for command in service.build_commands(points, [empty_pipe, other]):
+        command.execute(doc)
+    assert _entities_of_type(doc, "LINE") == []

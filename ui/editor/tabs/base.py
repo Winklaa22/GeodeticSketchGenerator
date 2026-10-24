@@ -97,13 +97,18 @@ class LayeredOptionsTab(SectionWidget):
     def selection_mode(self) -> str:
         return self._selection_control.current() or self.DEFAULT_SELECTION_MODE
 
-    def get_selected_numbers(self, data: Dict[int, Point]) -> List[int]:
+    def get_selected_runs(self, data: Dict[int, Point]) -> List[List[int]]:
         mode = self.selection_mode
         if mode == "separately":
-            return SelectionParser.parse_separate(self._separate_text)
+            numbers = SelectionParser.parse_separate(self._separate_text)
+            return [numbers] if numbers else []
         if mode == "range":
-            return SelectionParser.parse_ranges(self._range_editor.ranges())
-        return SelectionParser.all_points(data)
+            return SelectionParser.parse_range_runs(self._range_editor.ranges())
+        numbers = SelectionParser.all_points(data)
+        return [numbers] if numbers else []
+
+    def get_selected_numbers(self, data: Dict[int, Point]) -> List[int]:
+        return [number for run in self.get_selected_runs(data) for number in run]
 
     def get_selection_state(self) -> SelectionState:
         return SelectionState(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from core.commands.base import Command
 from core.commands.composite import CompositeCommand
@@ -22,12 +22,27 @@ def _modes_to_clear(configs: List[GenerationConfig]) -> List[str]:
     return names
 
 
+def _split_into_runs(
+    configs: List[GenerationConfig], layer_names: List[str]
+) -> Tuple[List[GenerationConfig], List[str]]:
+    split_configs: List[GenerationConfig] = []
+    split_layers: List[str] = []
+    for config, layer_name in zip(configs, layer_names):
+        runs = config.selected_runs or (config.selected_numbers,)
+        for index, run in enumerate(runs):
+            if not run:
+                continue
+            split_configs.append(replace(config, selected_numbers=tuple(run), selected_runs=(), run=index))
+            split_layers.append(layer_name)
+    return split_configs, split_layers
+
+
 class SurveyDrawService:
     def build_command(
         self, points: Dict[int, Point], selected_numbers: List[int], config: GenerationConfig
     ) -> Command:
         """One mode, drawing the points given here - the selection every mode carries itself."""
-        config = replace(config, selected_numbers=tuple(selected_numbers))
+        config = replace(config, selected_numbers=tuple(selected_numbers), selected_runs=())
         return CompositeCommand(self.build_commands(points, [config]))
 
     def build_commands(self, points: Dict[int, Point], configs: List[GenerationConfig]) -> List[Command]:
@@ -36,12 +51,14 @@ class SurveyDrawService:
         # A run is worth making as long as some mode has points to draw; a mode that
         # selected none simply contributes nothing.
         ensure_selection([number for config in configs for number in config.selected_numbers])
+        cleared_modes = _modes_to_clear(configs)
+        configs, layer_names = _split_into_runs(configs, layer_names)
         draw_commands = build_survey_commands(points, configs, layer_names)
 
         # Whatever an earlier run left for these modes goes first, so that generating
         # again updates the sketch instead of drawing a second copy over it. Modes not
         # being generated now keep theirs - this run is not about them.
-        results: List[Command] = [DeleteGeneratedCommand(_modes_to_clear(configs))]
+        results: List[Command] = [DeleteGeneratedCommand(cleared_modes)]
         for config, layer_name, draw_command in zip(configs, layer_names, draw_commands):
             # Stamped so that generating again can clear this mode's previous output
             # instead of stacking a second copy of it on top.

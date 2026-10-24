@@ -32,18 +32,23 @@ class SelectionParser:
         return int(start_text), int(end_text)
 
     @staticmethod
-    def parse_ranges(ranges: Sequence[Tuple[str, str]]) -> List[int]:
-        numbers: List[int] = []
-        seen = set()
+    def parse_range_runs(ranges: Sequence[Tuple[str, str]]) -> List[List[int]]:
+        spans: List[Tuple[int, int]] = []
         for start_text, end_text in ranges:
             bounds = SelectionParser._parse_bounds(start_text, end_text)
-            if bounds is None:
-                continue
-            for number in SelectionParser._expand(*bounds):
-                if number not in seen:
-                    seen.add(number)
-                    numbers.append(number)
-        return numbers
+            if bounds is not None:
+                spans.append((min(bounds), max(bounds)))
+        merged: List[List[int]] = []
+        for low, high in sorted(spans):
+            if merged and low <= merged[-1][1] + 1:
+                merged[-1][1] = max(merged[-1][1], high)
+            else:
+                merged.append([low, high])
+        return [list(range(low, high + 1)) for low, high in merged]
+
+    @staticmethod
+    def parse_ranges(ranges: Sequence[Tuple[str, str]]) -> List[int]:
+        return [number for run in SelectionParser.parse_range_runs(ranges) for number in run]
 
     @staticmethod
     def all_points(data: Dict[int, Point]) -> List[int]:

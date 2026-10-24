@@ -31,8 +31,8 @@ def test_parse_ranges_joins_several_ranges_without_duplicates() -> None:
     assert SelectionParser.parse_ranges(ranges) == list(range(1, 12))
 
 
-def test_parse_ranges_keeps_the_order_the_ranges_were_entered_in() -> None:
-    assert SelectionParser.parse_ranges([("9", "11"), ("1", "3")]) == [9, 10, 11, 1, 2, 3]
+def test_parse_ranges_lists_the_points_in_ascending_order_whatever_order_the_ranges_were_entered_in() -> None:
+    assert SelectionParser.parse_ranges([("9", "11"), ("1", "3")]) == [1, 2, 3, 9, 10, 11]
 
 
 def test_parse_ranges_normalizes_a_reversed_range() -> None:
@@ -51,3 +51,15 @@ def test_parse_ranges_is_empty_without_any_valid_range() -> None:
 
 def test_parse_ranges_accepts_a_single_point_range() -> None:
     assert SelectionParser.parse_ranges([("5", "5")]) == [5]
+
+
+def test_range_runs_keep_ranges_with_a_gap_apart() -> None:
+    assert SelectionParser.parse_range_runs([("13", "17"), ("5", "9")]) == [[5, 6, 7, 8, 9], [13, 14, 15, 16, 17]]
+
+
+def test_range_runs_merge_overlapping_and_touching_ranges() -> None:
+    assert SelectionParser.parse_range_runs([("1", "5"), ("4", "8"), ("9", "11")]) == [list(range(1, 12))]
+
+
+def test_range_runs_are_empty_without_a_valid_range() -> None:
+    assert SelectionParser.parse_range_runs([("", ""), ("a", "2")]) == []

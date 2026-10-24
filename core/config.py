@@ -57,6 +57,10 @@ class GenerationConfig:
     # Which survey points this mode draws. Each mode picks its own, so one run can put
     # markers on everything while the pipe follows only the stretch that has one.
     selected_numbers: Tuple[int, ...] = ()
+    # The same points as separate runs, when the selection has gaps in it (several ranges):
+    # each run is its own piece of cable or pipe, never joined to the next one.
+    selected_runs: Tuple[Tuple[int, ...], ...] = ()
+    run: int = 0
     points: PointsOptions = field(default_factory=PointsOptions)
     heights: HeightsOptions = field(default_factory=HeightsOptions)
     cable: CableOptions = field(default_factory=CableOptions)
