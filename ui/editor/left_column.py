@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
-from PyQt6.QtWidgets import QFrame, QScrollArea, QStackedWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QScrollArea, QStackedWidget, QVBoxLayout, QWidget
 
 from ui.theme import LEFT_COLUMN_MAX_WIDTH, LEFT_COLUMN_MIN_WIDTH, SPACE_LG
 from ui.widgets import DxfSourceRow, SegmentedControl
@@ -16,11 +16,29 @@ def _scroll_area(content: QWidget) -> QScrollArea:
     return scroll
 
 
+def _with_footer(scroll: QScrollArea, footer: Optional[QWidget]) -> QWidget:
+    if footer is None:
+        return scroll
+    page = QWidget()
+    column = QVBoxLayout(page)
+    column.setContentsMargins(0, 0, 0, 0)
+    column.setSpacing(SPACE_LG)
+    column.addWidget(scroll, 1)
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 0, 0, 0)
+    row.addStretch(1)
+    row.addWidget(footer)
+    row.addStretch(1)
+    column.addLayout(row)
+    return page
+
+
 class LeftColumn(QWidget):
 
     def __init__(
         self,
         pages: Sequence[Tuple[str, str, QWidget]],
+        footers: Optional[Dict[str, QWidget]] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -38,7 +56,11 @@ class LeftColumn(QWidget):
         layout.addWidget(self._nav)
 
         self._stack = QStackedWidget()
-        self._indexes = {key: self._stack.addWidget(_scroll_area(page)) for key, _label, page in pages}
+        footers = footers or {}
+        self._indexes = {
+            key: self._stack.addWidget(_with_footer(_scroll_area(page), footers.get(key)))
+            for key, _label, page in pages
+        }
         self._nav.currentChanged.connect(lambda key: self._stack.setCurrentIndex(self._indexes[key]))
         layout.addWidget(self._stack, 1)
 

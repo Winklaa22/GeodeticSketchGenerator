@@ -42,9 +42,11 @@ from ui.global_settings import new_project_table_template
 from ui.i18n import tr
 from ui.loading_overlay import FREQUENT_OP_DELAY_MS, LoadingOverlay, ProgressFn
 from ui.settings_dialog import SettingsDialog
-from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_XL
+from ui.theme import LEFT_COLUMN_WIDTH, SPACE_LG, SPACE_XL, Color, ICON_SM
 from ui.theme.assets import ICON_PATH
+from ui.theme.icons import icon_manager
 from ui.theme.style import APP_STYLESHEET
+from ui.widgets import make_button
 from ui.window_router import LEAVING_PROPERTY, WindowRouter
 
 LEFT_COLUMN_WIDTH_KEY = "ui/leftColumnWidth"
@@ -116,6 +118,9 @@ class MainWindow(QMainWindow):
         self.panel = SectionsPanel(self.settings)
         self.layout_panel = LayoutPanel()
         self.fonts_panel = FontsPanel(self.settings)
+        self.apply_button = make_button(tr("preview.apply_to_dxf"), "primary", lambda: self.apply_to_dxf())
+        self.apply_button.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.apply_button.setIcon(icon_manager.get("arrow_right", size=ICON_SM, color=Color.ACCENT))
         self.left_column = LeftColumn(
             [
                 ("point_file", tr("sections.point_file"), self.panel),
@@ -124,7 +129,8 @@ class MainWindow(QMainWindow):
                 ("properties", tr("window.tab_properties"), self.dxf_viewer.properties_panel),
                 ("layout", tr("window.tab_layout"), self.layout_panel),
                 ("fonts", tr("window.tab_fonts"), self.fonts_panel),
-            ]
+            ],
+            footers={"point_file": self.apply_button},
         )
         self.preview_panel = PreviewPanel(self.dxf_viewer)
         self.status_bar = StatusBar()
@@ -189,9 +195,6 @@ class MainWindow(QMainWindow):
         source_row.fileRequested.connect(self.documents.select_dxf_file)
         source_row.filesDropped.connect(self.documents.on_dxf_files_dropped)
         source_row.clearRequested.connect(self.documents.clear_dxf_file)
-
-        self.preview_panel.saveRequested.connect(self.documents.save_dxf)
-        self.preview_panel.applyRequested.connect(self.apply_to_dxf)
 
         self.dxf_viewer.documentChanged.connect(self._on_document_changed)
         self.dxf_viewer.propertiesRequested.connect(lambda: self.left_column.show_page("properties"))
@@ -270,9 +273,7 @@ class MainWindow(QMainWindow):
         else:
             self.preview_panel.clear_error()
 
-        self.preview_panel.set_actions_enabled(
-            save=has_document, apply=state is not AppState.EMPTY
-        )
+        self.apply_button.setEnabled(state is not AppState.EMPTY)
 
     def flash_status(self, message: str, ms: int = 2500) -> None:
         self.status_bar.flash(message)

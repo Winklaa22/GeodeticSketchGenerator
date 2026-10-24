@@ -182,7 +182,7 @@ TRANSLATIONS: Dict[str, str] = {
     "mode.measurements_label": "Measurements",
 
     # ---------- editor: preview panel ----------
-    "preview.apply_to_dxf": "Apply to DXF",
+    "preview.apply_to_dxf": "Apply",
     "preview.meta": "{entities} entities · {layers} layers",
 
     # ---------- editor: project controller ----------
